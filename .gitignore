@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+**/node_modules/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# logs & temp
+*.log
+npm-debug.log*
+_ppt_check.txt
+_ppt_text.txt
+*.tmp
+
+# build / local
+dist/
+build/
+.ohos/
+.cxx/
+local.properties
+
+# secrets
+.env
+.env.*
+*.keystore
