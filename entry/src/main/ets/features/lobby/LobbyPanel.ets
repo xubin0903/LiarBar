@@ -7,19 +7,18 @@ export struct LobbyPanel {
   @Link playerCount: number;
   @Link silent: boolean;
   onFillLast: () => void = () => {};
-  onQuickStart: () => void = () => {};
 
   build() {
     Column({ space: 12 }) {
       Text($r('app.string.lb_str_autofill_hint'))
         .fontColor($r('app.color.tavern_mute'))
-        .fontSize($r('app.float.subtitle_text_size'))
+        .fontSize($r('app.float.caption_text_size'))
         .alignSelf(ItemAlign.Start)
 
       TextInput({ text: this.nickname, placeholder: $r('app.string.lb_str_nick_ph') })
         .id(ControlIds.NICK_FIELD)
         .width('100%')
-        .backgroundColor($r('app.color.tavern_felt'))
+        .backgroundColor($r('app.color.tavern_panel'))
         .placeholderColor($r('app.color.tavern_mute'))
         .fontColor($r('app.color.tavern_paper'))
         .onChange((value: string) => {
@@ -30,9 +29,11 @@ export struct LobbyPanel {
         Text(`人数 ${this.playerCount}`)
           .id(ControlIds.PLAYERCOUNT)
           .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.page_text_size'))
         if (ConfigRepository.isReady()) {
           Text(`命 ${ConfigRepository.match().lives_default}`)
             .fontColor($r('app.color.tavern_candle'))
+            .fontSize($r('app.float.page_text_size'))
         }
       }
       .width('100%')
@@ -40,7 +41,7 @@ export struct LobbyPanel {
       Row() {
         Text($r('app.string.lb_str_silent_hint'))
           .fontColor($r('app.color.tavern_mute'))
-          .fontSize($r('app.float.subtitle_text_size'))
+          .fontSize($r('app.float.caption_text_size'))
           .layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.silent })
           .id(ControlIds.SILENT)
@@ -50,25 +51,17 @@ export struct LobbyPanel {
       }
       .width('100%')
 
-      Button($r('app.string.lb_str_fill_last'))
-        .width('100%')
-        .height($r('app.float.btn_height'))
-        .backgroundColor($r('app.color.tavern_felt'))
-        .fontColor($r('app.color.tavern_paper'))
+      Text($r('app.string.lb_str_fill_last'))
+        .fontColor($r('app.color.tavern_mute'))
+        .fontSize($r('app.float.caption_text_size'))
+        .alignSelf(ItemAlign.Start)
         .onClick(() => {
           this.onFillLast();
         })
-
-      Button($r('app.string.lb_str_quickstart'))
-        .id(ControlIds.QUICKSTART)
-        .width('100%')
-        .height($r('app.float.btn_height'))
-        .backgroundColor($r('app.color.tavern_accent'))
-        .fontColor($r('app.color.tavern_bg'))
-        .onClick(() => {
-          this.onQuickStart();
-        })
     }
     .width('100%')
+    .padding(16)
+    .backgroundColor($r('app.color.tavern_felt'))
+    .borderRadius($r('app.float.panel_radius'))
   }
 }
