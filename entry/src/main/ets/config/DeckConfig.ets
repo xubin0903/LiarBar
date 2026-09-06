@@ -13,30 +13,31 @@ export interface DeckConfig {
   decks: DeckByPlayers;
 }
 
-/** Keys are player-count strings from deck.json (verbatim). */
+/**
+ * Named bags for 3–6 players.
+ * ArkTS (API 23) forbids indexed field access (arkts-no-props-by-index),
+ * so these are not the rawfile keys "3"|"4"|"5"|"6".
+ * ConfigRepository.parseDeck copies deck.json keys onto n3..n6.
+ */
 export interface DeckByPlayers {
-  '3': RankCounts;
-  '4': RankCounts;
-  '5': RankCounts;
-  '6': RankCounts;
+  n3: RankCounts;
+  n4: RankCounts;
+  n5: RankCounts;
+  n6: RankCounts;
 }
 
 export function deckCountsFor(cfg: DeckConfig, playerCount: number): RankCounts | null {
-  return bagByKey(cfg, `${playerCount}`);
-}
-
-function bagByKey(cfg: DeckConfig, key: string): RankCounts | null {
-  if (key === '3') {
-    return cfg.decks['3'];
+  if (playerCount === 3) {
+    return cfg.decks.n3;
   }
-  if (key === '4') {
-    return cfg.decks['4'];
+  if (playerCount === 4) {
+    return cfg.decks.n4;
   }
-  if (key === '5') {
-    return cfg.decks['5'];
+  if (playerCount === 5) {
+    return cfg.decks.n5;
   }
-  if (key === '6') {
-    return cfg.decks['6'];
+  if (playerCount === 6) {
+    return cfg.decks.n6;
   }
   return null;
 }
