@@ -10,7 +10,7 @@
 
 | 文件 | 用途 | 怎么用 |
 |------|------|--------|
-| [测试用例.md](./测试用例.md) | MVP 主流程用例表 | 按 ID 测：安装启动 → 开桌 → 一局 → 结算 → 返回 → 鸿蒙；步骤引用 `lb_*`（§0 控件表；三拍=`lb_challenge_windup` / `standoff` / `reveal` / `result`） |
+| [测试用例.md](./测试用例.md) | MVP 主流程用例表 | 按 ID 测：安装启动 → 开桌 → 一局 → 结算 → 返回 → 鸿蒙；步骤引用 `lb_*`（§0 控件表；四主屏 `lb_scr_lobby` / `table` / `challenge` / `report`；四拍=`lb_challenge_windup` / `standoff` / `reveal` / `result`；看牌 `lb_cmp_peek_mask`） |
 | [课设5分钟验收勾选清单.md](./课设5分钟验收勾选清单.md) | 评委 5 分钟时间轴 | 进场前预跑 + 0:00–5:00 打勾；含 3 分钟脚本与乐趣点 |
 | `试玩记录.md` | 手感与演示翻车 | **待工程可玩后补**，本批不写 |
 
@@ -19,7 +19,7 @@
 - [项目一页纸 §6](../00-立项/01-项目一页纸.md) MVP 成功标准（6 条均已映射）
 - [PRD §4](../01-产品/PRD.md) P0 F-01～F-13
 - [GDD](../02-游戏设计/GDD.md) 主流程、质疑、手牌耗尽、教学
-- [互动方案](../02-游戏设计/互动方案.md) 质疑三拍、旁观敲桌/✓✗
+- [互动方案](../02-游戏设计/互动方案.md) 质疑四拍、旁观敲桌/✓✗
 - [数值与牌堆配置](../02-游戏设计/数值与牌堆配置.md) `challenge_only_seconds=8`、`demo_seed`
 
 ## 验收标准
@@ -27,4 +27,5 @@
 - 清单可对照演示打勾；用例不发明与 v0.2 冲突的新胜负条件
 - 不做压测、安全审计、反作弊专项
 - 操作点 `lb_*`；媒体核对可写 `art_*`；**禁止** `lb_art_*`
-- 质疑四段锁名：`lb_challenge_windup`（拍1）→ `lb_challenge_standoff`（拍2 对峙+押注）→ `lb_challenge_reveal`（拍3 翻牌）→ `lb_challenge_result`（定格）；禁止旧名 `_challenge_rise` / `lb_challenge_rise` / 把拍2并进 reveal
+- 四主屏：`lb_scr_lobby` / `lb_scr_table` / `lb_scr_challenge` / `lb_scr_report`；看牌 `lb_cmp_peek_mask`
+- 质疑四拍锁名：`lb_challenge_windup`（拍1）→ `lb_challenge_standoff`（拍2 对峙+押注）→ `lb_challenge_reveal`（拍3 翻牌）→ `lb_challenge_result`（定格）；禁止旧名 `_challenge_rise` / `lb_challenge_rise` / 把拍2并进 reveal
