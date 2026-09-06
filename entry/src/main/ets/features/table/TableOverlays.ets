@@ -1,8 +1,11 @@
 import { ControlIds, OverlayIds } from '../../common/Ids';
+import { CardModel } from '../../engine/MatchTypes';
+import { PlayStyle } from '../../engine/Phase';
 
 @Component
 export struct PeekMaskOverlay {
   @Link visible: boolean;
+  @Link ranks: string[];
   onClose: () => void = () => {};
 
   build() {
@@ -12,9 +15,17 @@ export struct PeekMaskOverlay {
           .fontColor($r('app.color.tavern_paper'))
         Text($r('app.string.lb_str_peek_hint'))
           .fontColor($r('app.color.tavern_candle'))
+        Row({ space: 6 }) {
+          ForEach(this.ranks, (rank: string, idx: number) => {
+            this.faceImage(rank)
+          }, (rank: string, idx: number) => `${rank}_${idx}`)
+        }
         Image($r('app.media.art_card_privacy_mask'))
           .width($r('app.float.card_w'))
           .height($r('app.float.card_h'))
+        Text($r('app.string.lb_str_privacy_on'))
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.subtitle_text_size'))
         Button($r('app.string.lb_str_skip'))
           .onClick(() => {
             this.onClose();
@@ -26,11 +37,37 @@ export struct PeekMaskOverlay {
       .backgroundColor($r('app.color.tavern_shadow'))
     }
   }
+
+  @Builder
+  faceImage(rank: string) {
+    if (rank === 'A') {
+      Image($r('app.media.art_card_a')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    } else if (rank === 'K') {
+      Image($r('app.media.art_card_k')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    } else if (rank === 'Q') {
+      Image($r('app.media.art_card_q')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    } else {
+      Image($r('app.media.art_card_joker')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    }
+  }
 }
 
 @Component
 export struct PlaySheetOverlay {
   @Link visible: boolean;
+  @Link cards: CardModel[];
+  @Link selectedIds: string[];
+  @Link styleName: string;
+  @Link namedSeatId: number;
+  @Link playCountText: string;
+  @Link confirmEnabled: boolean;
+  @Link nameP1: string;
+  @Link nameP2: string;
+  @Link nameP3: string;
+  onToggleCard: (cardId: string) => void = (_cardId: string) => {};
+  onStyle: (style: string) => void = (_style: string) => {};
+  onName: (seatId: number) => void = (_seatId: number) => {};
+  onConfirm: () => void = () => {};
   onClose: () => void = () => {};
 
   build() {
@@ -38,15 +75,77 @@ export struct PlaySheetOverlay {
       Column({ space: 10 }) {
         Text($r('app.string.lb_str_overlay_play'))
           .fontColor($r('app.color.tavern_paper'))
-        Row({ space: 12 }) {
-          Image($r('app.media.art_play_soft')).width(40).height(40)
-          Image($r('app.media.art_play_slam')).width(40).height(40)
-          Image($r('app.media.art_play_hesitate')).width(40).height(40)
+        Text(this.playCountText)
+          .id(ControlIds.PLAY_COUNT)
+          .fontColor($r('app.color.tavern_candle'))
+        Row({ space: 6 }) {
+          ForEach(this.cards, (card: CardModel) => {
+            Column() {
+              this.faceImage(card.rank)
+              Text(this.selectedMark(card.cardId))
+                .fontColor($r('app.color.tavern_accent'))
+                .fontSize($r('app.float.subtitle_text_size'))
+            }
+            .onClick(() => {
+              this.onToggleCard(card.cardId);
+            })
+          }, (card: CardModel) => card.cardId)
         }
+        Row({ space: 12 }) {
+          Image($r('app.media.art_play_soft'))
+            .id(ControlIds.STYLE_SOFT)
+            .width(40)
+            .height(40)
+            .opacity(this.styleName === PlayStyle.SOFT ? 1 : 0.45)
+            .onClick(() => {
+              this.onStyle(PlayStyle.SOFT);
+            })
+          Image($r('app.media.art_play_slam'))
+            .id(ControlIds.STYLE_SLAM)
+            .width(40)
+            .height(40)
+            .opacity(this.styleName === PlayStyle.SLAM ? 1 : 0.45)
+            .onClick(() => {
+              this.onStyle(PlayStyle.SLAM);
+            })
+          Image($r('app.media.art_play_hesitate'))
+            .id(ControlIds.STYLE_HESITATE)
+            .width(40)
+            .height(40)
+            .opacity(this.styleName === PlayStyle.HESITATE ? 1 : 0.45)
+            .onClick(() => {
+              this.onStyle(PlayStyle.HESITATE);
+            })
+        }
+        Row({ space: 8 }) {
+          Text($r('app.string.lb_str_skip_line'))
+            .fontColor($r('app.color.tavern_mute'))
+          Button(this.nameP1)
+            .onClick(() => {
+              this.onName(1);
+            })
+          Button(this.nameP2)
+            .onClick(() => {
+              this.onName(2);
+            })
+          Button(this.nameP3)
+            .onClick(() => {
+              this.onName(3);
+            })
+        }
+        Text(this.namedLabel())
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.subtitle_text_size'))
         Button($r('app.string.lb_str_play'))
           .id(ControlIds.PLAY)
-          .enabled(false)
+          .enabled(this.confirmEnabled)
+          .backgroundColor($r('app.color.tavern_accent'))
+          .fontColor($r('app.color.tavern_bg'))
+          .onClick(() => {
+            this.onConfirm();
+          })
         Button($r('app.string.lb_str_skip'))
+          .id(ControlIds.PLAY_CANCEL)
           .onClick(() => {
             this.onClose();
           })
@@ -55,6 +154,41 @@ export struct PlaySheetOverlay {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.tavern_panel'))
+    }
+  }
+
+  private selectedMark(cardId: string): string {
+    for (let i = 0; i < this.selectedIds.length; i++) {
+      if (this.selectedIds[i] === cardId) {
+        return '选中';
+      }
+    }
+    return '';
+  }
+
+  private namedLabel(): string {
+    if (this.namedSeatId === 1) {
+      return this.nameP1;
+    }
+    if (this.namedSeatId === 2) {
+      return this.nameP2;
+    }
+    if (this.namedSeatId === 3) {
+      return this.nameP3;
+    }
+    return '';
+  }
+
+  @Builder
+  faceImage(rank: string) {
+    if (rank === 'A') {
+      Image($r('app.media.art_card_a')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    } else if (rank === 'K') {
+      Image($r('app.media.art_card_k')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    } else if (rank === 'Q') {
+      Image($r('app.media.art_card_q')).width($r('app.float.card_w')).height($r('app.float.card_h'))
+    } else {
+      Image($r('app.media.art_card_joker')).width($r('app.float.card_w')).height($r('app.float.card_h'))
     }
   }
 }

@@ -47,3 +47,31 @@ export enum TableMode {
   SOCIAL = 'SOCIAL',
   ACTING = 'ACTING'
 }
+
+export enum EventKind {
+  PLAY = 'PLAY',
+  CHALLENGE = 'CHALLENGE',
+  JUDGE = 'JUDGE',
+  EMOTE = 'EMOTE',
+  TABLE_ACT = 'TABLE_ACT',
+  LIFE_CHANGE = 'LIFE_CHANGE',
+  OUT = 'OUT',
+  SKIP_EMPTY = 'SKIP_EMPTY',
+  REDEAL_STALL = 'REDEAL_STALL'
+}
+
+export enum LifeReason {
+  CHALLENGE_SUCCESS_ON_TARGET = 'CHALLENGE_SUCCESS_ON_TARGET',
+  CHALLENGE_FAIL_ON_SELF = 'CHALLENGE_FAIL_ON_SELF',
+  NONE = ''
+}
+
+export enum BetPick {
+  TRUE = 'TRUE',
+  FAKE = 'FAKE'
+}
+
+export enum FirstActorPolicy {
+  RANDOM = 'random',
+  HOST_LEFT = 'host_left'
+}

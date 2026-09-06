@@ -1,6 +1,7 @@
 import { AbilityConstant, UIAbility, Want } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { ConfigRepository } from '../config/ConfigRepository';
+import { AppRuntime } from '../common/AppRuntime';
 import { Logger } from '../common/Logger';
 import { LocalStore } from '../persist/LocalStore';
 
@@ -19,6 +20,8 @@ export default class EntryAbility extends UIAbility {
     try {
       await ConfigRepository.loadAll(this.context);
       await LocalStore.init(this.context);
+      AppRuntime.bootDirector();
+      AppRuntime.engine.resetToLobby();
     } catch (err) {
       Logger.error(TAG, 'config/persist bootstrap failed — pages may hydrate empty');
     }

@@ -1,5 +1,59 @@
 {
   "schema_version": "0.2",
   "demo_seed_enabled": true,
-  "demo_seed_value": 20260906
+  "demo_seed_value": 20260906,
+  "force_events": [
+    {
+      "at": "CLAIM",
+      "rank": "A",
+      "first_actor_seat_id": 0,
+      "seat_id": -1,
+      "play_index_in_round": 0,
+      "count": 0,
+      "has_fake": false,
+      "style": "",
+      "named_seat_id": -1,
+      "after_play_index": 0,
+      "skip": false
+    },
+    {
+      "at": "PLAY",
+      "rank": "",
+      "first_actor_seat_id": -1,
+      "seat_id": 2,
+      "play_index_in_round": 3,
+      "count": 2,
+      "has_fake": true,
+      "style": "SLAM",
+      "named_seat_id": 0,
+      "after_play_index": 0,
+      "skip": false
+    },
+    {
+      "at": "CHALLENGE",
+      "rank": "",
+      "first_actor_seat_id": -1,
+      "seat_id": 3,
+      "play_index_in_round": 0,
+      "count": 0,
+      "has_fake": false,
+      "style": "",
+      "named_seat_id": -1,
+      "after_play_index": 3,
+      "skip": false
+    },
+    {
+      "at": "RITUAL",
+      "rank": "",
+      "first_actor_seat_id": -1,
+      "seat_id": -1,
+      "play_index_in_round": 0,
+      "count": 0,
+      "has_fake": false,
+      "style": "",
+      "named_seat_id": -1,
+      "after_play_index": 0,
+      "skip": false
+    }
+  ]
 }
