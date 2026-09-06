@@ -14,10 +14,8 @@ export interface DeckConfig {
 }
 
 /**
- * Named bags for 3–6 players.
- * ArkTS (API 23) forbids indexed field access (arkts-no-props-by-index),
- * so these are not the rawfile keys "3"|"4"|"5"|"6".
- * ConfigRepository.parseDeck copies deck.json keys onto n3..n6.
+ * Runtime keys match deck.json: n3..n6 (player-count 3–6).
+ * Dot access only — ArkTS API 23 forbids indexed field access.
  */
 export interface DeckByPlayers {
   n3: RankCounts;

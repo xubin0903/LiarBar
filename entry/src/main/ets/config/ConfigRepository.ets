@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
 import { Logger } from '../common/Logger';
 import { MatchDefaults } from './MatchDefaults';
-import { DeckConfig, RankCounts } from './DeckConfig';
+import { DeckConfig } from './DeckConfig';
 import { AiPersonasConfig } from './AiPersonasConfig';
 import { InteractionCapsConfig } from './InteractionCapsConfig';
 import { DemoSeedConfig } from './DemoSeedConfig';
@@ -72,7 +72,7 @@ export class ConfigRepository {
     ConfigRepository.matchDefaults =
       JSON.parse(ConfigRepository.decode(await rm.getRawFileContent('config/match_defaults.json'))) as MatchDefaults;
     ConfigRepository.deckConfig =
-      ConfigRepository.parseDeck(ConfigRepository.decode(await rm.getRawFileContent('config/deck.json')));
+      JSON.parse(ConfigRepository.decode(await rm.getRawFileContent('config/deck.json'))) as DeckConfig;
     ConfigRepository.personas =
       JSON.parse(ConfigRepository.decode(await rm.getRawFileContent('config/ai_personas.json'))) as AiPersonasConfig;
     ConfigRepository.caps =
@@ -81,38 +81,6 @@ export class ConfigRepository {
       JSON.parse(ConfigRepository.decode(await rm.getRawFileContent('config/demo_seed.json'))) as DemoSeedConfig;
     ConfigRepository.ready = true;
     Logger.info(TAG, `config loaded schema=${ConfigRepository.match().schema_version}`);
-  }
-
-  /**
-   * Map deck.json keys "3"|"4"|"5"|"6" onto DeckByPlayers.n3..n6.
-   * Indexed access is only used on ESObject (JSON.parse), never on typed fields.
-   */
-  private static parseDeck(text: string): DeckConfig {
-    const raw: ESObject = JSON.parse(text);
-    const rawDecks: ESObject = raw['decks'];
-    const mapped: DeckConfig = {
-      schema_version: raw['schema_version'] as string,
-      ranks: raw['ranks'] as string[],
-      wild: raw['wild'] as string,
-      claimable: raw['claimable'] as string[],
-      decks: {
-        n3: ConfigRepository.copyRankCounts(rawDecks['3']),
-        n4: ConfigRepository.copyRankCounts(rawDecks['4']),
-        n5: ConfigRepository.copyRankCounts(rawDecks['5']),
-        n6: ConfigRepository.copyRankCounts(rawDecks['6'])
-      }
-    };
-    return mapped;
-  }
-
-  private static copyRankCounts(raw: ESObject): RankCounts {
-    const bag: RankCounts = {
-      A: raw['A'] as number,
-      K: raw['K'] as number,
-      Q: raw['Q'] as number,
-      JOKER: raw['JOKER'] as number
-    };
-    return bag;
   }
 
   private static decode(bytes: Uint8Array): string {
