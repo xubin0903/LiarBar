@@ -36,7 +36,7 @@
 | 第4批 | [06-质量](06-质量/) | 测试 | **本岗 spec 待补** | `MVP验收清单.md` · `测试用例.md` · `试玩记录.md` |
 
 **不要在此编造未锁定的玩法规则**；规则以 GDD v0.2 + [审核意见](审核意见.md) 为准。  
-05-技术工程侧：控件/路由用 `lb_scr_*` `lb_cmp_*` `lb_btn_*`，媒体/`$r` 用 `art_*`，**禁止 `lb_art_*`**。
+05-技术工程侧：路由级主屏仅 `lb_scr_lobby`（含冷启动）/`lb_scr_table`/`lb_scr_challenge`/`lb_scr_report`；看牌用 `lb_cmp_peek_mask`（禁 `lb_scr_peek`）；出牌用 `lb_sheet_play`；媒体/`$r` 用 `art_*`，**禁止 `lb_art_*`**。
 
 ### 后续批次（交付材料，工程之后）
 
