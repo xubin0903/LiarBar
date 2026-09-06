@@ -68,7 +68,7 @@ git rebase origin/develop             # 或：git merge origin/develop
 - **标题前缀**：`docs:` / `design:` / `feat:`（按改动性质选一个）。
 - **描述必须写清**：对齐 [审核意见 · 已拍板决议](docs/审核意见.md) 的哪一条（或哪几条）v0.2 决议；改了哪些文件、给下游什么规格。
 - **禁止**改 GDD / 数值 / PRD 已锁规则（出牌权、质疑范围、手牌耗尽、MVP 只人机+本地、不做清单等），除非 **LiarBar 负责人明确授权**。
-- 文档阶段不要夹带工程业务代码。工程开工以 03～06 本岗 spec 补齐且审核合格为前提，见工作流文档。
+- 工程脚手架已开工（`feat/client-scaffold`）。仍禁止改 GDD / 数值 / PRD 已锁规则；完整对局实现按特性拆 `feat/client-*`，日常 PR 只开向 `develop`。
 
 审核人：**LiarBar 负责人**。合入 `main` **仅负责人**操作。
 

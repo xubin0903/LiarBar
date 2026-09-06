@@ -1,0 +1,21 @@
+{
+  "color": [
+    { "name": "start_window_background", "value": "#1A120E" },
+    { "name": "tavern_bg", "value": "#1A120E" },
+    { "name": "tavern_felt", "value": "#2C1814" },
+    { "name": "tavern_panel", "value": "#3D241C" },
+    { "name": "tavern_candle", "value": "#E8B86D" },
+    { "name": "tavern_brass", "value": "#C4A46A" },
+    { "name": "tavern_paper", "value": "#F3E6C8" },
+    { "name": "tavern_mute", "value": "#8A735A" },
+    { "name": "tavern_shadow", "value": "#0E1A22" },
+    { "name": "tavern_accent", "value": "#F0C14B" },
+    { "name": "tavern_danger", "value": "#C23A3A" },
+    { "name": "tavern_danger_deep", "value": "#6B1218" },
+    { "name": "tavern_life", "value": "#B83B3B" },
+    { "name": "tavern_life_empty", "value": "#4A3028" },
+    { "name": "tavern_success", "value": "#D4A017" },
+    { "name": "tavern_settle_ok", "value": "#3D6B4A" },
+    { "name": "tavern_ghost", "value": "#6E7A86" }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schema_version": "0.2",
+  "actions": {
+    "KNOCK": { "per_round": 2, "per_game": 30 },
+    "STARE": { "per_round": 1, "per_game": 20 },
+    "SIGN_OK": { "per_round": 2, "per_game": 40 },
+    "SIGN_NO": { "per_round": 2, "per_game": 40 },
+    "HECKLE": { "per_round": 2, "per_game": 40 },
+    "NAMED": { "per_play": 1 },
+    "HURRY": { "per_turn": 1, "only_when_low_time": true }
+  }
+}
