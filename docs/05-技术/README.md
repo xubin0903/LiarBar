@@ -64,7 +64,8 @@ GDD §14 原先指向「`05-技术/状态机与规则引擎.md`」。本批文�
 
 | 套 | 前缀 | 权威 | 例 |
 |----|------|------|----|
-| 控件 / 路由 / 用例 | `lb_scr_*` `lb_cmp_*` `lb_btn_*` | UI PR [#3](https://github.com/xubin0903/LiarBar/pull/3) | `lb_scr_table` `lb_cmp_hand` `lb_btn_challenge` |
+| 控件 / 路由 / 用例 | `lb_scr_*` `lb_cmp_*` `lb_btn_*` | UI↔测试锁名 | **四主屏**：`lb_scr_lobby`（含冷启动）`lb_scr_table` `lb_scr_challenge` `lb_scr_report` |
+| 看牌 / 出牌包 | 叠层，非主屏 | 挂在 `lb_scr_table` | 看牌=`lb_cmp_peek_mask`+`lb_privacy_on`（禁 `lb_scr_peek`）；出牌=`lb_sheet_play`（禁 `lb_scr_play`） |
 | 媒体 / `$r` | `art_*` | 美术 PR [#4](https://github.com/xubin0903/LiarBar/pull/4) | `art_card_a` → `$r('app.media.art_card_a')` |
 | 质疑仪式**锁名 id**（四拍齐全） | `lb_challenge_windup` · `lb_challenge_standoff` · `lb_challenge_reveal` · `lb_challenge_result` | 全岗统一；拍2 **必须独立**，禁止并进 reveal | 口播可仍说「起势→揭牌→结果」 |
 
@@ -132,6 +133,7 @@ GDD §14 原先指向「`05-技术/状态机与规则引擎.md`」。本批文�
 | 2026-09-06 | 对齐 UI `lb_` 命名；rebase develop（PR #2）；会签门禁 | 并入 `01`§4 与本 README | 客户端文档 | 已会签 |
 | 2026-09-06 | 负责人锁定：废弃 `lb_art_*`，媒体改 `art_*` | 更新本 README 与 `01`§4 | 客户端文档 | 已会签 |
 | 2026-09-06 | 终审打回：三拍改四拍锁名 | `lb_challenge_windup/standoff/reveal/result` | 客户端文档 | 待负责人复审 |
+| 2026-09-06 | 屏 id 与 UI/测试锁名对齐 | 四主屏 lobby/table/challenge/report；废止 home/peek/play/recap 主路由 | 客户端文档 | 待复审 |
 
 ---
 
