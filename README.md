@@ -42,7 +42,7 @@ docs/
 
 云端不保证能编过 HarmonyOS SDK。请在本机：
 
-1. 安装 DevEco Studio，SDK 对齐 HarmonyOS NEXT（工程默认 `5.0.0(12)`，可按本机 SDK 上调）
+1. 安装 DevEco Studio，SDK 对齐 HarmonyOS NEXT（工程默认 `6.1.0(23)`，队友本机更旧时可下调这两个字段）
 2. **Open** 本仓库根目录（有 `build-profile.json5` / `AppScope/` 的那一层，不要只开 `docs/`）
 3. 等待 ohpm 同步；在 Project Structure 里完成本机签名（仓库不提交证书）
 4. 竖屏手机运行；冷启动应进入 `lb_scr_lobby`（显示名 **谎馆**）
