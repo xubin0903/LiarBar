@@ -20,6 +20,7 @@
   "slam_min_velocity": 2800,
   "demo_seed_enabled": true,
   "demo_seed_value": 20260906,
+  "first_actor_policy": "random",
   "avoid_same_claim_streak": 1,
   "face_bet_enabled": true,
   "face_bet_correct": 2,

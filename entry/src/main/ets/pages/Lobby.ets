@@ -149,6 +149,8 @@ struct Lobby {
     const last: LastTable = await LocalStore.loadLastTable();
     this.playerCount = last.playerCount;
     this.silent = last.silent;
+    AppRuntime.bootDirector();
+    AppRuntime.director.stop();
     AppRuntime.engine.resetToLobby();
     Logger.info(TAG, 'cold start lobby ready');
   }
@@ -173,7 +175,18 @@ struct Lobby {
       silent: this.silent
     });
     await LocalStore.bumpLocalPlay();
-    Logger.info(TAG, 'quickstart stub → table (no START_MATCH)');
+    AppRuntime.bootDirector();
+    const started: boolean = AppRuntime.engine.startMatch({
+      nickname: this.nickname,
+      playerCount: this.playerCount,
+      silent: this.silent
+    });
+    if (!started) {
+      Logger.warn(TAG, 'quickstart ignored: START_MATCH rejected');
+      return;
+    }
+    AppRuntime.director.start();
+    Logger.info(TAG, 'quickstart → START_MATCH → table (1 human + AI fill)');
     LbRouter.toTable();
   }
 }

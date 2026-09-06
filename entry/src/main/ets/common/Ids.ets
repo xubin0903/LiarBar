@@ -46,6 +46,27 @@ export class ControlIds {
   static readonly COVER_CHALLENGE: string = 'lb_cover_challenge';
   static readonly BET_BAR: string = 'lb_cmp_bet_bar';
   static readonly REVEAL_ROW: string = 'lb_cmp_reveal_row';
+  static readonly DEALER_BANNER: string = 'lb_cmp_dealer_banner';
+  static readonly DEALER_LINE: string = 'lb_txt_dealer_line';
+  static readonly PACKET: string = 'lb_cmp_packet';
+  static readonly PLAY_CANCEL: string = 'lb_btn_play_cancel';
+  static readonly STYLE_SOFT: string = 'lb_btn_style_soft';
+  static readonly STYLE_SLAM: string = 'lb_btn_style_slam';
+  static readonly STYLE_HESITATE: string = 'lb_btn_style_hesitate';
+  static readonly PLAY_COUNT: string = 'lb_txt_play_count';
+  static readonly CHALLENGE_SKIP: string = 'lb_btn_challenge_skip';
+  static readonly BET_TRUE: string = 'lb_btn_bet_true';
+  static readonly BET_FAKE: string = 'lb_btn_bet_fake';
+  static readonly WINNER: string = 'lb_txt_winner';
+  static readonly HIGHLIGHT: string = 'lb_txt_highlight';
+  static readonly RECAP_LIST: string = 'lb_list_recap';
+  static readonly SEAT_SELF: string = 'lb_cmp_seat_self';
+  static readonly SEAT_P1: string = 'lb_cmp_seat_p1';
+  static readonly SEAT_P2: string = 'lb_cmp_seat_p2';
+  static readonly SEAT_P3: string = 'lb_cmp_seat_p3';
+  static readonly KNOCK: string = 'lb_cmp_table_hit';
+  static readonly SIGN_OK: string = 'lb_btn_sign_ok';
+  static readonly SIGN_NO: string = 'lb_btn_sign_no';
 }
 
 export class PersistNs {

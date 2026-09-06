@@ -24,6 +24,7 @@ export interface MatchDefaults {
   slam_min_velocity: number;
   demo_seed_enabled: boolean;
   demo_seed_value: number;
+  first_actor_policy: string;
   avoid_same_claim_streak: number;
   face_bet_enabled: boolean;
   face_bet_correct: number;

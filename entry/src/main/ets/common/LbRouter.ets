@@ -16,9 +16,27 @@ export class LbRouter {
   }
 
   static toLobby(): void {
-    router.replaceUrl({ url: PageUrls.LOBBY }).catch((err: Error) => {
-      Logger.warn('LbRouter', `replace lobby failed: ${err.message}`);
-      router.back();
+    LbRouter.replace(PageUrls.LOBBY);
+  }
+
+  static replaceTable(): void {
+    LbRouter.replace(PageUrls.TABLE);
+  }
+
+  static replaceReport(): void {
+    LbRouter.replace(PageUrls.REPORT);
+  }
+
+  static replaceChallenge(): void {
+    LbRouter.replace(PageUrls.CHALLENGE);
+  }
+
+  private static replace(url: string): void {
+    router.replaceUrl({ url: url }).catch((err: Error) => {
+      Logger.warn('LbRouter', `replace ${url} failed: ${err.message}`);
+      if (url === PageUrls.LOBBY) {
+        router.back();
+      }
     });
   }
 
