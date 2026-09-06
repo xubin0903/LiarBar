@@ -7,7 +7,7 @@ HarmonyOS NEXT 单模块 HAP。包名 `com.liarbar.app`，应用显示名 **谎�
 ## 用 DevEco 打开
 
 1. 安装 [DevEco Studio](https://developer.huawei.com/consumer/cn/deveco-studio/) 与 HarmonyOS NEXT SDK。
-2. 本工程 `build-profile.json5` 默认 `compatibleSdkVersion` / `targetSdkVersion` = `5.0.0(12)`。若本机 SDK 更新，只改这两个字段对齐，不要另起一套包名或模块名。
+2. 本工程 `build-profile.json5` 默认 `compatibleSdkVersion` / `targetSdkVersion` = `6.1.0(23)`（验收机 DevEco 6.1）。若队友本机 SDK 更旧，可在本地把这两个字段下调对齐，不要另起一套包名或模块名。
 3. **File → Open** 选仓库根（与 `AppScope/`、`entry/` 同级），不要只打开 `entry/` 或 `docs/`。
 4. 等待 ohpm / hvigor 同步。签名在 **File → Project Structure → Signing Configs** 用本机调试证书；不要把 `.p12` / `.p7b` 提交进库。
 5. 运行目标选 **Phone · 竖屏**。启动后应看到 Lobby（夜半酒馆底色、标题「谎馆」）。
