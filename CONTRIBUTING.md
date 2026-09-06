@@ -56,7 +56,7 @@ git rebase origin/develop             # 或：git merge origin/develop
 | `feat/design-*` | 策划（玩法 / GDD / 数值 / 互动深化） | `feat/design-producer-lock-v02` |
 | `feat/art-*` | 美术（风格、皮肤、资源说明） | `feat/art-tavern-skin` |
 | `feat/ui-*` | UI（信息架构、界面与交互稿） | `feat/ui-table-ia` |
-| `feat/client-*` | 鸿蒙开发（特性 / AI spec、日后客户端） | `feat/client-harmony-spec` |
+| `feat/client-*` | 鸿蒙开发（特性映射、日后客户端） | `feat/client-harmony-spec` |
 | `feat/test-*` | 测试（用例、试玩记录、验收清单） | `feat/test-mvp-checklist` |
 | `docs/*` | 纯文档（目录、工作流、导航，不改玩法） | `docs/contributing-workflow` |
 
@@ -71,6 +71,8 @@ git rebase origin/develop             # 或：git merge origin/develop
 - 文档阶段不要夹带工程业务代码。工程开工以 03～06 本岗 spec 补齐且审核合格为前提，见工作流文档。
 
 审核人：**LiarBar 负责人**。合入 `main` **仅负责人**操作。
+
+**打回规则**：不合格须由负责人写清具体修改意见并打回；作者改完后重新审核，通过才能合入 `develop`。禁止走过场合入。
 
 ---
 
