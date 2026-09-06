@@ -1,0 +1,17 @@
+{
+  "schema_version": "0.2",
+  "demo_seed_enabled": true,
+  "demo_seed_value": 20260906,
+  "use_match_defaults_for_table": true,
+  "claim_rank": "A",
+  "first_actor_seat_id": 0,
+  "player_hand_requires_legal_and_fake": true,
+  "shark_hand_requires_fake": true,
+  "note": "Hook only. Full script is a later PR. Events must stay legal (no first-hand challenge, no LLM judge).",
+  "demo_force_events": [
+    { "at": "CLAIM", "rank": "A", "firstActorSeatId": 0 },
+    { "at": "PLAY", "seatId": 2, "playIndexInRound": 3, "count": 2, "hasFake": true, "style": "SLAM", "namedSeatId": 0 },
+    { "at": "CHALLENGE", "seatId": 3, "afterPlayIndex": 3 },
+    { "at": "RITUAL", "skip": false }
+  ]
+}

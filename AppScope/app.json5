@@ -1,0 +1,10 @@
+{
+  "app": {
+    "bundleName": "com.liarbar.app",
+    "vendor": "liarbar",
+    "versionCode": 1000000,
+    "versionName": "0.1.0-scaffold",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}

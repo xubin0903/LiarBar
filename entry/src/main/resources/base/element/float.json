@@ -1,0 +1,10 @@
+{
+  "float": [
+    { "name": "page_text_size", "value": "16vp" },
+    { "name": "title_text_size", "value": "28vp" },
+    { "name": "subtitle_text_size", "value": "14vp" },
+    { "name": "btn_height", "value": "48vp" },
+    { "name": "card_w", "value": "56vp" },
+    { "name": "card_h", "value": "78vp" }
+  ]
+}
