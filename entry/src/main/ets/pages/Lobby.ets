@@ -16,80 +16,125 @@ struct Lobby {
   @State playerCount: number = 0;
   @State silent: boolean = false;
   @State fillHint: string = '';
+  @State peekOpen: boolean = false;
 
   aboutToAppear(): void {
     this.hydrate();
   }
 
   build() {
-    Column() {
-      Text($r('app.string.lb_str_app_title'))
-        .fontColor($r('app.color.tavern_candle'))
-        .fontSize($r('app.float.title_text_size'))
-        .fontWeight(FontWeight.Bold)
-        .margin({ top: 24, bottom: 10 })
+    Stack() {
+      Image($r('app.media.art_table_bg'))
+        .width('100%')
+        .height('100%')
+        .objectFit(ImageFit.Cover)
 
-      Text($r('app.string.lb_str_scaffold_banner'))
-        .fontColor($r('app.color.tavern_mute'))
-        .fontSize($r('app.float.subtitle_text_size'))
-        .margin({ bottom: 16 })
+      Column() {
+        Scroll() {
+          Column() {
+            Text($r('app.string.lb_str_app_title'))
+              .fontColor($r('app.color.tavern_candle'))
+              .fontSize($r('app.float.title_text_size'))
+              .fontWeight(FontWeight.Bold)
+              .margin({ top: 20, bottom: 8 })
 
-      Image($r('app.media.art_dealer_bust_idle'))
-        .id(ControlIds.DEALER)
-        .width(96)
-        .height(128)
+            Image($r('app.media.art_dealer_bust_idle'))
+              .id(ControlIds.DEALER)
+              .width($r('app.float.dealer_bust_w'))
+              .height($r('app.float.dealer_bust_h'))
+              .objectFit(ImageFit.Contain)
+              .margin({ top: 4, bottom: 8 })
 
-      LobbyPanel({
-        nickname: $nickname,
-        playerCount: $playerCount,
-        silent: $silent,
-        onFillLast: () => {
-          this.doFillLast();
-        },
-        onQuickStart: () => {
-          this.doQuickStart();
+            Text($r('app.string.lb_str_dlr_lobby_full'))
+              .fontColor($r('app.color.tavern_paper'))
+              .fontSize($r('app.float.page_text_size'))
+              .margin({ bottom: 16 })
+
+            LobbyPanel({
+              nickname: $nickname,
+              playerCount: $playerCount,
+              silent: $silent,
+              onFillLast: () => {
+                this.doFillLast();
+              }
+            })
+
+            if (this.fillHint.length > 0) {
+              Text(this.fillHint)
+                .fontColor($r('app.color.tavern_candle'))
+                .fontSize($r('app.float.caption_text_size'))
+                .margin({ top: 8 })
+            }
+
+            Button($r('app.string.lb_str_quickstart'))
+              .id(ControlIds.QUICKSTART)
+              .width('100%')
+              .height($r('app.float.cta_height'))
+              .fontSize($r('app.float.page_text_size'))
+              .fontWeight(FontWeight.Medium)
+              .backgroundColor($r('app.color.tavern_accent'))
+              .fontColor($r('app.color.tavern_bg'))
+              .borderRadius($r('app.float.cta_radius'))
+              .margin({ top: 20 })
+              .onClick(() => {
+                this.doQuickStart();
+              })
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Center)
         }
-      })
-        .margin({ top: 16 })
+        .scrollBar(BarState.Off)
+        .width('100%')
+        .layoutWeight(1)
 
-      if (this.fillHint.length > 0) {
-        Text(this.fillHint)
-          .fontColor($r('app.color.tavern_candle'))
-          .fontSize($r('app.float.subtitle_text_size'))
-      }
+        Column({ space: 8 }) {
+          Text($r('app.string.lb_str_nav_peek'))
+            .fontColor($r('app.color.tavern_mute'))
+            .fontSize($r('app.float.caption_text_size'))
+            .padding({ top: 16, bottom: 4 })
+            .onClick(() => {
+              this.peekOpen = !this.peekOpen;
+            })
 
-      Column({ space: 10 }) {
-        Button($r('app.string.lb_str_nav_table'))
-          .width('100%')
-          .backgroundColor($r('app.color.tavern_panel'))
-          .fontColor($r('app.color.tavern_paper'))
-          .onClick(() => {
-            LbRouter.toTable();
-          })
-        Button($r('app.string.lb_str_nav_challenge'))
-          .width('100%')
-          .backgroundColor($r('app.color.tavern_panel'))
-          .fontColor($r('app.color.tavern_paper'))
-          .onClick(() => {
-            LbRouter.toChallenge();
-          })
-        Button($r('app.string.lb_str_nav_report'))
-          .width('100%')
-          .backgroundColor($r('app.color.tavern_panel'))
-          .fontColor($r('app.color.tavern_paper'))
-          .onClick(() => {
-            LbRouter.toReport();
-          })
+          if (this.peekOpen) {
+            Column({ space: 8 }) {
+              Text($r('app.string.lb_str_nav_table'))
+                .fontColor($r('app.color.tavern_mute'))
+                .fontSize($r('app.float.subtitle_text_size'))
+                .padding({ top: 4, bottom: 4 })
+                .onClick(() => {
+                  LbRouter.toTable();
+                })
+              Text($r('app.string.lb_str_nav_challenge'))
+                .fontColor($r('app.color.tavern_mute'))
+                .fontSize($r('app.float.subtitle_text_size'))
+                .padding({ top: 4, bottom: 4 })
+                .onClick(() => {
+                  LbRouter.toChallenge();
+                })
+              Text($r('app.string.lb_str_nav_report'))
+                .fontColor($r('app.color.tavern_mute'))
+                .fontSize($r('app.float.subtitle_text_size'))
+                .padding({ top: 4, bottom: 4 })
+                .onClick(() => {
+                  LbRouter.toReport();
+                })
+            }
+            .alignItems(HorizontalAlign.Center)
+          }
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
       }
-      .margin({ top: 20 })
       .width('100%')
+      .height('100%')
+      .padding({ left: 20, right: 20, top: 8, bottom: 20 })
+      .alignItems(HorizontalAlign.Center)
     }
     .id(ScreenIds.LOBBY)
     .width('100%')
     .height('100%')
-    .padding(20)
     .backgroundColor($r('app.color.tavern_bg'))
-    .alignItems(HorizontalAlign.Center)
   }
 
   private async hydrate(): Promise<void> {

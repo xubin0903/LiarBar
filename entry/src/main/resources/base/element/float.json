@@ -4,6 +4,12 @@
     { "name": "title_text_size", "value": "28vp" },
     { "name": "subtitle_text_size", "value": "14vp" },
     { "name": "btn_height", "value": "48vp" },
+    { "name": "caption_text_size", "value": "12vp" },
+    { "name": "cta_height", "value": "56vp" },
+    { "name": "cta_radius", "value": "10vp" },
+    { "name": "panel_radius", "value": "12vp" },
+    { "name": "dealer_bust_w", "value": "140vp" },
+    { "name": "dealer_bust_h", "value": "186vp" },
     { "name": "card_w", "value": "56vp" },
     { "name": "card_h", "value": "78vp" }
   ]
