@@ -38,6 +38,8 @@ export class ControlIds {
   static readonly SILENT: string = 'lb_tog_silent';
   static readonly TOPBAR: string = 'lb_cmp_topbar';
   static readonly DEALER: string = 'lb_cmp_dealer';
+  static readonly PEEK_TABLE: string = 'lb_btn_peek_table';
+  static readonly RECORDS: string = 'lb_btn_records';
   static readonly HAND: string = 'lb_cmp_hand';
   static readonly CHALLENGE: string = 'lb_btn_challenge';
   static readonly PLAY: string = 'lb_btn_play';
@@ -67,6 +69,13 @@ export class ControlIds {
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
+}
+
+/** Program call-site ids. Audio files live under rawfile/sfx/, not art_*. */
+export class SfxIds {
+  static readonly BOOT: string = 'lb_sfx_boot';
+  static readonly LOBBY_AMB: string = 'lb_sfx_lobby_amb';
+  static readonly CTA: string = 'lb_sfx_cta';
 }
 
 export class PersistNs {

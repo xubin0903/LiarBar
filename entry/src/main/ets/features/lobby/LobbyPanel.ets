@@ -7,6 +7,7 @@ export struct LobbyPanel {
   @Link playerCount: number;
   @Link silent: boolean;
   onFillLast: () => void = () => {};
+  onSilentChange: (on: boolean) => void = (_on: boolean) => {};
 
   build() {
     Column({ space: 12 }) {
@@ -36,15 +37,10 @@ export struct LobbyPanel {
       .height($r('app.float.btn_height'))
 
       Row({ space: 12 }) {
-        Text(`人数 ${this.playerCount}`)
+        Text(`人数 ${this.playerCount} · 命 ${this.livesText()}`)
           .id(ControlIds.PLAYERCOUNT)
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.page_text_size'))
-        if (ConfigRepository.isReady()) {
-          Text(`命 ${ConfigRepository.match().lives_default}`)
-            .fontColor($r('app.color.tavern_candle'))
-            .fontSize($r('app.float.page_text_size'))
-        }
       }
       .width('100%')
 
@@ -57,6 +53,7 @@ export struct LobbyPanel {
           .id(ControlIds.SILENT)
           .onChange((on: boolean) => {
             this.silent = on;
+            this.onSilentChange(on);
           })
       }
       .width('100%')
@@ -71,7 +68,16 @@ export struct LobbyPanel {
     }
     .width('100%')
     .padding(16)
-    .backgroundColor($r('app.color.tavern_felt'))
+    .backgroundColor($r('app.color.tavern_panel'))
     .borderRadius($r('app.float.panel_radius'))
+    .borderWidth(1)
+    .borderColor($r('app.color.tavern_brass'))
+  }
+
+  private livesText(): string {
+    if (!ConfigRepository.isReady()) {
+      return '--';
+    }
+    return `${ConfigRepository.match().lives_default}`;
   }
 }

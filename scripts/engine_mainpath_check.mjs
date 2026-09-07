@@ -142,7 +142,10 @@ const etsFiles = [
   'entry/src/main/ets/ai/AiFriend.ets',
   'entry/src/main/ets/pages/Table.ets',
   'entry/src/main/ets/pages/Challenge.ets',
-  'entry/src/main/ets/pages/Lobby.ets'
+  'entry/src/main/ets/pages/Lobby.ets',
+  'entry/src/main/ets/features/lobby/LobbyBoot.ets',
+  'entry/src/main/ets/features/lobby/LobbyAudio.ets',
+  'entry/src/main/ets/features/lobby/LobbyPanel.ets'
 ];
 const joined = etsFiles.map((f) => src(f)).join('\n');
 if (/\bany\b/.test(joined) || /ESObject/.test(joined)) {
