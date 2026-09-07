@@ -4,7 +4,7 @@ import { MatchEngine } from '../engine/MatchEngine';
 import { MatchSnapshot } from '../engine/MatchTypes';
 import { Phase, SeatRole, TurnWindow } from '../engine/Phase';
 import { SeededRng } from '../engine/SeededRng';
-import { LiveWindowAdapter } from '../harmony/LiveWindowAdapter';
+import { LiveWindowAdapter, LiveWindowPayload } from '../harmony/LiveWindowAdapter';
 import { Logger } from './Logger';
 
 const TAG = 'MatchDirector';
@@ -187,7 +187,7 @@ export class MatchDirector {
       return;
     }
     const remain: number = Math.ceil(snap.turnRemainMs / 1000);
-    const payload = {
+    const payload: LiveWindowPayload = {
       phaseText: livePhaseText(snap),
       remainSec: remain,
       claimShort: liveClaimShort(snap)
