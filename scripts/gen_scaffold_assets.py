@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Generate P0 art_* placeholders and HarmonyOS app icons (no DevEco required).
 
-Illustrated lobby/table files are produced by gen_lobby_p0_art.py and skipped here.
+Illustrated lobby/table files are produced by gen_lobby_v2_art.py (delivery)
+or the older gen_lobby_p0_art.py (placeholder only) and skipped here.
 """
 
 from __future__ import annotations
@@ -194,11 +195,16 @@ def make_icon(path: Path, size: int) -> None:
     write_png(path, size, size, pixels)
 
 
-# Illustrated by scripts/gen_lobby_p0_art.py — do not flatten back to color blocks.
+# Illustrated / delivered by scripts/gen_lobby_v2_art.py — do not flatten back to color blocks.
 ILLUSTRATED_P0 = {
     "art_dealer_bust_idle",
     "art_dealer_bust_announce",
     "art_table_bg",
+    "art_lobby_bg",
+    "art_splash_still",
+    "art_btn_primary",
+    "art_btn_primary_on",
+    "art_input_field",
 }
 
 
