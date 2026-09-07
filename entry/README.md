@@ -9,7 +9,7 @@ HarmonyOS NEXT 单模块 HAP。包名 `com.liarbar.app`，应用显示名 **谎�
 ## 用 DevEco 打开
 
 1. 安装 [DevEco Studio](https://developer.huawei.com/consumer/cn/deveco-studio/) 与 HarmonyOS NEXT SDK。
-2. 本工程 `build-profile.json5` 默认 `compatibleSdkVersion` / `targetSdkVersion` = `6.1.0(23)`（验收机 DevEco 6.1）。
+2. 本工程 `build-profile.json5` 默认 `compatibleSdkVersion` / `targetSdkVersion` = `6.1.0(23)`（验收机 DevEco 6.1）。若队友本机 SDK 更旧，可在本地把这两个字段下调对齐，不要另起一套包名或模块名。
 3. **File → Open** 选仓库根（与 `AppScope/`、`entry/` 同级），不要只打开 `entry/` 或 `docs/`。
 4. 等待 ohpm / hvigor 同步。签名用本机调试证书；不要把 `.p12` / `.p7b` 提交进库。
 5. **Build → Rebuild Project**，确认 CompileArkTS ERROR=0（不要对 typed 字段做下标访问，不要引入 `ESObject`/`any`）。
@@ -21,7 +21,10 @@ HarmonyOS NEXT 单模块 HAP。包名 `com.liarbar.app`，应用显示名 **谎�
 |----|-----------------|
 | T01+ 纯逻辑引擎；胜负只认命 | 联网 / 账号 / 反作弊 |
 | TIMID / SHARK / KAREN 读 `ai_personas.json` | LLM 判真假 |
-| `demo_seed` 强制合法事件（杠精开老千本手） | 完整美术抛光 |
+| `demo_seed` 强制合法事件（杠精开老千本手） | 完整美术抛光（大厅 P0 插画已覆盖现挂桌底/荷官） |
 | Table / Challenge / Report 跟引擎快照 | 实况窗权益联调 |
+| 四主屏锁名；大厅 P0 插画 `art_*`（其余仍可色块） | |
 
-规则数字只从 `Match.config`（开局深拷贝 JSON）读。牌堆运行时键仍是 `n3`..`n6`。
+规则数字只从 `Match.config`（开局深拷贝 JSON）读。牌堆运行时键仍是 `n3`..`n6`。改手感只改 `resources/rawfile/config/`，不要在 `.ets` 里写死 `turn_seconds` / `challenge_only_seconds` / `lives_default`。
+
+大厅/桌面插画用仓库根 `scripts/gen_lobby_p0_art.py`；其余占位可用 `scripts/gen_scaffold_assets.py`（会跳过已插画的 bust / 桌底）。文件名必须继续是美术清单里的 `art_*`。

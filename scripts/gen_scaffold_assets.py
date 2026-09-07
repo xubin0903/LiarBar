@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Generate P0 art_* placeholders and HarmonyOS app icons (no DevEco required)."""
+"""Generate P0 art_* placeholders and HarmonyOS app icons (no DevEco required).
+
+Illustrated lobby/table files are produced by gen_lobby_p0_art.py and skipped here.
+"""
 
 from __future__ import annotations
 
@@ -191,15 +194,27 @@ def make_icon(path: Path, size: int) -> None:
     write_png(path, size, size, pixels)
 
 
+# Illustrated by scripts/gen_lobby_p0_art.py — do not flatten back to color blocks.
+ILLUSTRATED_P0 = {
+    "art_dealer_bust_idle",
+    "art_dealer_bust_announce",
+    "art_table_bg",
+}
+
+
 def main() -> None:
     MEDIA.mkdir(parents=True, exist_ok=True)
     APP_MEDIA.mkdir(parents=True, exist_ok=True)
+    skipped = 0
     for name, w, h, bg, border, mark, trans in P0:
+        if name in ILLUSTRATED_P0:
+            skipped += 1
+            continue
         make_block(MEDIA / f"{name}.png", w, h, bg, border, mark, trans)
     make_icon(APP_MEDIA / "app_icon.png", 512)
     make_icon(MEDIA / "app_icon.png", 512)
     make_icon(MEDIA / "startIcon.png", 216)
-    print(f"wrote {len(P0)} art placeholders + icons")
+    print(f"wrote {len(P0) - skipped} art placeholders + icons (skipped {skipped} illustrated P0)")
 
 
 if __name__ == "__main__":
