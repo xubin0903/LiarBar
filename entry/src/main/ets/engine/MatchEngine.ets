@@ -117,13 +117,19 @@ export class MatchEngine {
     return this.phase;
   }
 
+  /** TURN / PLAY_REVEAL_SELF on a HUMAN seat: director must wait; never timeout-auto. */
+  humanMustWait(): boolean {
+    return this.currentSeatIsHuman() &&
+      (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF);
+  }
+
   pulse(nowMs: number): boolean {
     this.nowMs = nowMs;
     if (this.cfg === null) {
       return false;
     }
     if (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF) {
-      if (this.currentSeatIsHuman()) {
+      if (this.humanMustWait()) {
         return false;
       }
       if (this.turnEndsAtMs > 0 && nowMs >= this.turnEndsAtMs) {
@@ -503,7 +509,7 @@ export class MatchEngine {
     if (!this.demoOn || this.demo === null) {
       return null;
     }
-    const list = this.demo.force_events;
+    const list: DemoForceEvent[] = this.demo.force_events;
     if (list === null || list.length === 0) {
       return null;
     }
@@ -516,10 +522,10 @@ export class MatchEngine {
   }
 
   shouldForceSharkPlay(): boolean {
-    if (this.forcePlayUsed || this.challengeHappened) {
+    if (this.forcePlayUsed || this.challengeHappened || this.currentSeatIsHuman()) {
       return false;
     }
-    const ev = this.forceEventAt('PLAY');
+    const ev: DemoForceEvent | null = this.forceEventAt('PLAY');
     if (ev === null) {
       return false;
     }
@@ -527,10 +533,10 @@ export class MatchEngine {
   }
 
   shouldForceKarenChallenge(): boolean {
-    if (this.challengeHappened) {
+    if (this.challengeHappened || this.currentSeatIsHuman()) {
       return false;
     }
-    const ev = this.forceEventAt('CHALLENGE');
+    const ev: DemoForceEvent | null = this.forceEventAt('CHALLENGE');
     if (ev === null) {
       return false;
     }
@@ -539,7 +545,10 @@ export class MatchEngine {
   }
 
   demoForcePlay(): boolean {
-    const ev = this.forceEventAt('PLAY');
+    if (this.currentSeatIsHuman()) {
+      return false;
+    }
+    const ev: DemoForceEvent | null = this.forceEventAt('PLAY');
     if (ev === null || this.cfg === null || this.currentClaim === null) {
       return false;
     }
