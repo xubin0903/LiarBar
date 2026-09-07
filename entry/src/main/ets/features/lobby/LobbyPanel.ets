@@ -15,15 +15,25 @@ export struct LobbyPanel {
         .fontSize($r('app.float.caption_text_size'))
         .alignSelf(ItemAlign.Start)
 
-      TextInput({ text: this.nickname, placeholder: $r('app.string.lb_str_nick_ph') })
-        .id(ControlIds.NICK_FIELD)
-        .width('100%')
-        .backgroundColor($r('app.color.tavern_panel'))
-        .placeholderColor($r('app.color.tavern_mute'))
-        .fontColor($r('app.color.tavern_paper'))
-        .onChange((value: string) => {
-          this.nickname = value;
-        })
+      Stack() {
+        Image($r('app.media.art_input_field'))
+          .width('100%')
+          .height($r('app.float.btn_height'))
+          .objectFit(ImageFit.Fill)
+        TextInput({ text: this.nickname, placeholder: $r('app.string.lb_str_nick_ph') })
+          .id(ControlIds.NICK_FIELD)
+          .width('100%')
+          .height($r('app.float.btn_height'))
+          .padding({ left: 20, right: 20 })
+          .backgroundColor(Color.Transparent)
+          .placeholderColor($r('app.color.tavern_mute'))
+          .fontColor($r('app.color.tavern_paper'))
+          .onChange((value: string) => {
+            this.nickname = value;
+          })
+      }
+      .width('100%')
+      .height($r('app.float.btn_height'))
 
       Row({ space: 12 }) {
         Text(`人数 ${this.playerCount}`)
