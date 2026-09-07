@@ -24,6 +24,8 @@
     { "name": "lb_str_nav_challenge", "value": "质疑仪式" },
     { "name": "lb_str_nav_report", "value": "战报" },
     { "name": "lb_str_nav_peek", "value": "进桌看看" },
+    { "name": "lb_str_records", "value": "战绩" },
+    { "name": "lb_str_dlr_lobby_greet", "value": "夜深了，位子给你留着。" },
     { "name": "lb_str_dlr_lobby_full", "value": "本桌四人，酒已满。" },
     { "name": "lb_str_dlr_deal", "value": "发牌。每人 {n} 张。" },
     { "name": "lb_str_dlr_claim", "value": "本轮出 {rank}。{昵称} 先出。" },
