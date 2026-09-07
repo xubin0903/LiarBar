@@ -3,6 +3,7 @@ import { ControlIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { ConfigRepository } from '../config/ConfigRepository';
+import { StartMatchOpts } from '../engine/MatchEngine';
 import { LobbyPanel } from '../features/lobby/LobbyPanel';
 import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
 import { LastTable, LocalStore } from '../persist/LocalStore';
@@ -201,11 +202,12 @@ struct Lobby {
     });
     await LocalStore.bumpLocalPlay();
     AppRuntime.bootDirector();
-    const started: boolean = AppRuntime.engine.startMatch({
+    const opts: StartMatchOpts = {
       nickname: this.nickname,
       playerCount: this.playerCount,
       silent: this.silent
-    });
+    };
+    const started: boolean = AppRuntime.engine.startMatch(opts);
     if (!started) {
       Logger.warn(TAG, 'quickstart ignored: START_MATCH rejected');
       return;
