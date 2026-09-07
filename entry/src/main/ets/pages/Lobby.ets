@@ -17,6 +17,7 @@ struct Lobby {
   @State silent: boolean = false;
   @State fillHint: string = '';
   @State peekOpen: boolean = false;
+  @State quickstartPressed: boolean = false;
 
   aboutToAppear(): void {
     this.hydrate();
@@ -24,7 +25,7 @@ struct Lobby {
 
   build() {
     Stack() {
-      Image($r('app.media.art_table_bg'))
+      Image($r('app.media.art_lobby_bg'))
         .width('100%')
         .height('100%')
         .objectFit(ImageFit.Cover)
@@ -66,19 +67,43 @@ struct Lobby {
                 .margin({ top: 8 })
             }
 
-            Button($r('app.string.lb_str_quickstart'))
-              .id(ControlIds.QUICKSTART)
-              .width('100%')
-              .height($r('app.float.cta_height'))
-              .fontSize($r('app.float.page_text_size'))
-              .fontWeight(FontWeight.Medium)
-              .backgroundColor($r('app.color.tavern_accent'))
-              .fontColor($r('app.color.tavern_bg'))
-              .borderRadius($r('app.float.cta_radius'))
-              .margin({ top: 20 })
-              .onClick(() => {
-                this.doQuickStart();
-              })
+            Stack() {
+              if (this.quickstartPressed) {
+                Image($r('app.media.art_btn_primary_on'))
+                  .width('100%')
+                  .height($r('app.float.cta_height'))
+                  .objectFit(ImageFit.Fill)
+              } else {
+                Image($r('app.media.art_btn_primary'))
+                  .width('100%')
+                  .height($r('app.float.cta_height'))
+                  .objectFit(ImageFit.Fill)
+              }
+              Button($r('app.string.lb_str_quickstart'))
+                .id(ControlIds.QUICKSTART)
+                .type(ButtonType.Normal)
+                .width('100%')
+                .height($r('app.float.cta_height'))
+                .fontSize($r('app.float.page_text_size'))
+                .fontWeight(FontWeight.Medium)
+                .backgroundColor(Color.Transparent)
+                .fontColor($r('app.color.tavern_bg'))
+                .stateEffect(false)
+                .onTouch((event: TouchEvent) => {
+                  if (event.type === TouchType.Down) {
+                    this.quickstartPressed = true;
+                  }
+                  if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+                    this.quickstartPressed = false;
+                  }
+                })
+                .onClick(() => {
+                  this.doQuickStart();
+                })
+            }
+            .width('100%')
+            .height($r('app.float.cta_height'))
+            .margin({ top: 20 })
           }
           .width('100%')
           .alignItems(HorizontalAlign.Center)
