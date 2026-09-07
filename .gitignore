@@ -36,6 +36,10 @@ local.properties
 /.clang-tidy
 **/.preview
 
+# python
+__pycache__/
+*.py[cod]
+
 # secrets
 .env
 .env.*

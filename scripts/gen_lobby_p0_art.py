@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Night-tavern P0 lobby / table art. Illustration-grade, not solid blocks.
+"""HISTORICAL: v0.x Pillow / 色块占位。不是大厅 v2 交件。
 
-Tokens from docs/04-设计/夜半酒馆-风格板.md.
-Sizes from docs/04-设计/关键资源规格清单.md.
+Do not re-run this over the delivered art_* files.
+Delivery generator: scripts/gen_lobby_v2_art.py
+Delivery doc: docs/04-设计/大厅v2-交件说明.md
 """
 
 from __future__ import annotations
