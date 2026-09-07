@@ -46,6 +46,8 @@ export interface StartMatchOpts {
 /**
  * Pure match state machine (docs/05-技术/02-回合状态机草图.md T01+).
  * No UI / Kit. Win condition is only "one ALIVE seat remains".
+ * HUMAN TURN / PLAY_REVEAL_SELF: clock paused; timeout() never auto-acts.
+ * AI seats still use turn_seconds + timeout_auto_play / challenge_only skip.
  */
 export class MatchEngine {
   private snapshot: MatchSnapshot | null = null;
@@ -115,12 +117,21 @@ export class MatchEngine {
     return this.phase;
   }
 
+  /** TURN / PLAY_REVEAL_SELF on a HUMAN seat: director must wait; never timeout-auto. */
+  humanMustWait(): boolean {
+    return this.currentSeatIsHuman() &&
+      (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF);
+  }
+
   pulse(nowMs: number): boolean {
     this.nowMs = nowMs;
     if (this.cfg === null) {
       return false;
     }
     if (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF) {
+      if (this.humanMustWait()) {
+        return false;
+      }
       if (this.turnEndsAtMs > 0 && nowMs >= this.turnEndsAtMs) {
         this.timeout();
         return true;
@@ -357,8 +368,15 @@ export class MatchEngine {
     return true;
   }
 
+  /**
+   * AI: CHALLENGE_ONLY → skip; NORMAL + timeout_auto_play → autoPlayOne.
+   * HUMAN: never auto-play / auto-skip. Clock is paused in armTurnClock; wait for tap.
+   */
   timeout(): boolean {
     if (this.cfg === null) {
+      return false;
+    }
+    if (this.currentSeatIsHuman()) {
       return false;
     }
     if (this.phase === Phase.TURN && this.turnWindow === TurnWindow.CHALLENGE_ONLY) {
@@ -371,7 +389,7 @@ export class MatchEngine {
       if (!this.cfg.timeout_auto_play) {
         return false;
       }
-      const seat = seatById(this.seats, this.currentSeatId);
+      const seat: SeatModel | null = seatById(this.seats, this.currentSeatId);
       if (seat !== null) {
         seat.consecutiveTimeouts = seat.consecutiveTimeouts + 1;
       }
@@ -491,7 +509,7 @@ export class MatchEngine {
     if (!this.demoOn || this.demo === null) {
       return null;
     }
-    const list = this.demo.force_events;
+    const list: DemoForceEvent[] = this.demo.force_events;
     if (list === null || list.length === 0) {
       return null;
     }
@@ -504,10 +522,10 @@ export class MatchEngine {
   }
 
   shouldForceSharkPlay(): boolean {
-    if (this.forcePlayUsed || this.challengeHappened) {
+    if (this.forcePlayUsed || this.challengeHappened || this.currentSeatIsHuman()) {
       return false;
     }
-    const ev = this.forceEventAt('PLAY');
+    const ev: DemoForceEvent | null = this.forceEventAt('PLAY');
     if (ev === null) {
       return false;
     }
@@ -515,10 +533,10 @@ export class MatchEngine {
   }
 
   shouldForceKarenChallenge(): boolean {
-    if (this.challengeHappened) {
+    if (this.challengeHappened || this.currentSeatIsHuman()) {
       return false;
     }
-    const ev = this.forceEventAt('CHALLENGE');
+    const ev: DemoForceEvent | null = this.forceEventAt('CHALLENGE');
     if (ev === null) {
       return false;
     }
@@ -527,7 +545,10 @@ export class MatchEngine {
   }
 
   demoForcePlay(): boolean {
-    const ev = this.forceEventAt('PLAY');
+    if (this.currentSeatIsHuman()) {
+      return false;
+    }
+    const ev: DemoForceEvent | null = this.forceEventAt('PLAY');
     if (ev === null || this.cfg === null || this.currentClaim === null) {
       return false;
     }
@@ -747,7 +768,7 @@ export class MatchEngine {
     }
     if (!this.hasCardsNow() && this.canChallengeNow()) {
       this.turnWindow = TurnWindow.CHALLENGE_ONLY;
-      this.turnEndsAtMs = this.nowMs + this.cfg.challenge_only_seconds * 1000;
+      this.armTurnClock(this.cfg.challenge_only_seconds);
       this.refreshTurnBanner();
       this.skipDepth = 0;
       return;
@@ -758,9 +779,18 @@ export class MatchEngine {
       return;
     }
     this.turnWindow = TurnWindow.NORMAL;
-    this.turnEndsAtMs = this.nowMs + this.cfg.turn_seconds * 1000;
+    this.armTurnClock(this.cfg.turn_seconds);
     this.refreshTurnBanner();
     this.skipDepth = 0;
+  }
+
+  /** AI: `seconds` countdown then timeout(). HUMAN: pause (turnEndsAtMs=0), wait for tap. */
+  private armTurnClock(seconds: number): void {
+    if (this.currentSeatIsHuman()) {
+      this.turnEndsAtMs = 0;
+      return;
+    }
+    this.turnEndsAtMs = this.nowMs + seconds * 1000;
   }
 
   private applySkip(): void {
@@ -839,6 +869,9 @@ export class MatchEngine {
 
   private autoPlayOne(): void {
     if (this.cfg === null || this.currentClaim === null) {
+      return;
+    }
+    if (this.currentSeatIsHuman()) {
       return;
     }
     const hand: CardModel[] = this.handOf(this.currentSeatId);
@@ -1099,8 +1132,13 @@ export class MatchEngine {
   }
 
   private currentIsGhost(): boolean {
-    const seat = seatById(this.seats, this.currentSeatId);
+    const seat: SeatModel | null = seatById(this.seats, this.currentSeatId);
     return seat === null || seat.status === SeatStatus.GHOST;
+  }
+
+  private currentSeatIsHuman(): boolean {
+    const seat: SeatModel | null = seatById(this.seats, this.currentSeatId);
+    return seat !== null && seat.role === SeatRole.HUMAN;
   }
 
   private handOf(seatId: number): CardModel[] {

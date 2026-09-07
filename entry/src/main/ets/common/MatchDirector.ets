@@ -1,7 +1,8 @@
 import { AiFriend, AiDecision } from '../ai/AiFriend';
+import { PersonaRow } from '../config/AiPersonasConfig';
 import { liveClaimShort, livePhaseText } from '../engine/DealerLines';
 import { MatchEngine } from '../engine/MatchEngine';
-import { MatchSnapshot } from '../engine/MatchTypes';
+import { CardModel, MatchSnapshot } from '../engine/MatchTypes';
 import { Phase, SeatRole, TurnWindow } from '../engine/Phase';
 import { SeededRng } from '../engine/SeededRng';
 import { LiveWindowAdapter, LiveWindowPayload } from '../harmony/LiveWindowAdapter';
@@ -11,6 +12,8 @@ const TAG = 'MatchDirector';
 
 /**
  * Dealer clock + AI turns. Pulses the pure engine. No rule numbers of its own.
+ * HUMAN TURN / PLAY_REVEAL_SELF: do not arm think, do not runAi, do not expire into autoPlay.
+ * AI seats keep think-delay then decide / demo_seed force events.
  */
 export class MatchDirector {
   private timerId: number = -1;
@@ -33,7 +36,11 @@ export class MatchDirector {
     }
     this.stopTimerOnly();
     this.engine.pulse(Date.now());
-    this.armIfNeeded();
+    if (this.engine.humanMustWait()) {
+      this.thinkUntilMs = 0;
+    } else {
+      this.armIfNeeded();
+    }
     this.timerId = setInterval((): void => {
       this.tick();
     }, 200);
@@ -60,6 +67,10 @@ export class MatchDirector {
     }
     this.pushLive(snap);
     if (snap.phase === Phase.RECAP || snap.phase === Phase.END || snap.phase === Phase.LOBBY) {
+      return;
+    }
+    if (this.engine.humanMustWait()) {
+      this.thinkUntilMs = 0;
       return;
     }
     this.armIfNeeded();
@@ -91,7 +102,7 @@ export class MatchDirector {
     this.armedSeat = snap.currentSeatId;
     this.armedRound = snap.roundIndex;
     this.armedPlays = snap.playIndexInRound;
-    if (this.roleOf(snap, snap.currentSeatId) !== SeatRole.AI) {
+    if (!this.isAiSeat(snap, snap.currentSeatId)) {
       this.thinkUntilMs = 0;
       return;
     }
@@ -114,7 +125,7 @@ export class MatchDirector {
     if (snap === null || snap.phase !== Phase.TURN) {
       return;
     }
-    if (this.roleOf(snap, snap.currentSeatId) !== SeatRole.AI) {
+    if (!this.isAiSeat(snap, snap.currentSeatId)) {
       return;
     }
     if (engine.shouldForceKarenChallenge()) {
@@ -127,7 +138,7 @@ export class MatchDirector {
       this.maybeTableColor(snap);
       return;
     }
-    const hand = engine.handForAi(snap.currentSeatId);
+    const hand: CardModel[] = engine.handForAi(snap.currentSeatId);
     const rng: SeededRng = this.turnRng(snap);
     const d: AiDecision = this.ai.decide(snap, hand, rng);
     if (d.kind === 'CHALLENGE') {
@@ -157,7 +168,7 @@ export class MatchDirector {
         persona = prev.seats[i].aiPersona;
       }
     }
-    const row = this.ai.row(persona);
+    const row: PersonaRow = this.ai.row(persona);
     if (rng.nextBool(row.p_emote_after_play)) {
       this.engine.emote(prev.currentSeatId, 'SMILE');
     }
@@ -173,13 +184,14 @@ export class MatchDirector {
     return new SeededRng(snap.seed + snap.roundIndex * 1009 + snap.playIndexInRound * 17 + snap.currentSeatId);
   }
 
-  private roleOf(snap: MatchSnapshot, seatId: number): SeatRole {
+  /** Unknown seat is not AI — fail closed so HUMAN is never auto-played. */
+  private isAiSeat(snap: MatchSnapshot, seatId: number): boolean {
     for (let i = 0; i < snap.seats.length; i++) {
       if (snap.seats[i].seatId === seatId) {
-        return snap.seats[i].role;
+        return snap.seats[i].role === SeatRole.AI;
       }
     }
-    return SeatRole.AI;
+    return false;
   }
 
   private pushLive(snap: MatchSnapshot): void {
