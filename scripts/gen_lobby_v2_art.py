@@ -270,6 +270,19 @@ def fit_bust_announce(im: Image.Image, tw: int = 324, th: int = 432) -> Image.Im
     return _clear_corners(fitted)
 
 
+def fit_chrome(src: Image.Image, tw: int, th: int, pad: int = 6) -> Image.Image:
+    """Key studio gray, crop the capsule, stretch to the locked slot. Corners stay clear."""
+    keyed = key_light_background(src)
+    x0, y0, x1, y1 = _opaque_bbox(keyed)
+    x0 = max(0, x0 - pad)
+    y0 = max(0, y0 - pad)
+    x1 = min(keyed.size[0] - 1, x1 + pad)
+    y1 = min(keyed.size[1] - 1, y1 + pad)
+    crop = keyed.crop((x0, y0, x1 + 1, y1 + 1))
+    fitted = crop.resize((tw, th), Image.Resampling.LANCZOS)
+    return _clear_corners(fitted, pad=4)
+
+
 def sample_patch(im: Image.Image, box: tuple[int, int, int, int], size: tuple[int, int]) -> Image.Image:
     return im.crop(box).resize(size, Image.Resampling.LANCZOS)
 
@@ -390,20 +403,9 @@ def main() -> None:
     save_png(idle, MEDIA / "art_dealer_bust_idle.png")
     save_png(announce, MEDIA / "art_dealer_bust_announce.png")
 
-    wood_btn = sample_patch(splash_src, (120, 180, 620, 420), (720, 144))
-    wood_in = sample_patch(lobby_src, (180, 620, 900, 900), (720, 96))
-    save_png(
-        wood_chrome(720, 144, wood_btn, PANEL, ACCENT, pressed=False, radius=28, seed=4),
-        MEDIA / "art_btn_primary.png",
-    )
-    save_png(
-        wood_chrome(720, 144, wood_btn, mix(PANEL, ACCENT, 0.35), mix(CANDLE, PAPER, 0.2), pressed=True, radius=28, seed=8),
-        MEDIA / "art_btn_primary_on.png",
-    )
-    save_png(
-        wood_chrome(720, 96, wood_in, mix(BG, FELT, 0.4), BRASS, inset=True, radius=20, seed=13),
-        MEDIA / "art_input_field.png",
-    )
+    save_png(fit_chrome(open_src("src_btn_primary.png"), 720, 144), MEDIA / "art_btn_primary.png")
+    save_png(fit_chrome(open_src("src_btn_primary_on.png"), 720, 144), MEDIA / "art_btn_primary_on.png")
+    save_png(fit_chrome(open_src("src_input_field.png"), 720, 96), MEDIA / "art_input_field.png")
 
     jobs = [
         ("art_splash_still.png", (1080, 2340), False),
