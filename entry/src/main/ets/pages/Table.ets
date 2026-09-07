@@ -135,50 +135,61 @@ struct Table {
             .fontSize($r('app.float.subtitle_text_size'))
         }
 
-        Button($r('app.string.lb_str_challenge'))
-          .id(ControlIds.CHALLENGE)
-          .enabled(this.challengeEnabled)
-          .backgroundColor($r('app.color.tavern_panel'))
-          .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
-          .margin({ top: 12 })
-          .onClick(() => {
-            AppRuntime.engine.intentChallenge();
-            this.pull();
-          })
-
         if (this.showFirstHint) {
           Text($r('app.string.lb_str_challenge_disabled_first'))
             .fontColor($r('app.color.tavern_mute'))
             .fontSize($r('app.float.subtitle_text_size'))
-        }
-
-        if (this.playEnabled) {
-          Button($r('app.string.lb_str_play'))
-            .backgroundColor($r('app.color.tavern_accent'))
-            .fontColor($r('app.color.tavern_bg'))
-            .margin({ top: 10 })
-            .onClick(() => {
-              AppRuntime.engine.intentPlay();
-              this.showPlay = true;
-              this.pull();
-            })
-        }
-
-        if (this.skipEnabled) {
-          Button($r('app.string.lb_str_skip'))
             .margin({ top: 8 })
-            .onClick(() => {
-              AppRuntime.engine.skip();
-              this.pull();
-            })
         }
 
         SpectatorStub()
         TutorialStub()
 
+        Row({ space: 10 }) {
+          Button($r('app.string.lb_str_challenge'))
+            .id(ControlIds.CHALLENGE)
+            .layoutWeight(1)
+            .height($r('app.float.cta_height'))
+            .fontSize($r('app.float.page_text_size'))
+            .enabled(this.challengeEnabled)
+            .backgroundColor($r('app.color.tavern_panel'))
+            .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
+            .onClick(() => {
+              AppRuntime.engine.intentChallenge();
+              this.pull();
+            })
+          if (this.skipEnabled) {
+            Button($r('app.string.lb_str_skip'))
+              .layoutWeight(1)
+              .height($r('app.float.cta_height'))
+              .fontSize($r('app.float.page_text_size'))
+              .backgroundColor($r('app.color.tavern_panel'))
+              .fontColor($r('app.color.tavern_paper'))
+              .onClick(() => {
+                AppRuntime.engine.skip();
+                this.pull();
+              })
+          } else {
+            Button($r('app.string.lb_str_play'))
+              .layoutWeight(1)
+              .height($r('app.float.cta_height'))
+              .fontSize($r('app.float.page_text_size'))
+              .enabled(this.playEnabled)
+              .backgroundColor($r('app.color.tavern_accent'))
+              .fontColor(this.playEnabled ? $r('app.color.tavern_bg') : $r('app.color.tavern_mute'))
+              .onClick(() => {
+                AppRuntime.engine.intentPlay();
+                this.showPlay = true;
+                this.pull();
+              })
+          }
+        }
+        .width('100%')
+        .margin({ top: 12 })
+
         Button($r('app.string.lb_str_home'))
           .width('100%')
-          .margin({ top: 16 })
+          .margin({ top: 10 })
           .onClick(() => {
             AppRuntime.director.stop();
             AppRuntime.engine.toLobby();
@@ -277,8 +288,6 @@ struct Table {
     } else {
       this.claimText = '';
     }
-    const sec: number = Math.ceil(snap.turnRemainMs / 1000);
-    this.timerText = `${sec}`;
     this.selfCards = snap.selfHand;
     this.peekRanks = this.ranksOf(snap.selfHand);
     this.cardBacks = this.indexes(snap.selfHand.length);
@@ -292,6 +301,12 @@ struct Table {
     }
     this.fillSeats(snap.seats);
     const humanTurn: boolean = this.isHumanTurn(snap);
+    if (humanTurn && (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF)) {
+      this.timerText = '--';
+    } else {
+      const sec: number = Math.ceil(snap.turnRemainMs / 1000);
+      this.timerText = `${sec}`;
+    }
     this.challengeEnabled = humanTurn && snap.canChallenge && snap.phase === Phase.TURN;
     this.showFirstHint = !snap.canChallenge && snap.playIndexInRound === 0 && humanTurn;
     this.playEnabled = humanTurn && snap.hasCards && snap.phase === Phase.TURN &&

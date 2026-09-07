@@ -27,4 +27,6 @@ HarmonyOS NEXT 单模块 HAP。包名 `com.liarbar.app`，应用显示名 **谎�
 
 规则数字只从 `Match.config`（开局深拷贝 JSON）读。牌堆运行时键仍是 `n3`..`n6`。改手感只改 `resources/rawfile/config/`，不要在 `.ets` 里写死 `turn_seconds` / `challenge_only_seconds` / `lives_default`。
 
+**回合超时（人机分工）**：`timeout_auto_play` 仍对 **AI** 生效（普通窗代出 1 张；仅质疑窗 skip）。`currentSeat.role === HUMAN` 且阶段为 `TURN` / `PLAY_REVEAL_SELF` 时 **暂停回合钟**（`turnEndsAtMs=0`），`timeout()` / `autoPlayOne` 不代出、不代跳过；一直等到玩家点 出牌 / 质疑 / 跳过（合法时）。空牌且不可质疑的 T14 自动跳过仍适用。`demo_seed` 强制事件不变。
+
 大厅/桌面插画用仓库根 `scripts/gen_lobby_p0_art.py`；其余占位可用 `scripts/gen_scaffold_assets.py`（会跳过已插画的 bust / 桌底）。文件名必须继续是美术清单里的 `art_*`。
