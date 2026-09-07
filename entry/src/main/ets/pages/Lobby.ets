@@ -195,11 +195,12 @@ struct Lobby {
     }
     await LocalStore.saveNickname(this.nickname);
     const lives: number = ConfigRepository.match().lives_default;
-    await LocalStore.saveLastTable({
+    const table: LastTable = {
       playerCount: this.playerCount,
       lives: lives,
       silent: this.silent
-    });
+    };
+    await LocalStore.saveLastTable(table);
     await LocalStore.bumpLocalPlay();
     AppRuntime.bootDirector();
     const opts: StartMatchOpts = {
