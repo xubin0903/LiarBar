@@ -10,6 +10,7 @@ Sizes: docs/04-设计/04-开场声场与大厅氛围-v3.md §3.8.1
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -18,8 +19,14 @@ from scipy.ndimage import gaussian_filter, map_coordinates, rotate
 
 ROOT = Path(__file__).resolve().parents[1]
 MEDIA = ROOT / "entry/src/main/resources/base/media"
-CANDLE_SRC = Path("/opt/cursor/artifacts/assets/art_fx_candle_src.png")
+CANDLE_SRC_CANDIDATES = (
+    ROOT / "scripts/art_src/src_fx_candle.jpg",
+    ROOT / "scripts/art_src/src_fx_candle.png",
+    Path("/opt/cursor/artifacts/assets/art_fx_candle_src.png"),
+)
 DUST_SRC = Path("/opt/cursor/artifacts/assets/art_fx_dust_src.png")
+# Slightly over 256 so the soft halo can die to zero before the plate edge.
+CANDLE_SIZE = (288, 288)
 
 CANDLE = (0xE8, 0xB8, 0x6D)
 BRASS = (0xC4, 0xA4, 0x6A)
@@ -175,6 +182,143 @@ def make_cup(idle: Image.Image) -> Image.Image:
     return paint_cup(tilted)
 
 
+def resolve_candle_src() -> Path | None:
+    for path in CANDLE_SRC_CANDIDATES:
+        if path.exists():
+            return path
+    return None
+
+
+def chroma(rgb: np.ndarray) -> np.ndarray:
+    return rgb.max(axis=2) - rgb.min(axis=2)
+
+
+def key_candle_plate(src: Path, size: tuple[int, int] = CANDLE_SIZE) -> Image.Image:
+    """Key a warm teardrop flame off baked checker / black field.
+
+    #28's plate kept dark-gray checker at high alpha, so Harmony src-over
+    read as a boxed stamp. Rebuild RGB as warm light only; never emit
+    low-chroma dark pixels with leftover alpha.
+    """
+    im = Image.open(src).convert("RGB")
+    rgb = np.array(im).astype(np.float32)
+    h, w = rgb.shape[:2]
+    L = luma(rgb)
+    C = chroma(rgb)
+    warm = rgb[..., 0] - rgb[..., 2]
+
+    # Dark Photoshop checker on this source sits ~25–58 gray, C≈0.
+    checker = (C < 18.0) & (warm < 16.0) & (L < 100.0)
+    body = np.clip((warm - 18.0) / 72.0, 0.0, 1.0) * np.clip((C - 12.0) / 55.0, 0.0, 1.0)
+    body = np.maximum(
+        body,
+        np.clip((L - 95.0) / 95.0, 0.0, 1.0) * np.clip((warm - 8.0) / 42.0, 0.0, 1.0),
+    )
+    body[checker] = 0.0
+    body = gaussian_filter(body, 0.7)
+
+    ys, xs = np.where(body > 0.10)
+    if xs.size < 32:
+        raise SystemExit(f"candle key found no flame in {src}")
+    y0, y1 = int(ys.min()), int(ys.max())
+    x0, x1 = int(xs.min()), int(xs.max())
+    bw, bh = x1 - x0 + 1, y1 - y0 + 1
+    pad_x = int(bw * 0.40)
+    pad_y = int(bh * 0.46)
+    y0, y1 = max(0, y0 - pad_y), min(h - 1, y1 + pad_y)
+    x0, x1 = max(0, x0 - pad_x), min(w - 1, x1 + pad_x)
+
+    crop = rgb[y0 : y1 + 1, x0 : x1 + 1]
+    a_body = np.clip(body[y0 : y1 + 1, x0 : x1 + 1], 0.0, 1.0)
+    crop_L = L[y0 : y1 + 1, x0 : x1 + 1]
+    crop_C = C[y0 : y1 + 1, x0 : x1 + 1]
+    crop_warm = warm[y0 : y1 + 1, x0 : x1 + 1]
+
+    bg = np.array([38.0, 38.0, 38.0], dtype=np.float32)
+    unmixed = (crop - (1.0 - a_body)[..., None] * bg) / np.maximum(a_body, 0.14)[..., None]
+    unmixed = np.clip(unmixed, 0.0, 255.0)
+
+    candle = np.array(CANDLE, dtype=np.float32)
+    accent = np.array(ACCENT, dtype=np.float32)
+    paper = np.array(PAPER, dtype=np.float32)
+    core_col = np.array((255.0, 250.0, 228.0), dtype=np.float32)
+    core = np.clip((crop_L - 155.0) / 55.0, 0.0, 1.0) * np.clip(crop_warm / 70.0, 0.0, 1.0)
+    rebuilt = (
+        unmixed * (a_body * 0.42)[..., None]
+        + candle * (a_body * 0.48)[..., None]
+        + accent * (np.clip(a_body - 0.20, 0.0, 1.0) * 0.18)[..., None]
+        + paper * (core * 0.40)[..., None]
+        + core_col * (np.power(np.clip(core, 0.0, 1.0), 1.55) * 0.62)[..., None]
+    )
+    keep_src = np.clip((a_body - 0.32) / 0.50, 0.0, 1.0)
+    unmixed_warm = unmixed[..., 0] - unmixed[..., 2]
+    unmixed_c = unmixed.max(axis=2) - unmixed.min(axis=2)
+    keep_src[(unmixed_warm < 22.0) | (unmixed_c < 18.0)] = 0.0
+    rgb_out = np.clip(unmixed * keep_src[..., None] + rebuilt * (1.0 - keep_src)[..., None], 0.0, 255.0)
+
+    glow = gaussian_filter(a_body, 5.5)
+    halo = gaussian_filter(a_body, 13.0)
+    alpha = np.clip(a_body * 255.0 * 1.08 + glow * 70.0 + halo * 32.0, 0.0, 255.0)
+    # Residual checker / black field must not keep alpha (that was the #28 box).
+    dead = (crop_warm < 12.0) & (crop_C < 14.0) & (a_body < 0.10)
+    alpha[dead] = np.minimum(alpha[dead], halo[dead] * 28.0)
+
+    out_c = rgb_out.max(axis=2) - rgb_out.min(axis=2)
+    out_warm = rgb_out[..., 0] - rgb_out[..., 2]
+    out_l = luma(rgb_out)
+    grayish = (out_c < 20.0) & (out_warm < 18.0) & (alpha > 4.0)
+    warm_fill = candle * 0.72 + accent * 0.28
+    rgb_out[grayish] = warm_fill
+    # Any leftover dark stamp becomes transparent, not a boxed plate.
+    boxed = (out_l < 62.0) & (out_c < 22.0) & (out_warm < 20.0)
+    alpha[boxed] = 0.0
+
+    plate = np.zeros((*rgb_out.shape[:2], 4), dtype=np.float32)
+    plate[..., :3] = rgb_out
+    plate[..., 3] = alpha
+    plate = clear_zero_rgb(np.clip(plate, 0.0, 255.0).astype(np.uint8))
+    keyed = Image.fromarray(plate, "RGBA")
+
+    tw, th = size
+    # Fit flame into ~68% of the plate; leftover is only halo dying to 0.
+    fit = (int(tw * 0.68), int(th * 0.68))
+    keyed = keyed.resize(fit, Image.Resampling.LANCZOS)
+    canvas = Image.new("RGBA", size, (0, 0, 0, 0))
+    ox = (tw - fit[0]) // 2
+    oy = (th - fit[1]) // 2
+    canvas.paste(keyed, (ox, oy), keyed)
+    arr = np.array(canvas)
+    border = 14
+    arr[:border, :, 3] = 0
+    arr[-border:, :, 3] = 0
+    arr[:, :border, 3] = 0
+    arr[:, -border:, 3] = 0
+    return Image.fromarray(clear_zero_rgb(arr), "RGBA")
+
+
+def assert_clean_fx_plate(path: Path, min_clear_border: int = 8) -> None:
+    arr = np.array(Image.open(path).convert("RGBA"))
+    h, w = arr.shape[:2]
+    rgb, a = arr[..., :3].astype(np.float32), arr[..., 3].astype(np.float32)
+    L = luma(rgb)
+    C = chroma(rgb)
+    # Boxed stamp: dark low-chroma pixels holding alpha.
+    boxed = (a > 18.0) & (L < 55.0) & (C < 16.0)
+    if boxed.mean() > 0.004:
+        raise SystemExit(f"{path.name} still has a dark boxed field ({boxed.mean():.3%} px)")
+    if not corner_alpha_zero(path):
+        raise SystemExit(f"{path.name} corners are not transparent")
+    ring = np.zeros((h, w), dtype=bool)
+    ring[:min_clear_border] = True
+    ring[-min_clear_border:] = True
+    ring[:, :min_clear_border] = True
+    ring[:, -min_clear_border:] = True
+    if a[ring].max() > 8:
+        raise SystemExit(f"{path.name} plate edge is not clear (max alpha {a[ring].max():.0f})")
+    if (a > 200).sum() < 80:
+        raise SystemExit(f"{path.name} flame core is missing")
+
+
 def key_warm_glow(src: Path, size: tuple[int, int]) -> Image.Image:
     im = Image.open(src).convert("RGBA")
     arr = np.array(im).astype(np.float32)
@@ -304,28 +448,38 @@ def pixel_overlap(a: Path, b: Path) -> float:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Lobby v3 art plates")
+    parser.add_argument("--candle-only", action="store_true", help="rewrite art_fx_candle only")
+    args = parser.parse_args()
+
     MEDIA.mkdir(parents=True, exist_ok=True)
     idle = load_idle()
     idle_path = MEDIA / "art_dealer_bust_idle.png"
 
-    jobs = [
-        ("art_dealer_idle_blink.png", make_blink(idle), (324, 432), True),
-        ("art_dealer_idle_nod.png", make_nod(idle), (324, 432), True),
-        ("art_dealer_idle_cup.png", make_cup(idle), (324, 432), True),
-        ("art_dealer_idle_mask.png", make_mask(idle), (324, 432), True),
-    ]
+    jobs: list[tuple[str, Image.Image, tuple[int, int], bool]] = []
+    if not args.candle_only:
+        jobs.extend(
+            [
+                ("art_dealer_idle_blink.png", make_blink(idle), (324, 432), True),
+                ("art_dealer_idle_nod.png", make_nod(idle), (324, 432), True),
+                ("art_dealer_idle_cup.png", make_cup(idle), (324, 432), True),
+                ("art_dealer_idle_mask.png", make_mask(idle), (324, 432), True),
+            ]
+        )
 
-    if CANDLE_SRC.exists():
-        candle = key_warm_glow(CANDLE_SRC, (256, 256))
+    src = resolve_candle_src()
+    if src is not None:
+        candle = key_candle_plate(src, CANDLE_SIZE)
     else:
-        candle = paint_candle()
-    jobs.append(("art_fx_candle.png", candle, (256, 256), True))
+        candle = paint_candle(CANDLE_SIZE)
+    jobs.append(("art_fx_candle.png", candle, CANDLE_SIZE, True))
 
-    if DUST_SRC.exists():
-        dust = key_warm_glow(DUST_SRC, (1080, 600))
-    else:
-        dust = paint_dust()
-    jobs.append(("art_fx_dust.png", dust, (1080, 600), True))
+    if not args.candle_only:
+        if DUST_SRC.exists():
+            dust = key_warm_glow(DUST_SRC, (1080, 600))
+        else:
+            dust = paint_dust()
+        jobs.append(("art_fx_dust.png", dust, (1080, 600), True))
 
     for name, im, size, trans in jobs:
         dest = MEDIA / name
@@ -346,19 +500,22 @@ def main() -> None:
         print(f"{name:32} {got.size[0]}x{got.size[1]} colors~{n} mode={got.mode} bytes={dest.stat().st_size}{extra}")
         if n < 80:
             raise SystemExit(f"{name} still looks like a color-block placeholder ({n} colors)")
+        if name == "art_fx_candle.png":
+            assert_clean_fx_plate(dest, min_clear_border=10)
 
-    for name in (
-        "art_dealer_idle_blink.png",
-        "art_dealer_idle_nod.png",
-        "art_dealer_idle_cup.png",
-        "art_dealer_idle_mask.png",
-    ):
-        ov = pixel_overlap(idle_path, MEDIA / name)
-        print(f"  overlap vs idle  {name:28} {ov:.3f}")
-        if ov < 0.55:
-            raise SystemExit(f"{name} drifted off the idle bust (overlap {ov:.3f})")
+    if not args.candle_only:
+        for name in (
+            "art_dealer_idle_blink.png",
+            "art_dealer_idle_nod.png",
+            "art_dealer_idle_cup.png",
+            "art_dealer_idle_mask.png",
+        ):
+            ov = pixel_overlap(idle_path, MEDIA / name)
+            print(f"  overlap vs idle  {name:28} {ov:.3f}")
+            if ov < 0.55:
+                raise SystemExit(f"{name} drifted off the idle bust (overlap {ov:.3f})")
 
-    print("lobby v3 art written from art_dealer_bust_idle")
+    print("lobby v3 art written" + (" (candle only)" if args.candle_only else " from art_dealer_bust_idle"))
 
 
 if __name__ == "__main__":
