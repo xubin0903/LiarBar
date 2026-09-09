@@ -6,6 +6,7 @@ import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { LobbyBoot } from './LobbyBoot';
+import { MatchLoad } from './MatchLoad';
 
 const TAG = 'LobbyAudio';
 
@@ -14,6 +15,7 @@ const PATH_AMB: string = 'audio/sfx/sfx_amb_tavern.ogg';
 const PATH_HIT: string = 'audio/sfx/sfx_boot_hit.wav';
 const PATH_CTA: string = 'audio/sfx/sfx_cta_tap.wav';
 const PATH_VO: string = 'audio/vo/vo_dealer_greet.wav';
+const PATH_MATCH_OPEN: string = 'audio/sfx/sfx_match_open.wav';
 
 /**
  * Five-layer lobby field: BGM + tavern amb + boot hit + CTA tap + greet VO.
@@ -26,6 +28,7 @@ export class LobbyAudio {
   static readonly HIT: string = SfxIds.BOOT_HIT;
   static readonly CTA: string = SfxIds.CTA_TAP;
   static readonly VO: string = SfxIds.VO_DEALER_GREET;
+  static readonly MATCH_OPEN: string = SfxIds.MATCH_OPEN;
 
   static readonly VOL_BGM_OPEN: number = 0.25;
   static readonly VOL_BGM_STEADY: number = 0.20;
@@ -43,6 +46,7 @@ export class LobbyAudio {
   private static hitId: number = -1;
   private static ctaId: number = -1;
   private static voId: number = -1;
+  private static matchOpenId: number = -1;
   private static voStream: number = -1;
   private static silent: boolean = false;
   private static bedsWanted: boolean = false;
@@ -50,6 +54,7 @@ export class LobbyAudio {
   private static pendingCta: boolean = false;
   private static pendingCtaPeek: boolean = false;
   private static pendingVo: boolean = false;
+  private static pendingMatchOpen: boolean = false;
   private static pendingBgmOpen: boolean = false;
   private static pendingBgmSteady: boolean = false;
   private static pendingAmb: boolean = false;
@@ -72,11 +77,12 @@ export class LobbyAudio {
     if (on) {
       Logger.info(TAG,
         `${SfxIds.BGM_LOBBY_NIGHT}/${SfxIds.AMB_TAVERN}/${SfxIds.BOOT_HIT}/` +
-        `${SfxIds.CTA_TAP}/${SfxIds.VO_DEALER_GREET} skipped (silent)`);
+        `${SfxIds.CTA_TAP}/${SfxIds.VO_DEALER_GREET}/${SfxIds.MATCH_OPEN} skipped (silent)`);
       LobbyAudio.pendingHit = false;
       LobbyAudio.pendingCta = false;
       LobbyAudio.pendingCtaPeek = false;
       LobbyAudio.pendingVo = false;
+      LobbyAudio.pendingMatchOpen = false;
       LobbyAudio.pendingBgmOpen = false;
       LobbyAudio.pendingBgmSteady = false;
       LobbyAudio.pendingAmb = false;
@@ -99,7 +105,7 @@ export class LobbyAudio {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
         rendererFlags: 1
       };
-      const pool: media.SoundPool = await media.createSoundPool(4, info);
+      const pool: media.SoundPool = await media.createSoundPool(5, info);
       LobbyAudio.pool = pool;
       pool.on('loadComplete', (soundId: number): void => {
         LobbyAudio.onLoaded(soundId);
@@ -107,6 +113,7 @@ export class LobbyAudio {
       LobbyAudio.hitId = await LobbyAudio.loadPath(PATH_HIT);
       LobbyAudio.ctaId = await LobbyAudio.loadPath(PATH_CTA);
       LobbyAudio.voId = await LobbyAudio.loadPath(PATH_VO);
+      LobbyAudio.matchOpenId = await LobbyAudio.loadPath(PATH_MATCH_OPEN);
       Logger.info(TAG, 'sound pool ready');
     } catch (err) {
       Logger.warn(TAG, `sound pool unavailable — fail-soft, timeline continues: ${err}`);
@@ -157,6 +164,19 @@ export class LobbyAudio {
     }
     Logger.info(TAG, `${SfxIds.VO_DEALER_GREET} play`);
     LobbyAudio.playShot(LobbyAudio.voId, LobbyAudio.VOL_VO, true);
+  }
+
+  static playMatchOpen(): void {
+    if (LobbyAudio.silent) {
+      Logger.info(TAG, `${SfxIds.MATCH_OPEN} skipped (silent)`);
+      return;
+    }
+    if (LobbyAudio.matchOpenId < 0 || LobbyAudio.pool === null) {
+      LobbyAudio.pendingMatchOpen = true;
+      return;
+    }
+    Logger.info(TAG, `${SfxIds.MATCH_OPEN} play`);
+    LobbyAudio.playShot(LobbyAudio.matchOpenId, MatchLoad.VOL_MATCH_OPEN, false);
   }
 
   static startAmb(fadeMs: number): void {
@@ -227,6 +247,7 @@ export class LobbyAudio {
     LobbyAudio.pendingCta = false;
     LobbyAudio.pendingCtaPeek = false;
     LobbyAudio.pendingVo = false;
+    LobbyAudio.pendingMatchOpen = false;
     LobbyAudio.pendingBgmOpen = false;
     LobbyAudio.pendingBgmSteady = false;
     LobbyAudio.pendingAmb = false;
@@ -252,6 +273,7 @@ export class LobbyAudio {
     LobbyAudio.pendingCta = false;
     LobbyAudio.pendingCtaPeek = false;
     LobbyAudio.pendingVo = false;
+    LobbyAudio.pendingMatchOpen = false;
     LobbyAudio.pendingBgmOpen = false;
     LobbyAudio.pendingBgmSteady = false;
     LobbyAudio.pendingAmb = false;
@@ -270,6 +292,7 @@ export class LobbyAudio {
     LobbyAudio.hitId = -1;
     LobbyAudio.ctaId = -1;
     LobbyAudio.voId = -1;
+    LobbyAudio.matchOpenId = -1;
     if (pool === null) {
       return;
     }
@@ -294,6 +317,10 @@ export class LobbyAudio {
     if (soundId === LobbyAudio.voId && LobbyAudio.pendingVo) {
       LobbyAudio.pendingVo = false;
       LobbyAudio.playVoGreet();
+    }
+    if (soundId === LobbyAudio.matchOpenId && LobbyAudio.pendingMatchOpen) {
+      LobbyAudio.pendingMatchOpen = false;
+      LobbyAudio.playMatchOpen();
     }
   }
 

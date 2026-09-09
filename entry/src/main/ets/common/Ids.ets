@@ -21,6 +21,8 @@ export class OverlayIds {
   static readonly PEEK_MASK: string = 'lb_cmp_peek_mask';
   static readonly SHEET_PLAY: string = 'lb_sheet_play';
   static readonly PRIVACY_ON: string = 'lb_privacy_on';
+  /** Locked overlay id (docs 08/09). Not a fifth lb_scr_*. */
+  static readonly MATCH_LOAD: string = 'lb_ovl_match_load';
 }
 
 export class ChallengeBeatIds {
@@ -78,6 +80,7 @@ export class SfxIds {
   static readonly BOOT_HIT: string = 'lb_sfx_boot_hit';
   static readonly CTA_TAP: string = 'lb_sfx_cta_tap';
   static readonly VO_DEALER_GREET: string = 'lb_vo_dealer_greet';
+  static readonly MATCH_OPEN: string = 'lb_sfx_match_open';
 }
 
 export class PersistNs {

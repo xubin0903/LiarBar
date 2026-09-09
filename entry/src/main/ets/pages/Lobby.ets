@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { AppRuntime } from '../common/AppRuntime';
-import { ControlIds, ScreenIds } from '../common/Ids';
+import { ControlIds, OverlayIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { ConfigRepository } from '../config/ConfigRepository';
@@ -9,6 +9,8 @@ import { DealerIdleKind, DealerIdleMachine } from '../features/lobby/DealerIdleM
 import { LobbyAudio } from '../features/lobby/LobbyAudio';
 import { BootMarks, LobbyBoot, LobbySession } from '../features/lobby/LobbyBoot';
 import { LobbyPanel } from '../features/lobby/LobbyPanel';
+import { MatchLoad } from '../features/lobby/MatchLoad';
+import { MatchLoadOverlay } from '../features/lobby/MatchLoadOverlay';
 import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
 import { LastTable, LocalStore } from '../persist/LocalStore';
 
@@ -63,6 +65,7 @@ struct Lobby {
   @State peekHotBorder: number = 0;
   @State peekHotScale: number = 1;
   @State peekHotLit: boolean = false;
+  @State matchLoading: boolean = false;
   @State dealerScale: number = 1;
   @State candleOpacity: number = 0.70;
   @State candleScale: number = 1;
@@ -80,6 +83,8 @@ struct Lobby {
   private peekPointerHot: boolean = false;
   private peekFocusHot: boolean = false;
   private peekHotActive: boolean = false;
+  private matchLoadAxisDone: boolean = false;
+  private matchLoadPersistDone: boolean = false;
 
   aboutToAppear(): void {
     this.begin();
@@ -155,6 +160,10 @@ struct Lobby {
       .width('100%')
       .height('100%')
       .padding({ left: 20, right: 20, top: 8, bottom: 20 })
+
+      if (this.matchLoading) {
+        MatchLoadOverlay()
+      }
     }
     .id(ScreenIds.LOBBY)
     .width('100%')
@@ -175,7 +184,7 @@ struct Lobby {
         .fontColor($r('app.color.tavern_mute'))
         .fontSize($r('app.float.caption_text_size'))
         .onClick(() => {
-          if (!this.bootReady) {
+          if (!this.bootReady || this.matchLoading) {
             return;
           }
           LbRouter.toReport();
@@ -302,7 +311,7 @@ struct Lobby {
         .fontColor($r('app.color.tavern_bg'))
         .stateEffect(false)
         .hoverEffect(HoverEffect.None)
-        .enabled(this.bootReady)
+        .enabled(this.bootReady && !this.matchLoading)
         .focusable(true)
         .onFocus(() => {
           this.setCtaFocusHot(true);
@@ -365,7 +374,7 @@ struct Lobby {
         this.onPeekTouch(event);
       })
       .onClick(() => {
-        if (!this.bootReady) {
+        if (!this.bootReady || this.matchLoading) {
           return;
         }
         LbRouter.toTable();
@@ -899,7 +908,7 @@ struct Lobby {
   }
 
   private onCtaTouch(event: TouchEvent): void {
-    if (!this.bootReady) {
+    if (!this.bootReady || this.matchLoading) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -927,7 +936,7 @@ struct Lobby {
   }
 
   private onPeekTouch(event: TouchEvent): void {
-    if (!this.bootReady) {
+    if (!this.bootReady || this.matchLoading) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -1009,14 +1018,34 @@ struct Lobby {
   }
 
   private async doQuickStart(): Promise<void> {
-    if (!this.bootReady) {
-      Logger.warn(TAG, 'quickstart ignored: boot axis not finished');
+    await this.beginMatchLoad();
+  }
+
+  /** Shared open-table gate: overlay first, T01 only after the locked axis. */
+  private async beginMatchLoad(): Promise<void> {
+    if (!this.bootReady || this.matchLoading) {
+      Logger.warn(TAG, 'match load ignored: boot not ready or already loading');
       return;
     }
     if (!ConfigRepository.isReady()) {
-      Logger.warn(TAG, 'quickstart ignored: config not loaded');
+      Logger.warn(TAG, 'match load ignored: config not loaded');
       return;
     }
+    this.matchLoading = true;
+    this.matchLoadAxisDone = false;
+    this.matchLoadPersistDone = false;
+    const axisMs: number = MatchLoad.axisMs();
+    Logger.info(TAG, `${OverlayIds.MATCH_LOAD} axis ${axisMs}ms — T01 after L-4`);
+    this.arm(axisMs, (): void => {
+      this.matchLoadAxisDone = true;
+      this.tryEnterTable();
+    });
+    await this.persistQuickStart();
+    this.matchLoadPersistDone = true;
+    this.tryEnterTable();
+  }
+
+  private async persistQuickStart(): Promise<void> {
     await LocalStore.saveNickname(this.nickname);
     const lives: number = ConfigRepository.match().lives_default;
     const table: LastTable = {
@@ -1026,6 +1055,12 @@ struct Lobby {
     };
     await LocalStore.saveLastTable(table);
     await LocalStore.bumpLocalPlay();
+  }
+
+  private tryEnterTable(): void {
+    if (!this.matchLoadAxisDone || !this.matchLoadPersistDone) {
+      return;
+    }
     AppRuntime.bootDirector();
     const opts: StartMatchOpts = {
       nickname: this.nickname,
@@ -1034,11 +1069,14 @@ struct Lobby {
     };
     const started: boolean = AppRuntime.engine.startMatch(opts);
     if (!started) {
-      Logger.warn(TAG, 'quickstart ignored: START_MATCH rejected');
+      Logger.warn(TAG, 'match load ignored: START_MATCH rejected');
+      this.matchLoading = false;
+      this.matchLoadAxisDone = false;
+      this.matchLoadPersistDone = false;
       return;
     }
     AppRuntime.director.start();
-    Logger.info(TAG, 'quickstart → START_MATCH → table (1 human + AI fill)');
+    Logger.info(TAG, 'L-4 axis done → T01 START_MATCH → lb_scr_table');
     LbRouter.toTable();
   }
 }
