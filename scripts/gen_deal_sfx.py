@@ -40,12 +40,28 @@ def peak_normalize(x: np.ndarray, peak_db: float) -> np.ndarray:
 def write_wav(path: Path, samples: np.ndarray) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     samples = np.clip(samples, -1.0, 1.0)
-    pcm = (samples * 32767.0).astype(np.int16)
+    if samples.ndim == 1:
+        ch = 1
+        frames = samples
+    else:
+        ch = int(samples.shape[1])
+        frames = samples.reshape(-1)
+    pcm = (frames * 32767.0).astype(np.int16)
     with wave.open(str(path), "wb") as wf:
-        wf.setnchannels(1)
+        wf.setnchannels(ch)
         wf.setsampwidth(2)
         wf.setframerate(SR)
         wf.writeframes(pcm.tobytes())
+
+
+def stereo(left: np.ndarray, width: float = 0.22, pad_s: float = 0.013) -> np.ndarray:
+    """Short ITD + mid/side so the hall reads as a room, not a dual mono beep."""
+    n = len(left)
+    pad = max(1, int(pad_s * SR))
+    right = np.concatenate([np.zeros(pad), left[:-pad]]) if pad < n else left.copy()
+    mid = (left + right) * 0.5
+    side = (left - right) * width
+    return np.stack([mid + side, mid - side], axis=1)
 
 
 def one_pole_lp(x: np.ndarray, cutoff: float) -> np.ndarray:
@@ -99,9 +115,9 @@ def band_noise(n: int, rng: np.random.Generator, lo: float, hi: float) -> np.nda
 
 
 def make_match_open() -> np.ndarray:
-    """Wooden cloth + brass nail + short hall. One-shot, ≤0.8s, peak −12..−8 dBFS."""
+    """Wooden cloth + brass nail + hall. Stereo 48k, ~0.78s, peak −10 dBFS."""
     rng = np.random.default_rng(20260909)
-    n = int(0.72 * SR)
+    n = int(round(0.78 * SR))
     t = np.arange(n) / SR
 
     cloth = band_noise(n, rng, 180.0, 1400.0)
@@ -135,20 +151,19 @@ def make_match_open() -> np.ndarray:
     hit = comb_delay(hit, 0.037, 0.40, 0.24)
     hit = comb_delay(hit, 0.053, 0.34, 0.18)
     hit = comb_delay(hit, 0.079, 0.28, 0.12)
-    # Late hall wash so the 0.72s file is not a click + silence.
-    hall = band_noise(n, rng, 120.0, 1600.0) * (0.07 * np.exp(-t * 3.2))
+    # Late hall wash so ~0.78s is a room, not a click + silence.
+    hall = band_noise(n, rng, 120.0, 1600.0) * (0.07 * np.exp(-t * 3.0))
     hit = hit + hall
     hit = one_pole_hp(hit, 45.0)
-    # Mid of the −12..−8 window.
-    return peak_normalize(hit, -10.0)
+    return peak_normalize(stereo(hit, width=0.24, pad_s=0.014), -10.0)
 
 
 def make_deal_card() -> np.ndarray:
     """Paper rub + short table tick. Body ≤120ms; stackable; 48k mono."""
     rng = np.random.default_rng(20260910)
-    n = int(0.155 * SR)
+    n = int(round(0.135 * SR))
     t = np.arange(n) / SR
-    body_n = int(0.118 * SR)
+    body_n = int(0.112 * SR)
 
     paper = band_noise(n, rng, 900.0, 6500.0)
     # Two-finger slip: rise then cut, not a beep.
@@ -166,10 +181,9 @@ def make_deal_card() -> np.ndarray:
     tick[tick_at : tick_at + tick_n] = tw * 0.38 + felt * 0.16
 
     card = paper + tick
-    card *= fade(n, 6, int(0.034 * SR))
+    card *= fade(n, 6, int(0.018 * SR))
     card = one_pole_hp(card, 90.0)
-    # Leave a little headroom so stacked deals do not clip in the mixer.
-    return peak_normalize(card, -11.0)
+    return peak_normalize(card, -10.0)
 
 
 def make_deal_whoosh() -> np.ndarray:
@@ -194,7 +208,8 @@ def make_deal_whoosh() -> np.ndarray:
 
 def body_ms(x: np.ndarray, floor_db: float = -28.0) -> float:
     """Duration until the envelope stays below floor (ms)."""
-    env = one_pole_lp(np.abs(x), 80.0)
+    mag = np.max(np.abs(x), axis=-1) if x.ndim == 2 else np.abs(x)
+    env = one_pole_lp(mag, 80.0)
     thr = db(floor_db)
     above = np.where(env >= thr)[0]
     if len(above) == 0:
@@ -205,20 +220,23 @@ def body_ms(x: np.ndarray, floor_db: float = -28.0) -> float:
 def main() -> None:
     OUT.mkdir(parents=True, exist_ok=True)
     jobs = (
-        ("sfx_match_open.wav", make_match_open, 0.80, (-12.5, -7.5), None),
-        ("sfx_deal_card.wav", make_deal_card, 0.22, (-16.0, -8.0), 120.0),
-        ("sfx_deal_whoosh.wav", make_deal_whoosh, 0.20, (-18.0, -8.0), None),
+        ("sfx_match_open.wav", make_match_open, 2, 0.80, 0.76, 0.80, (-10.4, -9.6), None),
+        ("sfx_deal_card.wav", make_deal_card, 1, 0.145, 0.12, 0.15, (-10.4, -9.6), 120.0),
+        ("sfx_deal_whoosh.wav", make_deal_whoosh, 1, 0.16, 0.12, 0.16, (-14.4, -13.6), None),
     )
-    for name, fn, max_s, peak_win, max_body_ms in jobs:
+    for name, fn, ch_want, max_s, min_s, _hi, peak_win, max_body_ms in jobs:
         y = fn()
         path = OUT / name
         write_wav(path, y)
-        dur = len(y) / SR
+        ch = 1 if y.ndim == 1 else int(y.shape[1])
+        dur = (len(y) if y.ndim == 1 else y.shape[0]) / SR
         pk = peak_dbfs(y)
         bm = body_ms(y)
-        print(f"{name}: {dur:.3f}s  peak {pk:.2f} dBFS  body≈{bm:.1f}ms  48k mono")
-        if dur > max_s + 1e-3:
-            raise SystemExit(f"{name} too long: {dur:.3f}s > {max_s}s")
+        print(f"{name}: {ch}ch {dur:.3f}s  peak {pk:.2f} dBFS  body≈{bm:.1f}ms  48k")
+        if ch != ch_want:
+            raise SystemExit(f"{name} channels {ch} != {ch_want}")
+        if dur > max_s + 1e-3 or dur < min_s - 1e-3:
+            raise SystemExit(f"{name} duration {dur:.3f}s not in [{min_s},{max_s}]")
         if not (peak_win[0] <= pk <= peak_win[1]):
             raise SystemExit(f"{name} peak {pk:.2f} outside {peak_win}")
         if max_body_ms is not None and bm > max_body_ms + 8:
