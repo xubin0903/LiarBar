@@ -1,5 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { audio } from '@kit.AudioKit';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { resourceManager } from '@kit.LocalizationKit';
 import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
@@ -69,7 +71,7 @@ export class LobbyAudio {
       LobbyAudio.ctaId = await LobbyAudio.loadPath(PATH_CTA);
       Logger.info(TAG, 'sound pool ready');
     } catch (err) {
-      Logger.warn(TAG, 'sound pool unavailable — fail-soft, timeline continues');
+      Logger.warn(TAG, `sound pool unavailable — fail-soft, timeline continues: ${err}`);
     }
   }
 
@@ -113,7 +115,7 @@ export class LobbyAudio {
     try {
       LobbyAudio.pool.stop(LobbyAudio.ambStream);
     } catch (err) {
-      Logger.warn(TAG, 'stop ambient fail-soft');
+      Logger.warn(TAG, `stop ambient fail-soft: ${err}`);
     }
     LobbyAudio.ambStream = -1;
   }
@@ -131,7 +133,7 @@ export class LobbyAudio {
     if (pool === null) {
       return;
     }
-    pool.release().catch((err: Error): void => {
+    pool.release().catch((err: BusinessError): void => {
       Logger.warn(TAG, `release fail-soft: ${err.message}`);
     });
   }
@@ -164,7 +166,7 @@ export class LobbyAudio {
     }
     const params: media.PlayParameters = {
       loop: loop,
-      rate: 0,
+      rate: audio.AudioRendererRate.RENDER_RATE_NORMAL,
       leftVolume: volume,
       rightVolume: volume,
       priority: 0
@@ -173,7 +175,7 @@ export class LobbyAudio {
       if (rememberAmb) {
         LobbyAudio.ambStream = streamId;
       }
-    }).catch((err: Error): void => {
+    }).catch((err: BusinessError): void => {
       Logger.warn(TAG, `play fail-soft: ${err.message}`);
     });
   }
@@ -184,15 +186,12 @@ export class LobbyAudio {
     if (ctx === null || pool === null) {
       return -1;
     }
-    const fd: RawFdSlice = await ctx.resourceManager.getRawFd(path);
-    const soundId: number = await pool.load(fd.fd, fd.offset, fd.length);
+    const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
+    const fd: number = rawFd.fd;
+    const offset: number = rawFd.offset;
+    const length: number = rawFd.length;
+    const soundId: number = await pool.load(fd, offset, length);
     await ctx.resourceManager.closeRawFd(path);
     return soundId;
   }
-}
-
-interface RawFdSlice {
-  fd: number;
-  offset: number;
-  length: number;
 }
