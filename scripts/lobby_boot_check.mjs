@@ -452,6 +452,93 @@ if (lobby.includes('ControlIds.DEALER_BANNER') || lobby.includes('lb_cmp_dealer_
   pass('lb_cmp_dealer_banner left in table');
 }
 
+const HOVER = readConst(boot, 'BOOT_MS_HOVER');
+const HOVER_SNAP = readConst(boot, 'BOOT_MS_HOVER_SNAP');
+if (HOVER >= 80 && HOVER <= 120 && HOVER_SNAP > 0 && HOVER_SNAP <= 16) {
+  pass(`R2 hover window ${HOVER}ms (80–120) snap ${HOVER_SNAP}ms`);
+} else {
+  fail(`R2 hover window ${HOVER}/${HOVER_SNAP}`);
+}
+
+const ctaLayer = lobby.match(/@Builder\s+ctaLayer\(\)[\s\S]*?\n  @Builder/);
+const peekLayer = lobby.match(/@Builder\s+peekLayer\(\)[\s\S]*?\n  private /);
+if (ctaLayer && ctaLayer[0].includes('.onHover(') && ctaLayer[0].includes('.focusable(true)') &&
+    ctaLayer[0].includes('.onFocus(') && ctaLayer[0].includes('.onBlur(') &&
+    ctaLayer[0].includes('tavern_accent') && ctaLayer[0].includes('ctaHotBorder') &&
+    ctaLayer[0].includes('ctaHotGlow') && ctaLayer[0].includes('.enabled(this.bootReady)')) {
+  pass('R2a lb_btn_quickstart hover/focus brass-or-glow + T6 enabled gate kept');
+} else {
+  fail('R2a CTA hover/focus wiring');
+}
+if (peekLayer && peekLayer[0].includes('.onHover(') && peekLayer[0].includes('.focusable(true)') &&
+    peekLayer[0].includes('.onFocus(') && peekLayer[0].includes('.onBlur(') &&
+    peekLayer[0].includes('tavern_brass') && peekLayer[0].includes('peekHotBorder')) {
+  pass('R2b lb_btn_peek_table weaker hover/focus flash');
+} else {
+  fail('R2b peek hover/focus wiring');
+}
+
+if (panel.includes('ControlIds.SILENT') && panel.includes('ControlIds.NICK_FIELD') &&
+    panel.includes("app.string.lb_str_fill_last") &&
+    panel.includes('.onHover(') && panel.includes('.focusable(true)') &&
+    panel.includes('.onFocus(') && panel.includes('.onBlur(') &&
+    panel.includes('silentRing') && panel.includes('nickRing') &&
+    panel.includes('tavern_accent') && panel.includes('tavern_brass')) {
+  pass('R2 settings: silent / nick / fill-last have hover or focus ring');
+} else {
+  fail('R2 settings hover/focus');
+}
+
+if (panel.includes('ControlIds.PLAYERCOUNT') &&
+    !/PLAYERCOUNT[\s\S]{0,240}onHover/.test(panel) &&
+    !/PLAYERCOUNT[\s\S]{0,240}focusable/.test(panel)) {
+  pass('lb_cmp_playercount stays read-only (no hover)');
+} else {
+  fail('playercount gained hover');
+}
+
+const tapFalseAt = lobby.indexOf('playCtaTap(false)');
+const tapTrueAt = lobby.indexOf('playCtaTap(true)');
+const ctaTouchAt = lobby.indexOf('private onCtaTouch');
+const peekTouchAt = lobby.indexOf('private onPeekTouch');
+const silentAt = lobby.indexOf('private onSilentChanged');
+if ((lobby.match(/playCtaTap/g) || []).length === 2 &&
+    tapFalseAt > ctaTouchAt && tapFalseAt < peekTouchAt &&
+    tapTrueAt > peekTouchAt && tapTrueAt < silentAt &&
+    lobby.indexOf('playCtaTap') >= ctaTouchAt) {
+  pass('R2c hover/focus does not call lb_sfx_cta_tap (press-only, 2 call sites)');
+} else {
+  fail('R2c hover coupled to cta_tap');
+}
+
+if (!etsBlob.includes('sfx_hover') && !ids.includes('sfx_hover')) {
+  pass('no sfx_hover_* slot');
+} else {
+  fail('invented sfx_hover_*');
+}
+
+if (lobby.includes("app.media.art_fx_candle") &&
+    lobby.includes('BlendMode.Plus') &&
+    audio.includes('audio/bgm/bgm_lobby_night.ogg') &&
+    audio.includes('audio/sfx/sfx_amb_tavern.ogg') &&
+    audio.includes('audio/vo/vo_dealer_greet.wav') &&
+    !audio.includes('sfx_hover')) {
+  pass('#33 same-slot candle Plus-blend + three-track paths unchanged');
+} else {
+  fail('#33 rebind / blend');
+}
+
+if (lobby.includes('CTA_HOT_SCALE: number = 1.01') &&
+    lobby.includes('PEEK_HOT_SCALE: number = 1.01') &&
+    lobby.includes('ctaPressScale = 0.96') &&
+    lobby.includes('peekPressScale = 0.98') &&
+    lobby.includes('this.ctaHotScale = 1') &&
+    !lobby.includes('1.04')) {
+  pass('hover scale ≤1.01; press still 0.96 / 0.98 (not used as hover stand-in)');
+} else {
+  fail('hover/press scale split');
+}
+
 console.log('--- HARD GATES (交审五条) ---');
 
 const t4Arm = lobby.match(/this\.arm\(marks\.t4At, \(\): void => \{[\s\S]*?\}\);/);

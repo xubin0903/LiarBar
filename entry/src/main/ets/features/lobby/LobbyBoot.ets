@@ -31,6 +31,9 @@ export class LobbyBoot {
   static readonly BOOT_MS_LAYER: number = 260;
   static readonly BOOT_MS_CTA_PRESS: number = 80;
   static readonly BOOT_MS_CTA_RELEASE: number = 110;
+  /** R2 hover/focus window (06 §3.2 / 07). Acceptance: visible inside 80–120ms. */
+  static readonly BOOT_MS_HOVER: number = 100;
+  static readonly BOOT_MS_HOVER_SNAP: number = 16;
   static readonly BOOT_MS_RETURN_ENTER: number = 400;
   static readonly BOOT_MS_T4_LEAD: number = 300;
   static readonly BOOT_MS_ANNOUNCE_CROSS: number = 350;
