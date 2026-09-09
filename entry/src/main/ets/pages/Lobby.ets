@@ -13,6 +13,12 @@ import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
 import { LastTable, LocalStore } from '../persist/LocalStore';
 
 const TAG = 'Lobby';
+const CTA_HOT_BORDER: number = 2;
+const CTA_HOT_GLOW: number = 0.22;
+const CTA_HOT_GLOW_SNAP: number = 0.08;
+const CTA_HOT_SCALE: number = 1.01;
+const PEEK_HOT_BORDER: number = 1;
+const PEEK_HOT_SCALE: number = 1.01;
 
 @Entry
 @Component
@@ -51,6 +57,12 @@ struct Lobby {
   @State peekY: number = 12;
   @State peekScale: number = 0.96;
   @State peekPressScale: number = 1;
+  @State ctaHotBorder: number = 0;
+  @State ctaHotGlow: number = 0;
+  @State ctaHotScale: number = 1;
+  @State peekHotBorder: number = 0;
+  @State peekHotScale: number = 1;
+  @State peekHotLit: boolean = false;
   @State dealerScale: number = 1;
   @State candleOpacity: number = 0.70;
   @State candleScale: number = 1;
@@ -62,6 +74,12 @@ struct Lobby {
   private layerMs: number = LobbyBoot.BOOT_MS_LAYER;
   private idleMachine: DealerIdleMachine = new DealerIdleMachine();
   private cupActive: boolean = false;
+  private ctaPointerHot: boolean = false;
+  private ctaFocusHot: boolean = false;
+  private ctaHotActive: boolean = false;
+  private peekPointerHot: boolean = false;
+  private peekFocusHot: boolean = false;
+  private peekHotActive: boolean = false;
 
   aboutToAppear(): void {
     this.begin();
@@ -98,14 +116,15 @@ struct Lobby {
         .align(Alignment.Top)
 
       Image($r('app.media.art_fx_candle'))
-        .width(72)
-        .height(72)
+        .width(108)
+        .height(108)
         .objectFit(ImageFit.Contain)
+        .blendMode(BlendMode.Plus)
         .opacity(this.candleOpacity)
         .scale({ x: this.candleScale, y: this.candleScale })
         .hitTestBehavior(HitTestMode.None)
         .align(Alignment.BottomStart)
-        .margin({ left: 20, bottom: 88 })
+        .margin({ left: 8, bottom: 72 })
 
       Column() {
         Progress({ value: this.loadValue, total: 100, type: ProgressType.Linear })
@@ -261,6 +280,13 @@ struct Lobby {
           .height($r('app.float.cta_height'))
           .objectFit(ImageFit.Fill)
       }
+      Blank()
+        .width('100%')
+        .height(16)
+        .backgroundColor($r('app.color.tavern_accent'))
+        .opacity(this.ctaHotGlow)
+        .hitTestBehavior(HitTestMode.None)
+        .align(Alignment.Top)
       Button($r('app.string.lb_str_quickstart'))
         .id(ControlIds.QUICKSTART)
         .type(ButtonType.Normal)
@@ -271,7 +297,15 @@ struct Lobby {
         .backgroundColor(Color.Transparent)
         .fontColor($r('app.color.tavern_bg'))
         .stateEffect(false)
+        .hoverEffect(HoverEffect.None)
         .enabled(this.bootReady)
+        .focusable(true)
+        .onFocus(() => {
+          this.setCtaFocusHot(true);
+        })
+        .onBlur(() => {
+          this.setCtaFocusHot(false);
+        })
         .onTouch((event: TouchEvent) => {
           this.onCtaTouch(event);
         })
@@ -282,11 +316,17 @@ struct Lobby {
     .width('100%')
     .height($r('app.float.cta_height'))
     .margin({ top: 20 })
+    .borderRadius($r('app.float.cta_radius'))
+    .borderWidth(this.ctaHotBorder)
+    .borderColor($r('app.color.tavern_accent'))
     .opacity(this.ctaOpacity * this.ctaGlowOpacity)
     .offset({ x: 0, y: this.ctaY })
     .scale({
-      x: this.ctaEnterScale * this.ctaPressScale * this.ctaGlowScale,
-      y: this.ctaEnterScale * this.ctaPressScale * this.ctaGlowScale
+      x: this.ctaEnterScale * this.ctaPressScale * this.ctaGlowScale * this.ctaHotScale,
+      y: this.ctaEnterScale * this.ctaPressScale * this.ctaGlowScale * this.ctaHotScale
+    })
+    .onHover((isHover: boolean) => {
+      this.setCtaPointerHot(isHover);
     })
   }
 
@@ -294,12 +334,29 @@ struct Lobby {
   peekLayer() {
     Text($r('app.string.lb_str_nav_peek'))
       .id(ControlIds.PEEK_TABLE)
-      .fontColor($r('app.color.tavern_mute'))
+      .fontColor(this.peekHotLit ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
       .fontSize($r('app.float.caption_text_size'))
-      .padding({ top: 16, bottom: 8 })
+      .padding({ top: 16, bottom: 8, left: 8, right: 8 })
+      .borderWidth(this.peekHotBorder)
+      .borderColor($r('app.color.tavern_brass'))
+      .borderRadius(4)
+      .hoverEffect(HoverEffect.None)
+      .focusable(true)
       .opacity(this.peekOpacity)
       .offset({ x: 0, y: this.peekY })
-      .scale({ x: this.peekScale * this.peekPressScale, y: this.peekScale * this.peekPressScale })
+      .scale({
+        x: this.peekScale * this.peekPressScale * this.peekHotScale,
+        y: this.peekScale * this.peekPressScale * this.peekHotScale
+      })
+      .onHover((isHover: boolean) => {
+        this.setPeekPointerHot(isHover);
+      })
+      .onFocus(() => {
+        this.setPeekFocusHot(true);
+      })
+      .onBlur(() => {
+        this.setPeekFocusHot(false);
+      })
       .onTouch((event: TouchEvent) => {
         this.onPeekTouch(event);
       })
@@ -714,6 +771,14 @@ struct Lobby {
     if (!this.loopsAlive) {
       return;
     }
+    if (this.ctaHotActive) {
+      this.ctaGlowOpacity = 1;
+      this.ctaGlowScale = 1;
+      this.arm(Math.round(LobbyBoot.BOOT_MS_CTA_GLOW / 2), (): void => {
+        this.pulseCtaGlow();
+      });
+      return;
+    }
     const nextOp: number = this.ctaGlowOpacity > 0.96 ? 0.92 : 1.0;
     const nextSc: number = this.ctaGlowScale > 1.005 ? 1.0 : 1.01;
     const opt: AnimateParam = {
@@ -746,12 +811,96 @@ struct Lobby {
     });
   }
 
+  private setCtaPointerHot(on: boolean): void {
+    this.ctaPointerHot = on;
+    this.syncCtaHot();
+  }
+
+  private setCtaFocusHot(on: boolean): void {
+    this.ctaFocusHot = on;
+    this.syncCtaHot();
+  }
+
+  private syncCtaHot(): void {
+    const hot: boolean = this.ctaPointerHot || this.ctaFocusHot;
+    if (hot === this.ctaHotActive) {
+      return;
+    }
+    this.ctaHotActive = hot;
+    if (hot) {
+      this.ctaGlowOpacity = 1;
+      this.ctaGlowScale = 1;
+      this.ctaHotBorder = CTA_HOT_BORDER;
+      this.ctaHotGlow = CTA_HOT_GLOW_SNAP;
+      const opt: AnimateParam = {
+        duration: LobbyBoot.BOOT_MS_HOVER,
+        curve: Curve.EaseOut
+      };
+      animateTo(opt, (): void => {
+        this.ctaHotGlow = CTA_HOT_GLOW;
+        if (!this.quickstartPressed) {
+          this.ctaHotScale = CTA_HOT_SCALE;
+        }
+      });
+      return;
+    }
+    const leaveOpt: AnimateParam = {
+      duration: LobbyBoot.BOOT_MS_HOVER,
+      curve: Curve.EaseOut
+    };
+    animateTo(leaveOpt, (): void => {
+      this.ctaHotBorder = 0;
+      this.ctaHotGlow = 0;
+      this.ctaHotScale = 1;
+    });
+  }
+
+  private setPeekPointerHot(on: boolean): void {
+    this.peekPointerHot = on;
+    this.syncPeekHot();
+  }
+
+  private setPeekFocusHot(on: boolean): void {
+    this.peekFocusHot = on;
+    this.syncPeekHot();
+  }
+
+  private syncPeekHot(): void {
+    const hot: boolean = this.peekPointerHot || this.peekFocusHot;
+    if (hot === this.peekHotActive) {
+      return;
+    }
+    this.peekHotActive = hot;
+    if (hot) {
+      this.peekHotLit = true;
+      this.peekHotBorder = PEEK_HOT_BORDER;
+      const opt: AnimateParam = {
+        duration: LobbyBoot.BOOT_MS_HOVER,
+        curve: Curve.EaseOut
+      };
+      animateTo(opt, (): void => {
+        this.peekHotScale = PEEK_HOT_SCALE;
+      });
+      return;
+    }
+    const leaveOpt: AnimateParam = {
+      duration: LobbyBoot.BOOT_MS_HOVER,
+      curve: Curve.EaseOut
+    };
+    animateTo(leaveOpt, (): void => {
+      this.peekHotLit = false;
+      this.peekHotBorder = 0;
+      this.peekHotScale = 1;
+    });
+  }
+
   private onCtaTouch(event: TouchEvent): void {
     if (!this.bootReady) {
       return;
     }
     if (event.type === TouchType.Down) {
       this.quickstartPressed = true;
+      this.ctaHotScale = 1;
       const pressOpt: AnimateParam = {
         duration: LobbyBoot.BOOT_MS_CTA_PRESS,
         curve: Curve.EaseOut
@@ -778,6 +927,7 @@ struct Lobby {
       return;
     }
     if (event.type === TouchType.Down) {
+      this.peekHotScale = 1;
       const pressOpt: AnimateParam = {
         duration: LobbyBoot.BOOT_MS_CTA_PRESS,
         curve: Curve.EaseOut
