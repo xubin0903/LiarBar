@@ -210,9 +210,21 @@ export class MatchEngine {
     this.skipDepth = 0;
     this.buildSeats(opts);
     this.phase = Phase.DEAL;
-    this.dealFresh();
+    this.dealFresh(false);
+    Logger.info(TAG, `T01 START_MATCH → DEAL matchId=${this.matchId} seed=${this.seed} n=${opts.playerCount}`);
+    return true;
+  }
+
+  /**
+   * T02: last flying card has landed. Logic hands already exist.
+   * Must stay in DEAL until UI calls this — do not skip to CLAIM/TURN mid-show.
+   */
+  dealDone(): boolean {
+    if (this.phase !== Phase.DEAL) {
+      return false;
+    }
+    Logger.info(TAG, 'T02 DEAL_DONE → CLAIM');
     this.announceClaim();
-    Logger.info(TAG, `T01-T03 start matchId=${this.matchId} seed=${this.seed} n=${opts.playerCount}`);
     return true;
   }
 
@@ -630,7 +642,7 @@ export class MatchEngine {
     return '怂货';
   }
 
-  private dealFresh(): void {
+  private dealFresh(keepDealerLine: boolean): void {
     if (this.cfg === null || this.deck === null || this.rng === null) {
       return;
     }
@@ -658,9 +670,12 @@ export class MatchEngine {
     this.stallSkipCount = 0;
     this.lastPlay = null;
     this.lastPlayRanks = [];
-    this.phase = Phase.CLAIM;
-    this.dealerKey = 'lb_str_dlr_deal';
-    this.dealerLine = `发牌。每人 ${this.cfg.hand_size_default} 张。`;
+    this.currentClaim = null;
+    this.phase = Phase.DEAL;
+    if (!keepDealerLine) {
+      this.dealerKey = 'lb_str_dlr_deal';
+      this.dealerLine = `发牌。每人 ${this.cfg.hand_size_default} 张。`;
+    }
   }
 
   private announceClaim(): void {
@@ -810,8 +825,8 @@ export class MatchEngine {
     this.dealerKey = 'lb_str_dlr_redeal';
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
     this.phase = Phase.DEAL;
-    this.dealFresh();
-    this.announceClaim();
+    this.dealFresh(true);
+    Logger.info(TAG, 'T17 REDEAL_STALL → DEAL (rebuild show, no L1)');
   }
 
   private commitPicked(
@@ -1220,7 +1235,7 @@ export class MatchEngine {
         lives: s.lives,
         lastDelta: s.lastDelta,
         lastReason: s.lastReason,
-        handCount: this.handOf(s.seatId).length,
+        handCount: this.phase === Phase.DEAL ? 0 : this.handOf(s.seatId).length,
         consecutiveTimeouts: s.consecutiveTimeouts
       });
     }
@@ -1263,7 +1278,7 @@ export class MatchEngine {
       dealerKey: this.dealerKey,
       dealerLine: this.dealerLine,
       highlightLine: this.highlightLine,
-      selfHand: this.copyCards(this.handOf(this.viewerSeatId)),
+      selfHand: this.phase === Phase.DEAL ? [] : this.copyCards(this.handOf(this.viewerSeatId)),
       lastPlayRanks: showRanks ? this.copyRanks(this.lastPlayRanks) : [],
       seats: pubSeats,
       challenge: this.challenge,

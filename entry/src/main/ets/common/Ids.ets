@@ -81,6 +81,7 @@ export class SfxIds {
   static readonly CTA_TAP: string = 'lb_sfx_cta_tap';
   static readonly VO_DEALER_GREET: string = 'lb_vo_dealer_greet';
   static readonly MATCH_OPEN: string = 'lb_sfx_match_open';
+  static readonly DEAL_CARD: string = 'lb_sfx_deal_card';
 }
 
 export class PersistNs {
