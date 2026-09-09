@@ -83,10 +83,26 @@ if (/Text\(\s*['"]A['"]/.test(face) || face.includes('Text(this.rank)')) {
   pass('CardFace has no rank Text overlay');
 }
 
-if (table.includes("import { CardFace }") && table.includes('faceUp: false') && table.includes('lb_cmp_card_')) {
-  pass('Table hand uses CardFace backs + lb_cmp_card_{0-4}');
+if (table.includes("import { CardFace }") &&
+    table.includes('this.selfCards') &&
+    table.includes('faceUp: true') &&
+    table.includes('card.rank') &&
+    table.includes('lb_cmp_card_')) {
+  pass('Table self-hand renders rank faces (art_card_*) after DEAL');
 } else {
-  fail('Table hand not rebound to CardFace backs');
+  fail('Table self-hand still backs-only (C1 needs faces in the hand strip)');
+}
+
+if (table.includes('faceUp: false') && table.includes('this.cardBacks')) {
+  pass('DEAL landing still uses backs until selfHand is shown');
+} else {
+  fail('lost DEAL-time back landing');
+}
+
+if (table.includes("Image($r('app.media.art_card_back'))") && table.includes('dealPileAnchor')) {
+  pass('in-flight deal / pile / opponent stacks keep art_card_back');
+} else {
+  fail('deal fly or pile lost art_card_back');
 }
 
 if (overlays.includes('faceUp: true') && overlays.includes('lb_str_peek_hint') && overlays.includes('lb_str_peek_first')) {

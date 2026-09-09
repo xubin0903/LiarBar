@@ -146,20 +146,31 @@ struct Table {
           .fontSize($r('app.float.subtitle_text_size'))
 
         Row({ space: 6 }) {
-          ForEach(this.cardBacks, (idx: number) => {
-            CardFace({
-              rank: '',
-              faceUp: false,
-              compact: true,
-              instanceId: `lb_cmp_card_${idx}`
-            })
-              .gesture(
-                LongPressGesture()
-                  .onAction(() => {
-                    this.openPeek();
-                  })
-              )
-          }, (idx: number) => `${idx}`)
+          if (this.selfCards.length > 0) {
+            ForEach(this.selfCards, (card: CardModel, idx: number) => {
+              CardFace({
+                rank: card.rank,
+                faceUp: true,
+                compact: true,
+                instanceId: `lb_cmp_card_${idx}`
+              })
+                .gesture(
+                  LongPressGesture()
+                    .onAction(() => {
+                      this.openPeek();
+                    })
+                )
+            }, (card: CardModel) => card.cardId)
+          } else {
+            ForEach(this.cardBacks, (idx: number) => {
+              CardFace({
+                rank: '',
+                faceUp: false,
+                compact: true,
+                instanceId: `lb_cmp_card_${idx}`
+              })
+            }, (idx: number) => `${idx}`)
+          }
         }
         .id(ControlIds.HAND)
         .margin({ top: 16 })
