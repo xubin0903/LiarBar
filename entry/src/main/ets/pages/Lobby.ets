@@ -5,8 +5,9 @@ import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { ConfigRepository } from '../config/ConfigRepository';
 import { StartMatchOpts } from '../engine/MatchEngine';
+import { DealerIdleKind, DealerIdleMachine } from '../features/lobby/DealerIdleMachine';
 import { LobbyAudio } from '../features/lobby/LobbyAudio';
-import { BootMarks, LobbyBoot } from '../features/lobby/LobbyBoot';
+import { BootMarks, LobbyBoot, LobbySession } from '../features/lobby/LobbyBoot';
 import { LobbyPanel } from '../features/lobby/LobbyPanel';
 import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
 import { LastTable, LocalStore } from '../persist/LocalStore';
@@ -28,10 +29,15 @@ struct Lobby {
   @State loadValue: number = 0;
   @State idleOpacity: number = 0;
   @State announceOpacity: number = 0;
+  @State blinkOpacity: number = 0;
+  @State nodOpacity: number = 0;
+  @State cupOpacity: number = 0;
+  @State maskOpacity: number = 0;
   @State greetOpacity: number = 0;
   @State topbarOpacity: number = 0;
   @State topbarY: number = 12;
   @State topbarScale: number = 0.96;
+  @State topbarGlow: number = 1;
   @State cardOpacity: number = 0;
   @State cardY: number = 12;
   @State cardScale: number = 0.96;
@@ -39,14 +45,23 @@ struct Lobby {
   @State ctaY: number = 12;
   @State ctaEnterScale: number = 0.96;
   @State ctaPressScale: number = 1;
+  @State ctaGlowOpacity: number = 1;
+  @State ctaGlowScale: number = 1;
   @State peekOpacity: number = 0;
   @State peekY: number = 12;
   @State peekScale: number = 0.96;
+  @State peekPressScale: number = 1;
   @State dealerScale: number = 1;
-  @State candleOpacity: number = 0.72;
+  @State candleOpacity: number = 0.70;
+  @State candleScale: number = 1;
+  @State dustOpacity: number = 0.20;
+  @State dustY: number = 18;
   private timerIds: number[] = [];
   private loopsAlive: boolean = false;
+  private idleLoopAlive: boolean = false;
   private layerMs: number = LobbyBoot.BOOT_MS_LAYER;
+  private idleMachine: DealerIdleMachine = new DealerIdleMachine();
+  private cupActive: boolean = false;
 
   aboutToAppear(): void {
     this.begin();
@@ -54,8 +69,9 @@ struct Lobby {
 
   aboutToDisappear(): void {
     this.loopsAlive = false;
+    this.idleLoopAlive = false;
     this.clearTimers();
-    LobbyAudio.release();
+    LobbyAudio.leaveThenRelease();
   }
 
   build() {
@@ -72,15 +88,24 @@ struct Lobby {
         .objectFit(ImageFit.Cover)
         .opacity(this.splashOpacity)
 
-      Column() {
-        Blank()
-      }
-      .width('100%')
-      .height(96)
-      .backgroundColor($r('app.color.tavern_candle'))
-      .opacity(this.candleOpacity * 0.14)
-      .hitTestBehavior(HitTestMode.None)
-      .align(Alignment.Bottom)
+      Image($r('app.media.art_fx_dust'))
+        .width('100%')
+        .height(200)
+        .objectFit(ImageFit.Cover)
+        .opacity(this.dustOpacity)
+        .offset({ x: 0, y: this.dustY })
+        .hitTestBehavior(HitTestMode.None)
+        .align(Alignment.Top)
+
+      Image($r('app.media.art_fx_candle'))
+        .width(72)
+        .height(72)
+        .objectFit(ImageFit.Contain)
+        .opacity(this.candleOpacity)
+        .scale({ x: this.candleScale, y: this.candleScale })
+        .hitTestBehavior(HitTestMode.None)
+        .align(Alignment.BottomStart)
+        .margin({ left: 20, bottom: 88 })
 
       Column() {
         Progress({ value: this.loadValue, total: 100, type: ProgressType.Linear })
@@ -139,7 +164,7 @@ struct Lobby {
     }
     .width('100%')
     .padding({ top: 12, bottom: 4 })
-    .opacity(this.topbarOpacity)
+    .opacity(this.topbarOpacity * this.topbarGlow)
     .offset({ x: 0, y: this.topbarY })
     .scale({ x: this.topbarScale, y: this.topbarScale })
   }
@@ -153,6 +178,26 @@ struct Lobby {
           .height($r('app.float.dealer_bust_h'))
           .objectFit(ImageFit.Contain)
           .opacity(this.idleOpacity)
+        Image($r('app.media.art_dealer_idle_blink'))
+          .width($r('app.float.dealer_bust_w'))
+          .height($r('app.float.dealer_bust_h'))
+          .objectFit(ImageFit.Contain)
+          .opacity(this.blinkOpacity)
+        Image($r('app.media.art_dealer_idle_nod'))
+          .width($r('app.float.dealer_bust_w'))
+          .height($r('app.float.dealer_bust_h'))
+          .objectFit(ImageFit.Contain)
+          .opacity(this.nodOpacity)
+        Image($r('app.media.art_dealer_idle_cup'))
+          .width($r('app.float.dealer_bust_w'))
+          .height($r('app.float.dealer_bust_h'))
+          .objectFit(ImageFit.Contain)
+          .opacity(this.cupOpacity)
+        Image($r('app.media.art_dealer_idle_mask'))
+          .width($r('app.float.dealer_bust_w'))
+          .height($r('app.float.dealer_bust_h'))
+          .objectFit(ImageFit.Contain)
+          .opacity(this.maskOpacity)
         Image($r('app.media.art_dealer_bust_announce'))
           .width($r('app.float.dealer_bust_w'))
           .height($r('app.float.dealer_bust_h'))
@@ -237,9 +282,12 @@ struct Lobby {
     .width('100%')
     .height($r('app.float.cta_height'))
     .margin({ top: 20 })
-    .opacity(this.ctaOpacity)
+    .opacity(this.ctaOpacity * this.ctaGlowOpacity)
     .offset({ x: 0, y: this.ctaY })
-    .scale({ x: this.ctaEnterScale * this.ctaPressScale, y: this.ctaEnterScale * this.ctaPressScale })
+    .scale({
+      x: this.ctaEnterScale * this.ctaPressScale * this.ctaGlowScale,
+      y: this.ctaEnterScale * this.ctaPressScale * this.ctaGlowScale
+    })
   }
 
   @Builder
@@ -251,7 +299,10 @@ struct Lobby {
       .padding({ top: 16, bottom: 8 })
       .opacity(this.peekOpacity)
       .offset({ x: 0, y: this.peekY })
-      .scale({ x: this.peekScale, y: this.peekScale })
+      .scale({ x: this.peekScale * this.peekPressScale, y: this.peekScale * this.peekPressScale })
+      .onTouch((event: TouchEvent) => {
+        this.onPeekTouch(event);
+      })
       .onClick(() => {
         if (!this.bootReady) {
           return;
@@ -266,27 +317,37 @@ struct Lobby {
     await this.hydrate();
     LobbyAudio.setSilent(this.silent);
     LobbyAudio.prepare();
-    this.startBoot();
+    const cold: boolean = LobbySession.takeColdStart();
+    if (cold) {
+      this.startColdBoot();
+    } else {
+      this.startReturnEnter();
+    }
   }
 
-  private startBoot(): void {
+  private startColdBoot(): void {
     const marks: BootMarks = LobbyBoot.plan(LobbyBoot.BOOT_MS_TOTAL);
     this.layerMs = marks.layerMs;
-    Logger.info(TAG, `boot axis ${marks.steadyAt}ms (clamp ${LobbyBoot.BOOT_MS_MIN}-${LobbyBoot.BOOT_MS_MAX})`);
-    LobbyAudio.playBoot();
+    Logger.info(TAG, `boot axis ${marks.clickableAt}ms (clamp ${LobbyBoot.BOOT_MS_MIN}-${LobbyBoot.BOOT_MS_MAX})`);
 
-    const splashOpt: AnimateParam = {
-      duration: marks.splashMs,
-      curve: Curve.EaseOut
-    };
-    animateTo(splashOpt, (): void => {
-      this.splashOpacity = 1;
+    this.arm(marks.t1At, (): void => {
+      const splashOpt: AnimateParam = {
+        duration: marks.t1Ms,
+        curve: Curve.EaseOut
+      };
+      animateTo(splashOpt, (): void => {
+        this.splashOpacity = 1;
+      });
     });
 
-    this.arm(marks.loadAt, (): void => {
+    this.arm(marks.hitAt, (): void => {
+      LobbyAudio.playBootHit();
+    });
+
+    this.arm(marks.t2At, (): void => {
       this.loadOpacity = 1;
       const loadOpt: AnimateParam = {
-        duration: marks.loadMs,
+        duration: marks.t2Ms,
         curve: Curve.Linear
       };
       animateTo(loadOpt, (): void => {
@@ -294,10 +355,18 @@ struct Lobby {
       });
     });
 
-    this.arm(marks.dealerAt, (): void => {
-      this.revealDealer(marks.dealerMs);
+    this.arm(marks.ambAt, (): void => {
+      LobbyAudio.startAmb(marks.ambFadeMs);
+    });
+
+    this.arm(marks.bgmAt, (): void => {
+      LobbyAudio.startBgm(marks.bgmFadeMs, false);
+    });
+
+    this.arm(marks.t3At, (): void => {
+      this.revealDealerIdle(marks.t3Ms);
       const bgOpt: AnimateParam = {
-        duration: marks.dealerMs + marks.staggerMs,
+        duration: marks.t3Ms,
         curve: Curve.EaseInOut
       };
       animateTo(bgOpt, (): void => {
@@ -311,35 +380,134 @@ struct Lobby {
       animateTo(fadeLoad, (): void => {
         this.loadOpacity = 0;
       });
+      this.loopsAlive = true;
+      this.pulseBreath();
+      this.pulseCandle();
+      this.pulseDust();
     });
 
-    this.arm(marks.staggerAt, (): void => {
+    const voMs: number = LobbyBoot.voClockMs(this.silent);
+    this.arm(marks.t4At, (): void => {
+      this.crossToAnnounce();
+      this.showGreet();
+      LobbyAudio.playVoGreet();
+      LobbyAudio.duckBgmForVo();
+    });
+
+    this.arm(marks.t4At + voMs, (): void => {
+      LobbyAudio.unduckBgmToSteady();
+    });
+
+    this.arm(marks.t4At + voMs + LobbyBoot.BOOT_MS_ANNOUNCE_HOLD, (): void => {
+      this.crossBackIdle();
+    });
+
+    this.arm(LobbyBoot.greetHideAt(marks.t4At, voMs), (): void => {
+      const fadeOpt: AnimateParam = {
+        duration: LobbyBoot.BOOT_MS_GREET_FADE,
+        curve: Curve.EaseOut
+      };
+      animateTo(fadeOpt, (): void => {
+        this.greetOpacity = 0;
+      });
+    });
+
+    this.arm(marks.t5At, (): void => {
       this.playStagger(marks.gapMs);
     });
 
-    this.arm(marks.steadyAt, (): void => {
-      this.enterSteady();
+    this.arm(marks.clickableAt, (): void => {
+      this.enableCta();
+    });
+
+    const loopAt: number = LobbyBoot.idleLoopStart(marks.clickableAt, marks.t4At, voMs);
+    this.arm(loopAt, (): void => {
+      this.startIdleLoop();
     });
   }
 
-  private revealDealer(dealerMs: number): void {
-    const half: number = Math.max(1, Math.round(dealerMs / 2));
+  private startReturnEnter(): void {
+    Logger.info(TAG, `return enter ${LobbyBoot.BOOT_MS_RETURN_ENTER}ms — no cold axis / no greet VO`);
+    this.lobbyBgOpacity = 1;
+    this.idleOpacity = 1;
+    this.announceOpacity = 0;
+    this.greetOpacity = 0;
+    this.splashOpacity = 0;
+    this.loadOpacity = 0;
+    this.loopsAlive = true;
+    this.pulseBreath();
+    this.pulseCandle();
+    this.pulseDust();
+    LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
+    const enterOpt: AnimateParam = {
+      duration: LobbyBoot.BOOT_MS_RETURN_ENTER,
+      curve: Curve.EaseOut
+    };
+    animateTo(enterOpt, (): void => {
+      this.topbarOpacity = 1;
+      this.topbarY = 0;
+      this.topbarScale = 1;
+      this.cardOpacity = 1;
+      this.cardY = 0;
+      this.cardScale = 1;
+      this.ctaOpacity = 1;
+      this.ctaY = 0;
+      this.ctaEnterScale = 1;
+      this.peekOpacity = 1;
+      this.peekY = 0;
+      this.peekScale = 1;
+    });
+    this.arm(LobbyBoot.BOOT_MS_RETURN_ENTER, (): void => {
+      this.enableCta();
+      this.startIdleLoop();
+      this.pulseCtaGlow();
+      this.pulseTopbar();
+    });
+  }
+
+  private revealDealerIdle(dealerMs: number): void {
     const inOpt: AnimateParam = {
-      duration: half,
+      duration: dealerMs,
       curve: Curve.EaseOut
     };
     animateTo(inOpt, (): void => {
       this.idleOpacity = 1;
     });
-    this.arm(half, (): void => {
-      const crossOpt: AnimateParam = {
-        duration: half,
-        curve: Curve.EaseInOut
-      };
-      animateTo(crossOpt, (): void => {
-        this.idleOpacity = 0;
-        this.announceOpacity = 1;
-      });
+  }
+
+  private crossToAnnounce(): void {
+    this.blinkOpacity = 0;
+    this.nodOpacity = 0;
+    this.cupOpacity = 0;
+    this.maskOpacity = 0;
+    const crossOpt: AnimateParam = {
+      duration: LobbyBoot.BOOT_MS_ANNOUNCE_CROSS,
+      curve: Curve.EaseInOut
+    };
+    animateTo(crossOpt, (): void => {
+      this.idleOpacity = 0;
+      this.announceOpacity = 1;
+    });
+  }
+
+  private crossBackIdle(): void {
+    const crossOpt: AnimateParam = {
+      duration: LobbyBoot.BOOT_MS_IDLE_BACK,
+      curve: Curve.EaseInOut
+    };
+    animateTo(crossOpt, (): void => {
+      this.announceOpacity = 0;
+      this.idleOpacity = 1;
+    });
+  }
+
+  private showGreet(): void {
+    const greetOpt: AnimateParam = {
+      duration: LobbyBoot.BOOT_MS_GREET_FADE,
+      curve: Curve.EaseOut
+    };
+    animateTo(greetOpt, (): void => {
+      this.greetOpacity = 1;
     });
   }
 
@@ -352,13 +520,9 @@ struct Lobby {
       });
     });
     this.arm(gapMs, (): void => {
-      const greetOpt: AnimateParam = {
-        duration: LobbyBoot.BOOT_MS_GREET,
-        curve: Curve.EaseOut
-      };
-      animateTo(greetOpt, (): void => {
-        this.greetOpacity = 1;
-      });
+      if (this.greetOpacity < 1) {
+        this.showGreet();
+      }
     });
     this.arm(gapMs * 2, (): void => {
       this.enterLayer((): void => {
@@ -381,6 +545,10 @@ struct Lobby {
         this.peekScale = 1;
       });
     });
+    this.arm(gapMs * 4 + this.layerMs, (): void => {
+      this.pulseCtaGlow();
+      this.pulseTopbar();
+    });
   }
 
   private enterLayer(apply: () => void): void {
@@ -391,13 +559,93 @@ struct Lobby {
     animateTo(opt, apply);
   }
 
-  private enterSteady(): void {
+  private enableCta(): void {
     this.bootReady = true;
-    this.loopsAlive = true;
-    LobbyAudio.startAmbient();
-    this.pulseBreath();
-    this.pulseCandle();
     Logger.info(TAG, 'boot steady — lb_btn_quickstart enabled');
+  }
+
+  private startIdleLoop(): void {
+    this.idleLoopAlive = true;
+    this.idleMachine.reset(Date.now());
+    this.arm(1200, (): void => {
+      const kind: string = this.idleMachine.pickFirst(Date.now());
+      this.playIdleAction(kind);
+    });
+  }
+
+  private playIdleAction(kind: string): void {
+    if (!this.idleLoopAlive) {
+      return;
+    }
+    if (kind === DealerIdleKind.IDLE) {
+      this.arm(400, (): void => {
+        this.playIdleAction(this.idleMachine.pick(Date.now(), this.cupActive));
+      });
+      return;
+    }
+    const duration: number = this.idleMachine.durationOf(kind);
+    const cross: number = this.crossMs(duration);
+    this.cupActive = kind === DealerIdleKind.CUP;
+    this.crossIdleLayer(kind, 1, cross);
+    if (kind === DealerIdleKind.NOD || kind === DealerIdleKind.CUP) {
+      this.arm(Math.round(duration * 0.4), (): void => {
+        this.overlayBlink();
+      });
+    }
+    this.arm(Math.max(0, duration - cross), (): void => {
+      this.crossIdleLayer(kind, 0, cross);
+    });
+    this.arm(duration, (): void => {
+      this.cupActive = false;
+      this.idleMachine.markPlayed(kind, Date.now());
+      this.arm(600, (): void => {
+        this.playIdleAction(this.idleMachine.pick(Date.now(), false));
+      });
+    });
+  }
+
+  private overlayBlink(): void {
+    if (!this.idleLoopAlive || !this.idleMachine.canBlink(Date.now())) {
+      return;
+    }
+    const duration: number = LobbyBoot.BOOT_MS_BLINK;
+    const cross: number = this.crossMs(duration);
+    this.crossIdleLayer(DealerIdleKind.BLINK, 1, cross);
+    this.arm(Math.max(0, duration - cross), (): void => {
+      this.crossIdleLayer(DealerIdleKind.BLINK, 0, cross);
+    });
+    this.arm(duration, (): void => {
+      this.idleMachine.markPlayed(DealerIdleKind.BLINK, Date.now());
+    });
+  }
+
+  private crossMs(duration: number): number {
+    const half: number = Math.floor(duration / 2);
+    if (DealerIdleMachine.CROSS_MS < half) {
+      return DealerIdleMachine.CROSS_MS;
+    }
+    if (half < 120) {
+      return half;
+    }
+    return half;
+  }
+
+  private crossIdleLayer(kind: string, target: number, duration: number): void {
+    const opt: AnimateParam = {
+      duration: duration,
+      curve: Curve.EaseInOut
+    };
+    animateTo(opt, (): void => {
+      if (kind === DealerIdleKind.BLINK) {
+        this.blinkOpacity = target;
+      } else if (kind === DealerIdleKind.NOD) {
+        this.nodOpacity = target;
+      } else if (kind === DealerIdleKind.CUP) {
+        this.cupOpacity = target;
+      } else if (kind === DealerIdleKind.MASK) {
+        this.maskOpacity = target;
+      }
+    });
   }
 
   private pulseBreath(): void {
@@ -421,7 +669,8 @@ struct Lobby {
     if (!this.loopsAlive) {
       return;
     }
-    const next: number = this.candleOpacity > 0.86 ? 0.72 : 1.0;
+    const nextOp: number = this.candleOpacity > 0.85 ? 0.70 : 1.0;
+    const nextSc: number = this.candleScale > 1.03 ? 1.0 : 1.06;
     const opt: AnimateParam = {
       duration: Math.round(LobbyBoot.BOOT_MS_CANDLE / 2),
       curve: Curve.EaseInOut,
@@ -430,7 +679,63 @@ struct Lobby {
       }
     };
     animateTo(opt, (): void => {
-      this.candleOpacity = next;
+      this.candleOpacity = nextOp;
+      this.candleScale = nextSc;
+    });
+  }
+
+  private pulseDust(): void {
+    if (!this.loopsAlive) {
+      return;
+    }
+    const nextOp: number = this.dustOpacity > 0.32 ? 0.20 : 0.45;
+    const nextY: number = this.dustY > 0 ? -16 : 18;
+    const opt: AnimateParam = {
+      duration: Math.round(LobbyBoot.BOOT_MS_DUST / 2),
+      curve: Curve.EaseInOut,
+      onFinish: (): void => {
+        this.pulseDust();
+      }
+    };
+    animateTo(opt, (): void => {
+      this.dustOpacity = nextOp;
+      this.dustY = nextY;
+    });
+  }
+
+  private pulseCtaGlow(): void {
+    if (!this.loopsAlive) {
+      return;
+    }
+    const nextOp: number = this.ctaGlowOpacity > 0.96 ? 0.92 : 1.0;
+    const nextSc: number = this.ctaGlowScale > 1.005 ? 1.0 : 1.01;
+    const opt: AnimateParam = {
+      duration: Math.round(LobbyBoot.BOOT_MS_CTA_GLOW / 2),
+      curve: Curve.EaseInOut,
+      onFinish: (): void => {
+        this.pulseCtaGlow();
+      }
+    };
+    animateTo(opt, (): void => {
+      this.ctaGlowOpacity = nextOp;
+      this.ctaGlowScale = nextSc;
+    });
+  }
+
+  private pulseTopbar(): void {
+    if (!this.loopsAlive) {
+      return;
+    }
+    const next: number = this.topbarGlow > 0.98 ? 0.96 : 1.0;
+    const opt: AnimateParam = {
+      duration: Math.round(LobbyBoot.BOOT_MS_TOPBAR_PULSE / 2),
+      curve: Curve.EaseInOut,
+      onFinish: (): void => {
+        this.pulseTopbar();
+      }
+    };
+    animateTo(opt, (): void => {
+      this.topbarGlow = next;
     });
   }
 
@@ -447,7 +752,7 @@ struct Lobby {
       animateTo(pressOpt, (): void => {
         this.ctaPressScale = 0.96;
       });
-      LobbyAudio.playCta();
+      LobbyAudio.playCtaTap(false);
     }
     if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
       this.quickstartPressed = false;
@@ -457,6 +762,31 @@ struct Lobby {
       };
       animateTo(relOpt, (): void => {
         this.ctaPressScale = 1;
+      });
+    }
+  }
+
+  private onPeekTouch(event: TouchEvent): void {
+    if (!this.bootReady) {
+      return;
+    }
+    if (event.type === TouchType.Down) {
+      const pressOpt: AnimateParam = {
+        duration: LobbyBoot.BOOT_MS_CTA_PRESS,
+        curve: Curve.EaseOut
+      };
+      animateTo(pressOpt, (): void => {
+        this.peekPressScale = 0.98;
+      });
+      LobbyAudio.playCtaTap(true);
+    }
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      const relOpt: AnimateParam = {
+        duration: LobbyBoot.BOOT_MS_CTA_RELEASE,
+        curve: Curve.EaseOut
+      };
+      animateTo(relOpt, (): void => {
+        this.peekPressScale = 1;
       });
     }
   }
@@ -506,7 +836,7 @@ struct Lobby {
     AppRuntime.bootDirector();
     AppRuntime.director.stop();
     AppRuntime.engine.resetToLobby();
-    Logger.info(TAG, 'cold start lobby ready');
+    Logger.info(TAG, 'lobby hydrate ready');
   }
 
   private async doFillLast(): Promise<void> {
