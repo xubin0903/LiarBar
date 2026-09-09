@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Client card-face binding check (docs 08/09 + art #39).
+ * Client card-face binding check (docs 08 / GDD §3.4 + art #39).
+ * PM 2026-09-09: steady self-hand is backs; faces only on peek / play sheet.
  * Cloud has no DevEco — this is not CompileArkTS.
  */
 import { execSync } from 'node:child_process';
@@ -84,19 +85,20 @@ if (/Text\(\s*['"]A['"]/.test(face) || face.includes('Text(this.rank)')) {
 }
 
 if (table.includes("import { CardFace }") &&
-    table.includes('this.selfCards') &&
-    table.includes('faceUp: true') &&
-    table.includes('card.rank') &&
-    table.includes('lb_cmp_card_')) {
-  pass('Table self-hand renders rank faces (art_card_*) after DEAL');
+    table.includes('faceUp: false') &&
+    table.includes('this.cardBacks') &&
+    table.includes('lb_cmp_card_') &&
+    table.includes('LongPressGesture') &&
+    table.includes('openPeek')) {
+  pass('Table steady hand is CardFace backs + long-press peek (PM 2026-09-09)');
 } else {
-  fail('Table self-hand still backs-only (C1 needs faces in the hand strip)');
+  fail('Table hand missing backs or long-press peek');
 }
 
-if (table.includes('faceUp: false') && table.includes('this.cardBacks')) {
-  pass('DEAL landing still uses backs until selfHand is shown');
+if (!table.includes('faceUp: true')) {
+  pass('lb_cmp_hand never face-up; C1 readable ≠ steady faces');
 } else {
-  fail('lost DEAL-time back landing');
+  fail('Table still shows faces in the hand strip after DEAL');
 }
 
 if (table.includes("Image($r('app.media.art_card_back'))") && table.includes('dealPileAnchor')) {
@@ -105,14 +107,27 @@ if (table.includes("Image($r('app.media.art_card_back'))") && table.includes('de
   fail('deal fly or pile lost art_card_back');
 }
 
-if (overlays.includes('faceUp: true') && overlays.includes('lb_str_peek_hint') && overlays.includes('lb_str_peek_first')) {
-  pass('Peek overlay shows faces + C1 copy');
+if (table.includes('PeekMaskOverlay') && table.includes('peekRanks') && table.includes('ranksOf')) {
+  pass('Table still wires peekRanks from selfHand');
+} else {
+  fail('lost peek rank wiring');
+}
+
+if (overlays.includes('CardFace') &&
+    overlays.includes('faceUp: true') &&
+    overlays.includes('compact: false') &&
+    overlays.includes('lb_str_peek_hint') &&
+    overlays.includes('lb_str_peek_first') &&
+    overlays.includes('art_card_privacy_mask')) {
+  pass('Peek overlay shows rank faces at 80×112 + C1 copy');
 } else {
   fail('Peek overlay missing faces or C1 copy');
 }
 
-if (overlays.includes('selected: this.isSelected') && !overlays.includes('选中')) {
-  pass('Play sheet uses face + border, no 选中 text');
+if (overlays.includes('selected: this.isSelected') &&
+    overlays.includes('faceUp: true') &&
+    !overlays.includes('选中')) {
+  pass('Play sheet exception: faces + border, no 选中 text');
 } else {
   fail('Play sheet still uses text as card identity/selection');
 }
