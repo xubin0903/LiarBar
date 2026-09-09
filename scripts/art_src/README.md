@@ -21,3 +21,19 @@
 | 源文件 | 用途 |
 |--------|------|
 | `src_fx_candle.jpg` | 焰源（棋盘/黑底烤在像素里）→ key 成 `art_fx_candle.png`。`--candle-only` 重出。 |
+
+---
+
+## 牌面样张（处理前 · 横构图 = 风格预览）
+
+生成脚本：仓库根 `scripts/gen_card_faces.py`。交件是竖卡 `art_card_*.png`（240×336），不是下列 16:9 原图。
+
+| 源文件 | 用途 |
+|--------|------|
+| `src_card_a.png` | A 王牌面具 → `art_card_a.png` |
+| `src_card_k.png` | K 雪茄老千 → `art_card_k.png` |
+| `src_card_q.png` | Q 烛光女客 → `art_card_q.png` |
+| `src_card_joker.png` | Joker 歪帽小丑 → `art_card_joker.png` |
+| `src_card_back.png` | 牌背烛圈 → `art_card_back.png` |
+
+音频见 `scripts/gen_deal_sfx.py`。**不要**用本批脚本改大厅 `art_lobby_*` / `art_splash_*` / `art_dealer_*`。
