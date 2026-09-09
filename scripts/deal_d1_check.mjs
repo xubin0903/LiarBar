@@ -174,9 +174,11 @@ if (engine.includes('T17 REDEAL_STALL → DEAL (rebuild show, no L1)') &&
   fail('rebuild path');
 }
 
-if (lobby.includes('lb_ovl_match_load') && lobby.includes('MatchLoadOverlay') &&
-  lobby.includes('beginMatchLoad') && ids.includes("MATCH_OPEN: string = 'lb_sfx_match_open'")) {
-  pass('L1 overlay still on lobby (#40): lb_ovl_match_load + lb_sfx_match_open');
+if (lobby.includes('MatchLoadOverlay') && lobby.includes('beginMatchLoad') &&
+  lobby.includes('OverlayIds.MATCH_LOAD') &&
+  ids.includes("MATCH_LOAD: string = 'lb_ovl_match_load'") &&
+  ids.includes("MATCH_OPEN: string = 'lb_sfx_match_open'")) {
+  pass('L1 overlay still on lobby (#40): MatchLoadOverlay + lb_sfx_match_open');
 } else {
   fail('L1 overlay / MATCH_OPEN missing from lobby after rebase');
 }
