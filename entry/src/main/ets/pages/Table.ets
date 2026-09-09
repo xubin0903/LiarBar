@@ -5,6 +5,7 @@ import { ControlIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { SpectatorStub } from '../features/spectator/SpectatorStub';
+import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
 import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
@@ -146,10 +147,12 @@ struct Table {
 
         Row({ space: 6 }) {
           ForEach(this.cardBacks, (idx: number) => {
-            Image($r('app.media.art_card_back'))
-              .width($r('app.float.card_w'))
-              .height($r('app.float.card_h'))
-              .id(`lb_cmp_card_${idx}`)
+            CardFace({
+              rank: '',
+              faceUp: false,
+              compact: true,
+              instanceId: `lb_cmp_card_${idx}`
+            })
               .gesture(
                 LongPressGesture()
                   .onAction(() => {

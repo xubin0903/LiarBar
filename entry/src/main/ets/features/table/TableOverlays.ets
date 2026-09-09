@@ -1,6 +1,7 @@
 import { ControlIds, OverlayIds } from '../../common/Ids';
 import { CardModel } from '../../engine/MatchTypes';
 import { PlayStyle } from '../../engine/Phase';
+import { CardFace } from './CardFace';
 
 @Component
 export struct PeekMaskOverlay {
@@ -15,15 +16,27 @@ export struct PeekMaskOverlay {
           .fontColor($r('app.color.tavern_paper'))
         Text($r('app.string.lb_str_peek_hint'))
           .fontColor($r('app.color.tavern_candle'))
-        Row({ space: 6 }) {
-          ForEach(this.ranks, (rank: string, idx: number) => {
-            this.faceImage(rank)
-          }, (rank: string, idx: number) => `${rank}_${idx}`)
+        Text($r('app.string.lb_str_peek_first'))
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.subtitle_text_size'))
+        Scroll() {
+          Row({ space: 8 }) {
+            ForEach(this.ranks, (rank: string, idx: number) => {
+              CardFace({
+                rank: rank,
+                faceUp: true,
+                compact: false
+              })
+            }, (rank: string, idx: number) => `${rank}_${idx}`)
+          }
         }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
         Image($r('app.media.art_card_privacy_mask'))
-          .width($r('app.float.card_w'))
-          .height($r('app.float.card_h'))
+          .width($r('app.float.card_face_w'))
+          .height($r('app.float.card_face_h'))
         Text($r('app.string.lb_str_privacy_on'))
+          .id(OverlayIds.PRIVACY_ON)
           .fontColor($r('app.color.tavern_mute'))
           .fontSize($r('app.float.subtitle_text_size'))
         Button($r('app.string.lb_str_skip'))
@@ -35,19 +48,6 @@ export struct PeekMaskOverlay {
       .width('100%')
       .padding(16)
       .backgroundColor($r('app.color.tavern_shadow'))
-    }
-  }
-
-  @Builder
-  faceImage(rank: string) {
-    if (rank === 'A') {
-      Image($r('app.media.art_card_a')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    } else if (rank === 'K') {
-      Image($r('app.media.art_card_k')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    } else if (rank === 'Q') {
-      Image($r('app.media.art_card_q')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    } else {
-      Image($r('app.media.art_card_joker')).width($r('app.float.card_w')).height($r('app.float.card_h'))
     }
   }
 }
@@ -80,15 +80,15 @@ export struct PlaySheetOverlay {
           .fontColor($r('app.color.tavern_candle'))
         Row({ space: 6 }) {
           ForEach(this.cards, (card: CardModel) => {
-            Column() {
-              this.faceImage(card.rank)
-              Text(this.selectedMark(card.cardId))
-                .fontColor($r('app.color.tavern_accent'))
-                .fontSize($r('app.float.subtitle_text_size'))
-            }
-            .onClick(() => {
-              this.onToggleCard(card.cardId);
+            CardFace({
+              rank: card.rank,
+              faceUp: true,
+              compact: true,
+              selected: this.isSelected(card.cardId)
             })
+              .onClick(() => {
+                this.onToggleCard(card.cardId);
+              })
           }, (card: CardModel) => card.cardId)
         }
         Row({ space: 12 }) {
@@ -157,13 +157,13 @@ export struct PlaySheetOverlay {
     }
   }
 
-  private selectedMark(cardId: string): string {
+  private isSelected(cardId: string): boolean {
     for (let i = 0; i < this.selectedIds.length; i++) {
       if (this.selectedIds[i] === cardId) {
-        return '选中';
+        return true;
       }
     }
-    return '';
+    return false;
   }
 
   private namedLabel(): string {
@@ -177,18 +177,5 @@ export struct PlaySheetOverlay {
       return this.nameP3;
     }
     return '';
-  }
-
-  @Builder
-  faceImage(rank: string) {
-    if (rank === 'A') {
-      Image($r('app.media.art_card_a')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    } else if (rank === 'K') {
-      Image($r('app.media.art_card_k')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    } else if (rank === 'Q') {
-      Image($r('app.media.art_card_q')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    } else {
-      Image($r('app.media.art_card_joker')).width($r('app.float.card_w')).height($r('app.float.card_h'))
-    }
   }
 }

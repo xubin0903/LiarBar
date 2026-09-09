@@ -25,6 +25,13 @@ export class OverlayIds {
   static readonly MATCH_LOAD: string = 'lb_ovl_match_load';
 }
 
+/** Reusable card-face layers. Instance .id stays lb_cmp_card_{0-4}. */
+export class CardFaceIds {
+  static readonly FACE: string = 'lb_card_face';
+  static readonly BACK: string = 'lb_card_face_back';
+  static readonly FRONT: string = 'lb_card_face_front';
+}
+
 export class ChallengeBeatIds {
   static readonly WINDUP: string = 'lb_challenge_windup';
   static readonly STANDOFF: string = 'lb_challenge_standoff';

@@ -11,6 +11,9 @@
     { "name": "dealer_bust_w", "value": "140vp" },
     { "name": "dealer_bust_h", "value": "186vp" },
     { "name": "card_w", "value": "56vp" },
-    { "name": "card_h", "value": "78vp" }
+    { "name": "card_h", "value": "78vp" },
+    { "name": "card_face_w", "value": "80vp" },
+    { "name": "card_face_h", "value": "112vp" },
+    { "name": "card_radius", "value": "10vp" }
   ]
 }
