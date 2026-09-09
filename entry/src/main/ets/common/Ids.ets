@@ -71,11 +71,13 @@ export class ControlIds {
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
 }
 
-/** Program call-site ids. Audio files live under rawfile/sfx/, not art_*. */
+/** Program call-site ids. Audio files live under rawfile/audio/, not art_*. */
 export class SfxIds {
-  static readonly BOOT: string = 'lb_sfx_boot';
-  static readonly LOBBY_AMB: string = 'lb_sfx_lobby_amb';
-  static readonly CTA: string = 'lb_sfx_cta';
+  static readonly BGM_LOBBY_NIGHT: string = 'lb_bgm_lobby_night';
+  static readonly AMB_TAVERN: string = 'lb_sfx_amb_tavern';
+  static readonly BOOT_HIT: string = 'lb_sfx_boot_hit';
+  static readonly CTA_TAP: string = 'lb_sfx_cta_tap';
+  static readonly VO_DEALER_GREET: string = 'lb_vo_dealer_greet';
 }
 
 export class PersistNs {
