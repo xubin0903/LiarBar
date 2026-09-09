@@ -5,6 +5,7 @@ import { ControlIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { SpectatorStub } from '../features/spectator/SpectatorStub';
+import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
 import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
@@ -145,18 +146,31 @@ struct Table {
           .fontSize($r('app.float.subtitle_text_size'))
 
         Row({ space: 6 }) {
-          ForEach(this.cardBacks, (idx: number) => {
-            Image($r('app.media.art_card_back'))
-              .width($r('app.float.card_w'))
-              .height($r('app.float.card_h'))
-              .id(`lb_cmp_card_${idx}`)
-              .gesture(
-                LongPressGesture()
-                  .onAction(() => {
-                    this.openPeek();
-                  })
-              )
-          }, (idx: number) => `${idx}`)
+          if (this.selfCards.length > 0) {
+            ForEach(this.selfCards, (card: CardModel, idx: number) => {
+              CardFace({
+                rank: card.rank,
+                faceUp: true,
+                compact: true,
+                instanceId: `lb_cmp_card_${idx}`
+              })
+                .gesture(
+                  LongPressGesture()
+                    .onAction(() => {
+                      this.openPeek();
+                    })
+                )
+            }, (card: CardModel) => card.cardId)
+          } else {
+            ForEach(this.cardBacks, (idx: number) => {
+              CardFace({
+                rank: '',
+                faceUp: false,
+                compact: true,
+                instanceId: `lb_cmp_card_${idx}`
+              })
+            }, (idx: number) => `${idx}`)
+          }
         }
         .id(ControlIds.HAND)
         .margin({ top: 16 })

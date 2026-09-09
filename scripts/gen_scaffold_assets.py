@@ -195,7 +195,8 @@ def make_icon(path: Path, size: int) -> None:
     write_png(path, size, size, pixels)
 
 
-# Illustrated / delivered by scripts/gen_lobby_v2_art.py — do not flatten back to color blocks.
+# Illustrated / delivered by scripts/gen_lobby_v2_art.py and
+# scripts/gen_card_faces.py — do not flatten back to color blocks.
 ILLUSTRATED_P0 = {
     "art_dealer_bust_idle",
     "art_dealer_bust_announce",
@@ -205,6 +206,11 @@ ILLUSTRATED_P0 = {
     "art_btn_primary",
     "art_btn_primary_on",
     "art_input_field",
+    "art_card_a",
+    "art_card_k",
+    "art_card_q",
+    "art_card_joker",
+    "art_card_back",
 }
 
 
