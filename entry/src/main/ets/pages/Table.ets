@@ -5,6 +5,8 @@ import { ControlIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { SpectatorStub } from '../features/spectator/SpectatorStub';
+import { DealAudio } from '../features/table/DealAudio';
+import { DealBeat, DealFx } from '../features/table/DealFx';
 import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { TutorialStub } from '../features/tutorial/TutorialStub';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
@@ -48,10 +50,35 @@ struct Table {
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
   @State cardBacks: number[] = [];
+  @State dealPlaying: boolean = false;
+  @State flyOn: boolean = false;
+  @State flyX: number = 152;
+  @State flyY: number = 210;
+  @State flyScale: number = 0.72;
+  @State flyRot: number = -16;
+  @State flyZ: number = 1000;
+  @State landed0: number = 0;
+  @State landed1: number = 0;
+  @State landed2: number = 0;
+  @State landed3: number = 0;
+  @State pileOn: boolean = false;
   private pollId: number = -1;
   private pushedChallenge: boolean = false;
+  private dealToken: string = '';
+  private dealTimers: number[] = [];
+  private stackGX: number = 0;
+  private stackGY: number = 0;
+  private pileX: number = 152;
+  private pileY: number = 210;
+  private handX: number = 16;
+  private handY: number = 340;
+  private seatXs: number[] = [24, 108, 192, 276];
+  private seatYs: number[] = [128, 128, 128, 128];
 
   aboutToAppear(): void {
+    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    DealAudio.bind(ctx);
+    DealAudio.prepare();
     this.pull();
     this.pollId = setInterval((): void => {
       this.pull();
@@ -64,6 +91,8 @@ struct Table {
       clearInterval(this.pollId);
       this.pollId = -1;
     }
+    this.cancelDealTimers();
+    DealAudio.release();
   }
 
   build() {
@@ -108,6 +137,9 @@ struct Table {
           .width(56)
           .height(76)
           .margin({ top: 12 })
+          .onAreaChange((_old: Area, area: Area) => {
+            this.capturePile(area);
+          })
         Text(this.poolText)
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.subtitle_text_size'))
@@ -128,6 +160,9 @@ struct Table {
         }
         .id(ControlIds.HAND)
         .margin({ top: 16 })
+        .onAreaChange((_old: Area, area: Area) => {
+          this.captureHand(area);
+        })
 
         if (this.handEmpty) {
           Text($r('app.string.lb_str_hand_empty'))
@@ -155,6 +190,9 @@ struct Table {
             .backgroundColor($r('app.color.tavern_panel'))
             .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
             .onClick(() => {
+              if (!this.challengeEnabled) {
+                return;
+              }
               AppRuntime.engine.intentChallenge();
               this.pull();
             })
@@ -178,6 +216,9 @@ struct Table {
               .backgroundColor($r('app.color.tavern_accent'))
               .fontColor(this.playEnabled ? $r('app.color.tavern_bg') : $r('app.color.tavern_mute'))
               .onClick(() => {
+                if (!this.playEnabled) {
+                  return;
+                }
                 AppRuntime.engine.intentPlay();
                 this.showPlay = true;
                 this.pull();
@@ -237,11 +278,33 @@ struct Table {
       .width('100%')
       .height('100%')
       .padding(16)
+
+      if (this.pileOn) {
+        Image($r('app.media.art_card_back'))
+          .id('dealPileAnchor')
+          .width(40)
+          .height(56)
+          .position({ x: this.pileX + 8, y: this.pileY - 4 })
+          .zIndex(900)
+      }
+      if (this.flyOn) {
+        Image($r('app.media.art_card_back'))
+          .width($r('app.float.card_w'))
+          .height($r('app.float.card_h'))
+          .position({ x: this.flyX, y: this.flyY })
+          .scale({ x: this.flyScale, y: this.flyScale })
+          .rotate({ angle: this.flyRot })
+          .zIndex(this.flyZ)
+      }
     }
     .id(ScreenIds.TABLE)
     .width('100%')
     .height('100%')
     .backgroundColor($r('app.color.tavern_bg'))
+    .onAreaChange((_old: Area, area: Area) => {
+      this.stackGX = Number(area.globalPosition.x);
+      this.stackGY = Number(area.globalPosition.y);
+    })
   }
 
   @Builder
@@ -262,7 +325,19 @@ struct Table {
       Text(life)
         .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
         .fontSize($r('app.float.subtitle_text_size'))
+      if (seatId > 0 && this.stackOf(seatId) > 0) {
+        Row({ space: -10 }) {
+          ForEach(this.indexes(this.stackOf(seatId)), (idx: number) => {
+            Image($r('app.media.art_card_back'))
+              .width(22)
+              .height(30)
+          }, (idx: number) => `stk_${seatId}_${idx}`)
+        }
+      }
     }
+    .onAreaChange((_old: Area, area: Area) => {
+      this.captureSeat(seatId, area);
+    })
   }
 
   private pull(): void {
@@ -283,6 +358,15 @@ struct Table {
     }
     this.pushedChallenge = false;
     this.dealerLine = snap.dealerLine;
+    DealAudio.setSilent(snap.silentMode);
+    if (snap.phase === Phase.DEAL) {
+      this.applyDealHud(snap);
+      this.ensureDealShow(snap);
+      return;
+    }
+    this.pileOn = false;
+    this.flyOn = false;
+    this.dealPlaying = false;
     if (snap.currentClaim !== null) {
       this.claimText = `本轮出 ${snap.currentClaim.rank}`;
     } else {
@@ -300,6 +384,7 @@ struct Table {
       this.poolText = '';
     }
     this.fillSeats(snap.seats);
+    this.syncOppStacks(snap.seats);
     const humanTurn: boolean = this.isHumanTurn(snap);
     if (humanTurn && (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF)) {
       this.timerText = '--';
@@ -430,7 +515,203 @@ struct Table {
     this.pull();
   }
 
+  private applyDealHud(snap: MatchSnapshot): void {
+    this.claimText = '';
+    this.poolText = '';
+    this.timerText = '--';
+    this.challengeEnabled = false;
+    this.playEnabled = false;
+    this.skipEnabled = false;
+    this.showPlay = false;
+    this.showPeek = false;
+    this.showFirstHint = false;
+    this.handEmpty = false;
+    this.selfCards = [];
+    this.peekRanks = [];
+    this.cardBacks = this.indexes(this.landed0);
+    this.pileOn = true;
+    this.fillSeats(snap.seats);
+    this.turnSeat = -1;
+    this.calledSeat = -1;
+  }
+
+  private ensureDealShow(snap: MatchSnapshot): void {
+    const token: string = `${snap.matchId}:${snap.roundIndex}`;
+    if (this.dealToken === token) {
+      return;
+    }
+    this.startDealShow(snap, token);
+  }
+
+  private startDealShow(snap: MatchSnapshot, token: string): void {
+    this.cancelDealTimers();
+    this.dealToken = token;
+    this.dealPlaying = true;
+    this.landed0 = 0;
+    this.landed1 = 0;
+    this.landed2 = 0;
+    this.landed3 = 0;
+    this.cardBacks = [];
+    this.flyOn = false;
+    DealAudio.setSilent(snap.silentMode);
+    const rebuild: boolean = this.isRebuildDeal(snap);
+    const cardMs: number = DealFx.cardMs(rebuild);
+    const staggerMs: number = DealFx.staggerMs(rebuild);
+    const alive: number[] = DealFx.aliveClockwiseFromSelf(snap.seats);
+    const beats: DealBeat[] = DealFx.planBeats(alive, snap.config.hand_size_default);
+    const total: number = DealFx.totalMs(beats.length, cardMs, staggerMs);
+    Logger.info(TAG,
+      `DealFx ${rebuild ? 'rebuild' : 'opening'} n=${beats.length} T_card=${cardMs} T_stagger=${staggerMs} T_deal=${total}`);
+    this.armDeal(16, (): void => {
+      this.playBeat(beats, 0, cardMs, staggerMs);
+    });
+  }
+
+  private isRebuildDeal(snap: MatchSnapshot): boolean {
+    if (snap.dealerKey === 'lb_str_dlr_redeal') {
+      return true;
+    }
+    return snap.roundIndex > 1;
+  }
+
+  private playBeat(beats: DealBeat[], i: number, cardMs: number, staggerMs: number): void {
+    if (i >= beats.length) {
+      this.flyOn = false;
+      this.armDeal(DealFx.DEAL_DONE_SETTLE_MS, (): void => {
+        AppRuntime.engine.dealDone();
+        this.dealPlaying = false;
+        this.pileOn = false;
+        this.pull();
+      });
+      return;
+    }
+    const beat: DealBeat = beats[i];
+    this.flyX = this.pileX;
+    this.flyY = this.pileY;
+    this.flyScale = 0.72;
+    this.flyRot = -16;
+    this.flyZ = 1000 + beat.index;
+    this.flyOn = true;
+    DealAudio.playDealCard();
+    const dest: number[] = this.destOf(beat.seatId, beat.slot);
+    const opt: AnimateParam = {
+      duration: cardMs,
+      curve: Curve.EaseInOut
+    };
+    animateTo(opt, (): void => {
+      this.flyX = dest[0];
+      this.flyY = dest[1];
+      if (beat.seatId === 0) {
+        this.flyScale = 1;
+      } else {
+        this.flyScale = 0.55;
+      }
+      this.flyRot = 0;
+    });
+    this.armDeal(cardMs, (): void => {
+      this.markLanded(beat.seatId);
+      this.flyOn = false;
+      if (i + 1 >= beats.length) {
+        this.playBeat(beats, i + 1, cardMs, staggerMs);
+      } else {
+        this.armDeal(staggerMs, (): void => {
+          this.playBeat(beats, i + 1, cardMs, staggerMs);
+        });
+      }
+    });
+  }
+
+  private markLanded(seatId: number): void {
+    if (seatId === 0) {
+      this.landed0 = this.landed0 + 1;
+      this.cardBacks = this.indexes(this.landed0);
+    } else if (seatId === 1) {
+      this.landed1 = this.landed1 + 1;
+    } else if (seatId === 2) {
+      this.landed2 = this.landed2 + 1;
+    } else if (seatId === 3) {
+      this.landed3 = this.landed3 + 1;
+    }
+  }
+
+  private stackOf(seatId: number): number {
+    if (seatId === 1) {
+      return this.landed1;
+    }
+    if (seatId === 2) {
+      return this.landed2;
+    }
+    if (seatId === 3) {
+      return this.landed3;
+    }
+    return 0;
+  }
+
+  private syncOppStacks(seats: SeatModel[]): void {
+    this.landed1 = this.handCountOf(seats, 1);
+    this.landed2 = this.handCountOf(seats, 2);
+    this.landed3 = this.handCountOf(seats, 3);
+  }
+
+  private handCountOf(seats: SeatModel[], id: number): number {
+    for (let i = 0; i < seats.length; i++) {
+      if (seats[i].seatId === id) {
+        return seats[i].handCount;
+      }
+    }
+    return 0;
+  }
+
+  private destOf(seatId: number, slot: number): number[] {
+    if (seatId === 0) {
+      return [this.handX + slot * 62, this.handY];
+    }
+    const x: number = this.seatXs[seatId] + slot * 4;
+    const y: number = this.seatYs[seatId] + 36;
+    return [x, y];
+  }
+
+  private capturePile(area: Area): void {
+    const loc: number[] = this.localOf(area);
+    this.pileX = loc[0];
+    this.pileY = loc[1];
+  }
+
+  private captureHand(area: Area): void {
+    const loc: number[] = this.localOf(area);
+    this.handX = loc[0];
+    this.handY = loc[1];
+  }
+
+  private captureSeat(seatId: number, area: Area): void {
+    const loc: number[] = this.localOf(area);
+    this.seatXs[seatId] = loc[0];
+    this.seatYs[seatId] = loc[1];
+  }
+
+  private localOf(area: Area): number[] {
+    return [Number(area.globalPosition.x) - this.stackGX, Number(area.globalPosition.y) - this.stackGY];
+  }
+
+  private armDeal(ms: number, fn: () => void): void {
+    const id: number = setTimeout((): void => {
+      fn();
+    }, ms);
+    this.dealTimers.push(id);
+  }
+
+  private cancelDealTimers(): void {
+    for (let i = 0; i < this.dealTimers.length; i++) {
+      clearTimeout(this.dealTimers[i]);
+    }
+    this.dealTimers = [];
+  }
+
   private async openPeek(): Promise<void> {
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.phase === Phase.DEAL || snap.phase === Phase.CLAIM) {
+      return;
+    }
     this.showPeek = true;
     try {
       const ctx = getContext(this) as common.UIAbilityContext;

@@ -141,6 +141,8 @@ const etsFiles = [
   'entry/src/main/ets/config/DeckConfig.ets',
   'entry/src/main/ets/ai/AiFriend.ets',
   'entry/src/main/ets/pages/Table.ets',
+  'entry/src/main/ets/features/table/DealFx.ets',
+  'entry/src/main/ets/features/table/DealAudio.ets',
   'entry/src/main/ets/pages/Challenge.ets',
   'entry/src/main/ets/pages/Lobby.ets',
   'entry/src/main/ets/features/lobby/LobbyBoot.ets',

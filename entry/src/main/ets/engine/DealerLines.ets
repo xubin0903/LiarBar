@@ -178,7 +178,13 @@ export function livePhaseText(snap: MatchSnapshot): string {
   if (snap.phase === Phase.PENALTY) {
     return '结算命数';
   }
-  if (snap.phase === Phase.CLAIM || snap.phase === Phase.DEAL) {
+  if (snap.phase === Phase.DEAL) {
+    if (snap.dealerKey === 'lb_str_dlr_redeal') {
+      return '重新发牌';
+    }
+    return '发牌';
+  }
+  if (snap.phase === Phase.CLAIM) {
     return '新一轮';
   }
   return '';
