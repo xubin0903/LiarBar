@@ -194,29 +194,34 @@ def make_bgm() -> np.ndarray:
     for start, freq in melody_hz.items():
         i0 = int(start * SR)
         length = int(2.6 * SR)
-        tone = karplus(freq, length, 0.990, rng) * fade(length, int(0.004 * SR), int(1.0 * SR))
+        tone = karplus(freq, length, 0.986, rng) * fade(length, int(0.003 * SR), int(0.85 * SR))
+        # Octave harmonic so the figure reads above the cello bed.
+        tone += karplus(freq * 2.0, length, 0.978, rng) * fade(length, int(0.003 * SR), int(0.55 * SR)) * 0.45
         end = min(n, i0 + length)
-        plucks[i0:end] += tone[: end - i0] * 0.42
-    plucks = one_pole_lp(plucks, 2800.0)
+        plucks[i0:end] += tone[: end - i0] * 0.70
+    plucks = one_pole_hp(plucks, 160.0)
+    plucks = one_pole_lp(plucks, 3400.0)
 
     # Soft hall wood — felt, not a UI beep.
     ticks = np.zeros(n, dtype=np.float64)
     for start in (2.4, 6.8, 11.2, 15.6, 20.2):
         i0 = int(start * SR)
-        length = int(0.36 * SR)
-        body = karplus(86.0, length, 0.974, rng) * fade(length, 24, int(0.26 * SR))
+        length = int(0.40 * SR)
+        body = karplus(96.0, length, 0.970, rng) * fade(length, 20, int(0.28 * SR))
+        body += karplus(192.0, length, 0.955, rng) * fade(length, 16, int(0.18 * SR)) * 0.35
         end = min(n, i0 + length)
-        ticks[i0:end] += body[: end - i0] * 0.14
+        ticks[i0:end] += body[: end - i0] * 0.22
 
-    mono = drones * 0.78 + pad * 0.52 + plucks + ticks
-    mono = comb_delay(mono, 0.037, 0.30, 0.20)
-    mono = comb_delay(mono, 0.053, 0.24, 0.14)
+    # Drones stay under the figure so H3 can point at "low string" vs "pluck/wood".
+    mono = drones * 0.48 + pad * 0.36 + plucks * 1.15 + ticks
+    mono = comb_delay(mono, 0.037, 0.26, 0.16)
+    mono = comb_delay(mono, 0.053, 0.20, 0.10)
     mono = one_pole_hp(mono, 38.0)
-    left = mono + one_pole_lp(np.roll(mono, 180), 620.0) * 0.14
-    right = mono + one_pole_lp(np.roll(mono, -210), 620.0) * 0.14
-    st = stereo(left, right, width=0.20)
-    st = envelope_compress(st, thresh=0.18, ratio=3.2)
-    st = np.tanh(st / 0.42) * 0.42
+    left = mono + one_pole_lp(np.roll(mono, 180), 620.0) * 0.12
+    right = mono + one_pole_lp(np.roll(mono, -210), 620.0) * 0.12
+    st = stereo(left, right, width=0.22)
+    st = envelope_compress(st, thresh=0.20, ratio=2.4)
+    st = np.tanh(st / 0.55) * 0.55
     st = seamless_loop(st, 0.50)
     return peak_normalize(st, -12.0)
 
@@ -229,18 +234,18 @@ def make_amb() -> np.ndarray:
     brown = np.cumsum(rng.normal(0.0, 1.0, n))
     brown = brown - brown.mean()
     brown = brown / (np.max(np.abs(brown)) + 1e-8)
-    room = one_pole_lp(brown, 260.0) * 0.42
-    room += one_pole_lp(rng.normal(0.0, 1.0, n), 110.0) * 0.16
-    room += one_pole_lp(rng.normal(0.0, 1.0, n), 420.0) * 0.05
+    room = one_pole_lp(brown, 280.0) * 0.62
+    room += one_pole_lp(rng.normal(0.0, 1.0, n), 130.0) * 0.24
+    room += one_pole_lp(rng.normal(0.0, 1.0, n), 520.0) * 0.10
 
     # Unintelligible murmur: band-limited noise bursts, no words.
     murmur = np.zeros(n, dtype=np.float64)
     for start, dur, amp in (
-        (0.6, 1.6, 0.085),
-        (2.8, 1.9, 0.078),
-        (5.4, 1.5, 0.082),
-        (8.0, 1.8, 0.088),
-        (10.2, 1.4, 0.070),
+        (0.6, 1.6, 0.14),
+        (2.8, 1.9, 0.13),
+        (5.4, 1.5, 0.135),
+        (8.0, 1.8, 0.145),
+        (10.2, 1.4, 0.12),
     ):
         i0 = int(start * SR)
         length = int(dur * SR)
@@ -253,7 +258,7 @@ def make_amb() -> np.ndarray:
     # Glass / cup rims — modal, not a sine tip.
     clinks = np.zeros(n, dtype=np.float64)
     modes = (1840.0, 2460.0, 3120.0, 980.0)
-    for start, amp in ((1.8, 0.16), (4.6, 0.12), (7.2, 0.14), (10.1, 0.11)):
+    for start, amp in ((1.8, 0.24), (4.6, 0.20), (7.2, 0.22), (10.1, 0.18)):
         i0 = int(start * SR)
         length = int(0.62 * SR)
         t = np.arange(length) / SR
@@ -272,15 +277,15 @@ def make_amb() -> np.ndarray:
         length = int(1.0 * SR)
         body = karplus(64.0, length, 0.992, rng) * fade(length, 36, int(0.75 * SR))
         end = min(n, i0 + length)
-        beams[i0:end] += body[: end - i0] * 0.10
+        beams[i0:end] += body[: end - i0] * 0.16
 
     mono = room + murmur + clinks + beams
-    mono = comb_delay(mono, 0.044, 0.28, 0.20)
-    mono = comb_delay(mono, 0.067, 0.20, 0.12)
+    mono = comb_delay(mono, 0.044, 0.26, 0.18)
+    mono = comb_delay(mono, 0.067, 0.18, 0.10)
     mono = one_pole_hp(mono, 32.0)
-    st = stereo(mono, width=0.30)
-    st = envelope_compress(st, thresh=0.14, ratio=2.6)
-    st = np.tanh(st / 0.28) * 0.28
+    st = stereo(mono, width=0.32)
+    st = envelope_compress(st, thresh=0.16, ratio=2.2)
+    st = np.tanh(st / 0.38) * 0.38
     st = seamless_loop(st, 0.40)
     return peak_normalize(st, -17.0)
 
@@ -416,9 +421,9 @@ def finalize_voice(src: Path, dest: Path) -> None:
         "-af",
         "silenceremove=start_periods=1:start_threshold=-38dB:start_silence=0.02:detection=peak,"
         "highpass=f=90,lowpass=f=6000,"
-        "equalizer=f=160:t=q:w=1.1:g=2.4,equalizer=f=3200:t=q:w=1.0:g=1.8,"
-        "acompressor=threshold=-18dB:ratio=2.3:attack=7:release=90:makeup=2,"
-        "aecho=0.82:0.72:28:0.20,aecho=0.78:0.68:62:0.10",
+        "equalizer=f=140:t=q:w=1.0:g=1.2,equalizer=f=2800:t=q:w=1.1:g=3.6,"
+        "acompressor=threshold=-18dB:ratio=2.2:attack=6:release=80:makeup=2,"
+        "aecho=0.86:0.70:24:0.16,aecho=0.80:0.65:52:0.08",
         str(dest),
     ]
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
