@@ -17,3 +17,7 @@
 **旧脚本** `gen_lobby_p0_art.py` / `gen_scaffold_assets.py` 产出的 Pillow 色块 = **占位**，不是本批交件。
 
 大厅氛围 v3 四态不另放源图：从已交 `art_dealer_bust_idle` 派生，脚本是仓库根 `scripts/gen_lobby_v3_art.py`。音频见 `scripts/gen_lobby_v3_audio.py`。
+
+| 源文件 | 用途 |
+|--------|------|
+| `src_fx_candle.jpg` | 焰源（棋盘/黑底烤在像素里）→ key 成 `art_fx_candle.png`。`--candle-only` 重出。 |
