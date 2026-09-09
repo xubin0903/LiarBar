@@ -452,4 +452,65 @@ if (lobby.includes('ControlIds.DEALER_BANNER') || lobby.includes('lb_cmp_dealer_
   pass('lb_cmp_dealer_banner left in table');
 }
 
+console.log('--- HARD GATES (交审五条) ---');
+
+const t4Arm = lobby.match(/this\.arm\(marks\.t4At, \(\): void => \{[\s\S]*?\}\);/);
+if (lobby.includes('@State bootReady: boolean = false') &&
+    lobby.includes('.enabled(this.bootReady)') &&
+    lobby.includes("quickstart ignored: boot axis not finished") &&
+    /this\.arm\(marks\.clickableAt, \(\): void => \{[\s\S]*?this\.enableCta\(\);/.test(lobby)) {
+  pass('HARD1 T6/BOOT 结束前 lb_btn_quickstart disabled，误点不开桌');
+} else {
+  fail('HARD1 CTA gate before T6/BOOT end');
+}
+
+if (t4Arm && t4Arm[0].includes('showGreet()') && t4Arm[0].includes('playVoGreet()') &&
+    lobby.includes('HARD2: vo_dealer_greet + subtitle same callback')) {
+  pass('HARD2 vo_dealer_greet 与字幕同起（同一 arm / ±40ms）');
+} else {
+  fail('HARD2 VO/subtitle not same-tick');
+}
+
+const silentOff = ['playBootHit', 'playCtaTap', 'playVoGreet', 'startAmb', 'startBgm']
+  .every((fn) => {
+    const block = audio.match(new RegExp(`static ${fn}[\\s\\S]*?\\n  static `));
+    return block && block[0].includes('LobbyAudio.silent') && block[0].includes('skipped (silent)');
+  });
+if (silentOff && audio.includes('stopBedsNow') && !audio.includes('-24') &&
+    t4Arm && t4Arm[0].includes('showGreet()') &&
+    !t4Arm[0].includes('if (this.silent)') &&
+    lobby.includes('startIdleLoop') && lobby.includes('playIdleAction')) {
+  pass('HARD3 静默五层全关（不压低留声），字幕+动作仍在');
+} else {
+  fail('HARD3 silent hard-off');
+}
+
+if (lobby.includes('pickFirst') && lobby.includes('pickGuaranteedAccent') &&
+    machine.includes('nowMs - this.loopStartMs < 8000') &&
+    lobby.includes('art_dealer_idle_blink') &&
+    lobby.includes('art_dealer_idle_nod') &&
+    lobby.includes('art_dealer_idle_cup') &&
+    lobby.includes('art_dealer_idle_mask') &&
+    lobby.includes('pulseBreath') &&
+    lobby.includes('crossIdleLayer')) {
+  pass('HARD4 idle ≥8s 眨眼+（点头/抬杯/面具），禁止仅 scale');
+} else {
+  fail('HARD4 idle 8s gate / scale-only');
+}
+
+const liveEts = `${ids}\n${audio}\n${lobby}`;
+if (!liveEts.includes('sfx/sfx_boot.wav') &&
+    !liveEts.includes('sfx_lobby_amb') &&
+    !liveEts.includes('sfx/sfx_cta.wav') &&
+    !ids.includes("'lb_sfx_lobby_amb'") &&
+    liveEts.includes('sfx_boot_hit') &&
+    liveEts.includes('sfx_cta_tap') &&
+    liveEts.includes('sfx_amb_tavern') &&
+    liveEts.includes('bgm_lobby_night') &&
+    liveEts.includes('vo_dealer_greet')) {
+  pass('HARD5 旧 sfx_boot/sfx_lobby_amb/sfx_cta 已换绑');
+} else {
+  fail('HARD5 old sfx still bound');
+}
+
 console.log(process.exitCode ? 'LOBBY BOOT CHECK FAILED' : 'LOBBY BOOT CHECK OK');

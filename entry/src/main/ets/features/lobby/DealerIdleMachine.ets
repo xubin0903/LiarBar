@@ -106,11 +106,34 @@ export class DealerIdleMachine {
     return DealerIdleMachine.weightedPick(rows);
   }
 
+  hasBlink(): boolean {
+    return this.sawBlink;
+  }
+
+  hasAccent(): boolean {
+    return this.sawAccent;
+  }
+
   pickFirst(nowMs: number): string {
     if (this.canBlink(nowMs)) {
       return DealerIdleKind.BLINK;
     }
     return this.pick(nowMs, false);
+  }
+
+  /** After the opening blink: next draw must be nod / cup / mask (8s gate). */
+  pickGuaranteedAccent(nowMs: number, cupActive: boolean): string {
+    const rows: IdleWeight[] = this.eligible(nowMs, cupActive, true);
+    if (rows.length > 0) {
+      return DealerIdleMachine.weightedPick(rows);
+    }
+    if (!cupActive && nowMs >= this.maskReadyAt) {
+      return DealerIdleKind.MASK;
+    }
+    if (!cupActive && this.lastMajor !== DealerIdleKind.NOD && nowMs >= this.nodReadyAt) {
+      return DealerIdleKind.NOD;
+    }
+    return DealerIdleKind.MASK;
   }
 
   private forceAccentIfNeeded(nowMs: number, cupActive: boolean): string {

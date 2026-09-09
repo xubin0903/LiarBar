@@ -392,7 +392,7 @@ struct Lobby {
       this.showGreet();
       LobbyAudio.playVoGreet();
       LobbyAudio.duckBgmForVo();
-    });
+    }); // HARD2: vo_dealer_greet + subtitle same callback (±40ms)
 
     this.arm(marks.t4At + voMs, (): void => {
       LobbyAudio.unduckBgmToSteady();
@@ -579,7 +579,7 @@ struct Lobby {
     }
     if (kind === DealerIdleKind.IDLE) {
       this.arm(400, (): void => {
-        this.playIdleAction(this.idleMachine.pick(Date.now(), this.cupActive));
+        this.playIdleAction(this.nextIdleKind());
       });
       return;
     }
@@ -599,9 +599,16 @@ struct Lobby {
       this.cupActive = false;
       this.idleMachine.markPlayed(kind, Date.now());
       this.arm(600, (): void => {
-        this.playIdleAction(this.idleMachine.pick(Date.now(), false));
+        this.playIdleAction(this.nextIdleKind());
       });
     });
+  }
+
+  private nextIdleKind(): string {
+    if (!this.idleMachine.hasAccent()) {
+      return this.idleMachine.pickGuaranteedAccent(Date.now(), this.cupActive);
+    }
+    return this.idleMachine.pick(Date.now(), this.cupActive);
   }
 
   private overlayBlink(): void {
