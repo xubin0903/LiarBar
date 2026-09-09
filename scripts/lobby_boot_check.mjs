@@ -518,7 +518,7 @@ if (!etsBlob.includes('sfx_hover') && !ids.includes('sfx_hover')) {
 }
 
 if (lobby.includes("app.media.art_fx_candle") &&
-    lobby.includes('BlendMode.Plus') &&
+    lobby.includes('BlendMode.PLUS') &&
     audio.includes('audio/bgm/bgm_lobby_night.ogg') &&
     audio.includes('audio/sfx/sfx_amb_tavern.ogg') &&
     audio.includes('audio/vo/vo_dealer_greet.wav') &&
