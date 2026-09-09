@@ -171,6 +171,17 @@ if (audio.includes('skipped (silent)') && lobby.includes('LobbyAudio.setSilent')
 } else {
   fail('silent mute wiring');
 }
+if (audio.includes('interface RawFdSlice') || audio.includes(': RawFdSlice')) {
+  fail('local RawFdSlice structural stand-in (arkts-no-structural-typing)');
+} else {
+  pass('no RawFdSlice structural stand-in');
+}
+if (audio.includes('RawFileDescriptor') && audio.includes('getRawFd') &&
+    audio.includes('rawFd.fd') && audio.includes('rawFd.offset') && audio.includes('rawFd.length')) {
+  pass('SoundPool.load uses official RawFileDescriptor fields');
+} else {
+  fail('getRawFd / RawFileDescriptor field copy');
+}
 if (lobby.includes("app.string.lb_str_dlr_lobby_greet") && lobby.includes('greetOpacity')) {
   pass('greet subtitle still shown (opacity independent of silent)');
 } else {
