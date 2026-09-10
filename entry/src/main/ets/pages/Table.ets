@@ -15,6 +15,8 @@ import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
 import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
 
 const TAG = 'Table';
+/** HUD poll floor: 200ms @State spam flickered the page. Skip writes if stamp unchanged. */
+const SNAP_POLL_MS: number = 800;
 
 /**
  * lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait.
@@ -81,6 +83,7 @@ struct Table {
   @State dealerBustPct: number = TableBreakpoints.BUST_MAX_PCT;
   @State heartPadPct: number = 0;
   private pollId: number = -1;
+  private lastHudStamp: string = '';
   private pushedChallenge: boolean = false;
   private dealToken: string = '';
   private dealTimers: number[] = [];
@@ -111,7 +114,7 @@ struct Table {
     this.pull();
     this.pollId = setInterval((): void => {
       this.pull();
-    }, 200);
+    }, SNAP_POLL_MS);
     Logger.info(TAG, 'table listening to engine snapshot');
   }
 
@@ -619,6 +622,7 @@ struct Table {
     }
   }
 
+  /** Bind avoid-area. Landscape itself is locked once at L-0; this call is a no-op if already LANDSCAPE. */
   private async lockTableWindow(): Promise<void> {
     try {
       const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -650,17 +654,38 @@ struct Table {
   }
 
   private applyInsets(box: SafeInsets): void {
-    this.padL = this.pxToVp(box.left);
-    this.padT = this.pxToVp(box.top);
-    this.padR = this.pxToVp(box.right);
-    this.padB = this.pxToVp(box.bottom);
-    this.applyInsetFloors();
+    const nextL: number = TableBreakpoints.floorNotchPad(this.insetVp(box.left), this.stackW);
+    const nextT: number = this.insetVp(box.top);
+    const nextR: number = TableBreakpoints.floorNotchPad(this.insetVp(box.right), this.stackW);
+    const nextB: number = TableBreakpoints.floorHandPad(this.insetVp(box.bottom), this.stackH);
+    this.commitPads(nextL, nextT, nextR, nextB);
   }
 
   private applyInsetFloors(): void {
-    this.padL = TableBreakpoints.floorNotchPad(this.padL, this.stackW);
-    this.padR = TableBreakpoints.floorNotchPad(this.padR, this.stackW);
-    this.padB = TableBreakpoints.floorHandPad(this.padB, this.stackH);
+    const nextL: number = TableBreakpoints.floorNotchPad(this.padL, this.stackW);
+    const nextR: number = TableBreakpoints.floorNotchPad(this.padR, this.stackW);
+    const nextB: number = TableBreakpoints.floorHandPad(this.padB, this.stackH);
+    this.commitPads(nextL, this.padT, nextR, nextB);
+  }
+
+  /** avoidAreaChange jitter: do not write @State pad* when values are unchanged. */
+  private commitPads(l: number, t: number, r: number, b: number): void {
+    if (this.padL !== l) {
+      this.padL = l;
+    }
+    if (this.padT !== t) {
+      this.padT = t;
+    }
+    if (this.padR !== r) {
+      this.padR = r;
+    }
+    if (this.padB !== b) {
+      this.padB = b;
+    }
+  }
+
+  private insetVp(px: number): number {
+    return Math.round(this.pxToVp(px));
   }
 
   private pxToVp(px: number): number {
@@ -675,8 +700,14 @@ struct Table {
   }
 
   private applyBreakpoint(w: number, h: number): void {
-    this.dealerBustPct = TableBreakpoints.dealerBustMaxPct(w, h);
-    this.heartPadPct = TableBreakpoints.heartPadPct(w, h);
+    const nextBust: number = TableBreakpoints.dealerBustMaxPct(w, h);
+    const nextHeart: number = TableBreakpoints.heartPadPct(w, h);
+    if (this.dealerBustPct !== nextBust) {
+      this.dealerBustPct = nextBust;
+    }
+    if (this.heartPadPct !== nextHeart) {
+      this.heartPadPct = nextHeart;
+    }
     this.applyInsetFloors();
   }
 
@@ -717,64 +748,214 @@ struct Table {
       return;
     }
     this.pushedChallenge = false;
-    this.dealerLine = snap.dealerLine;
-    this.phaseText = snap.phase;
+    const stamp: string = this.hudStamp(snap);
     DealAudio.setSilent(snap.silentMode);
     if (snap.phase === Phase.DEAL) {
-      this.applyDealHud(snap);
+      if (stamp !== this.lastHudStamp) {
+        this.lastHudStamp = stamp;
+        this.applyDealHud(snap);
+      }
       this.ensureDealShow(snap);
       return;
     }
-    this.pileOn = false;
-    this.flyOn = false;
-    this.dealPlaying = false;
-    if (snap.currentClaim !== null) {
-      this.claimText = `本轮出 ${snap.currentClaim.rank}`;
-    } else {
-      this.claimText = '';
+    this.applyTimer(snap);
+    if (stamp === this.lastHudStamp) {
+      return;
     }
-    this.selfCards = snap.selfHand;
-    this.peekRanks = this.ranksOf(snap.selfHand);
-    this.cardBacks = this.indexes(snap.selfHand.length);
-    this.handEmpty = snap.selfHand.length === 0;
-    this.turnSeat = snap.currentSeatId;
-    this.calledSeat = snap.lastPlay === null ? -1 : snap.lastPlay.namedSeatId;
+    this.lastHudStamp = stamp;
+    if (this.dealerLine !== snap.dealerLine) {
+      this.dealerLine = snap.dealerLine;
+    }
+    if (this.phaseText !== snap.phase) {
+      this.phaseText = snap.phase;
+    }
+    if (this.pileOn) {
+      this.pileOn = false;
+    }
+    if (this.flyOn) {
+      this.flyOn = false;
+    }
+    if (this.dealPlaying) {
+      this.dealPlaying = false;
+    }
+    let nextClaim: string = '';
+    if (snap.currentClaim !== null) {
+      nextClaim = `本轮出 ${snap.currentClaim.rank}`;
+    }
+    if (this.claimText !== nextClaim) {
+      this.claimText = nextClaim;
+    }
+    this.takeSelfHand(snap.selfHand);
+    this.takePeekRanks(this.ranksOf(snap.selfHand));
+    this.takeCardBacks(snap.selfHand.length);
+    const emptyHand: boolean = snap.selfHand.length === 0;
+    if (this.handEmpty !== emptyHand) {
+      this.handEmpty = emptyHand;
+    }
+    if (this.turnSeat !== snap.currentSeatId) {
+      this.turnSeat = snap.currentSeatId;
+    }
+    const called: number = snap.lastPlay === null ? -1 : snap.lastPlay.namedSeatId;
+    if (this.calledSeat !== called) {
+      this.calledSeat = called;
+    }
+    let nextPool: string = '';
     if (snap.lastPlay !== null) {
-      this.poolText = `${snap.lastPlay.count}`;
-    } else {
-      this.poolText = '';
+      nextPool = `${snap.lastPlay.count}`;
+    }
+    if (this.poolText !== nextPool) {
+      this.poolText = nextPool;
     }
     this.fillSeats(snap.seats);
     this.syncOppStacks(snap.seats);
     const humanTurn: boolean = this.isHumanTurn(snap);
-    if (humanTurn && (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF)) {
-      this.timerText = '--';
-    } else {
-      const sec: number = Math.ceil(snap.turnRemainMs / 1000);
-      this.timerText = `${sec}`;
+    const nextChallenge: boolean = humanTurn && snap.canChallenge && snap.phase === Phase.TURN;
+    if (this.challengeEnabled !== nextChallenge) {
+      this.challengeEnabled = nextChallenge;
     }
-    this.challengeEnabled = humanTurn && snap.canChallenge && snap.phase === Phase.TURN;
-    this.showFirstHint = !snap.canChallenge && snap.playIndexInRound === 0 && humanTurn;
-    this.playEnabled = humanTurn && snap.hasCards && snap.phase === Phase.TURN &&
+    const nextHint: boolean = !snap.canChallenge && snap.playIndexInRound === 0 && humanTurn;
+    if (this.showFirstHint !== nextHint) {
+      this.showFirstHint = nextHint;
+    }
+    const nextPlay: boolean = humanTurn && snap.hasCards && snap.phase === Phase.TURN &&
       snap.turnWindow !== TurnWindow.CHALLENGE_ONLY;
-    this.skipEnabled = humanTurn && snap.phase === Phase.TURN &&
+    if (this.playEnabled !== nextPlay) {
+      this.playEnabled = nextPlay;
+    }
+    const nextSkip: boolean = humanTurn && snap.phase === Phase.TURN &&
       (snap.turnWindow === TurnWindow.CHALLENGE_ONLY || !snap.hasCards);
-    this.showPlay = snap.phase === Phase.PLAY_REVEAL_SELF && humanTurn;
+    if (this.skipEnabled !== nextSkip) {
+      this.skipEnabled = nextSkip;
+    }
+    const nextSheet: boolean = snap.phase === Phase.PLAY_REVEAL_SELF && humanTurn;
+    if (this.showPlay !== nextSheet) {
+      this.showPlay = nextSheet;
+    }
     this.refreshPlayMeta(snap);
   }
 
+  /** HUD fields Table writes. Clock is applied separately so a second tick cannot churn card arrays. */
+  private hudStamp(snap: MatchSnapshot): string {
+    let claim: string = '';
+    if (snap.currentClaim !== null) {
+      claim = snap.currentClaim.rank;
+    }
+    let pool: string = '';
+    let called: number = -1;
+    if (snap.lastPlay !== null) {
+      pool = `${snap.lastPlay.count}`;
+      called = snap.lastPlay.namedSeatId;
+    }
+    let hand: string = '';
+    for (let i = 0; i < snap.selfHand.length; i++) {
+      hand = `${hand}${snap.selfHand[i].cardId}:${snap.selfHand[i].rank},`;
+    }
+    let seats: string = '';
+    for (let i = 0; i < snap.seats.length; i++) {
+      const s: SeatModel = snap.seats[i];
+      seats = `${seats}${s.seatId}:${s.nickname}:${s.status}:${s.lives}:${s.handCount};`;
+    }
+    const human: boolean = this.isHumanTurn(snap);
+    return `${snap.phase}|${snap.turnWindow}|${snap.roundIndex}|${snap.playIndexInRound}|` +
+      `${snap.currentSeatId}|${snap.canChallenge}|${snap.hasCards}|${snap.silentMode}|` +
+      `${snap.dealerLine}|${snap.dealerKey}|${claim}|${pool}|${called}|${human}|${hand}|${seats}`;
+  }
+
+  private applyTimer(snap: MatchSnapshot): void {
+    const humanTurn: boolean = this.isHumanTurn(snap);
+    let next: string = '--';
+    if (!(humanTurn && (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF))) {
+      next = `${Math.ceil(snap.turnRemainMs / 1000)}`;
+    }
+    if (this.timerText !== next) {
+      this.timerText = next;
+    }
+  }
+
+  private takeSelfHand(next: CardModel[]): void {
+    if (this.selfCards.length === next.length) {
+      let same: boolean = true;
+      for (let i = 0; i < next.length; i++) {
+        if (this.selfCards[i].cardId !== next[i].cardId || this.selfCards[i].rank !== next[i].rank) {
+          same = false;
+          break;
+        }
+      }
+      if (same) {
+        return;
+      }
+    }
+    this.selfCards = next;
+  }
+
+  private takePeekRanks(next: string[]): void {
+    if (this.peekRanks.length === next.length) {
+      let same: boolean = true;
+      for (let i = 0; i < next.length; i++) {
+        if (this.peekRanks[i] !== next[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) {
+        return;
+      }
+    }
+    this.peekRanks = next;
+  }
+
+  private takeCardBacks(n: number): void {
+    if (this.cardBacks.length === n) {
+      return;
+    }
+    this.cardBacks = this.indexes(n);
+  }
+
   private fillSeats(seats: SeatModel[]): void {
-    this.seat0 = this.seatLabel(seats, 0);
-    this.seat1 = this.seatLabel(seats, 1);
-    this.seat2 = this.seatLabel(seats, 2);
-    this.seat3 = this.seatLabel(seats, 3);
-    this.life0 = this.lifeLabel(seats, 0);
-    this.life1 = this.lifeLabel(seats, 1);
-    this.life2 = this.lifeLabel(seats, 2);
-    this.life3 = this.lifeLabel(seats, 3);
-    this.nameP1 = this.nickOf(seats, 1);
-    this.nameP2 = this.nickOf(seats, 2);
-    this.nameP3 = this.nickOf(seats, 3);
+    const s0: string = this.seatLabel(seats, 0);
+    const s1: string = this.seatLabel(seats, 1);
+    const s2: string = this.seatLabel(seats, 2);
+    const s3: string = this.seatLabel(seats, 3);
+    if (this.seat0 !== s0) {
+      this.seat0 = s0;
+    }
+    if (this.seat1 !== s1) {
+      this.seat1 = s1;
+    }
+    if (this.seat2 !== s2) {
+      this.seat2 = s2;
+    }
+    if (this.seat3 !== s3) {
+      this.seat3 = s3;
+    }
+    const l0: string = this.lifeLabel(seats, 0);
+    const l1: string = this.lifeLabel(seats, 1);
+    const l2: string = this.lifeLabel(seats, 2);
+    const l3: string = this.lifeLabel(seats, 3);
+    if (this.life0 !== l0) {
+      this.life0 = l0;
+    }
+    if (this.life1 !== l1) {
+      this.life1 = l1;
+    }
+    if (this.life2 !== l2) {
+      this.life2 = l2;
+    }
+    if (this.life3 !== l3) {
+      this.life3 = l3;
+    }
+    const n1: string = this.nickOf(seats, 1);
+    const n2: string = this.nickOf(seats, 2);
+    const n3: string = this.nickOf(seats, 3);
+    if (this.nameP1 !== n1) {
+      this.nameP1 = n1;
+    }
+    if (this.nameP2 !== n2) {
+      this.nameP2 = n2;
+    }
+    if (this.nameP3 !== n3) {
+      this.nameP3 = n3;
+    }
   }
 
   private seatLabel(seats: SeatModel[], id: number): string {
@@ -857,9 +1038,15 @@ struct Table {
   }
 
   private refreshPlayMeta(snap: MatchSnapshot): void {
-    this.playCountText = `${this.selectedIds.length}`;
-    this.confirmEnabled = this.selectedIds.length >= snap.config.min_play_cards &&
+    const count: string = `${this.selectedIds.length}`;
+    if (this.playCountText !== count) {
+      this.playCountText = count;
+    }
+    const ok: boolean = this.selectedIds.length >= snap.config.min_play_cards &&
       this.selectedIds.length <= snap.config.max_play_cards;
+    if (this.confirmEnabled !== ok) {
+      this.confirmEnabled = ok;
+    }
   }
 
   private confirmPlay(): void {
@@ -877,23 +1064,49 @@ struct Table {
   }
 
   private applyDealHud(snap: MatchSnapshot): void {
-    this.claimText = '';
-    this.poolText = '';
-    this.timerText = '--';
-    this.challengeEnabled = false;
-    this.playEnabled = false;
-    this.skipEnabled = false;
-    this.showPlay = false;
-    this.showPeek = false;
-    this.showFirstHint = false;
-    this.handEmpty = false;
-    this.selfCards = [];
-    this.peekRanks = [];
-    this.cardBacks = this.indexes(this.landed0);
-    this.pileOn = true;
+    if (this.claimText !== '') {
+      this.claimText = '';
+    }
+    if (this.poolText !== '') {
+      this.poolText = '';
+    }
+    if (this.timerText !== '--') {
+      this.timerText = '--';
+    }
+    if (this.challengeEnabled) {
+      this.challengeEnabled = false;
+    }
+    if (this.playEnabled) {
+      this.playEnabled = false;
+    }
+    if (this.skipEnabled) {
+      this.skipEnabled = false;
+    }
+    if (this.showPlay) {
+      this.showPlay = false;
+    }
+    if (this.showPeek) {
+      this.showPeek = false;
+    }
+    if (this.showFirstHint) {
+      this.showFirstHint = false;
+    }
+    if (this.handEmpty) {
+      this.handEmpty = false;
+    }
+    this.takeSelfHand([]);
+    this.takePeekRanks([]);
+    this.takeCardBacks(this.landed0);
+    if (!this.pileOn) {
+      this.pileOn = true;
+    }
     this.fillSeats(snap.seats);
-    this.turnSeat = -1;
-    this.calledSeat = -1;
+    if (this.turnSeat !== -1) {
+      this.turnSeat = -1;
+    }
+    if (this.calledSeat !== -1) {
+      this.calledSeat = -1;
+    }
   }
 
   private ensureDealShow(snap: MatchSnapshot): void {
@@ -1010,9 +1223,18 @@ struct Table {
   }
 
   private syncOppStacks(seats: SeatModel[]): void {
-    this.landed1 = this.handCountOf(seats, 1);
-    this.landed2 = this.handCountOf(seats, 2);
-    this.landed3 = this.handCountOf(seats, 3);
+    const n1: number = this.handCountOf(seats, 1);
+    const n2: number = this.handCountOf(seats, 2);
+    const n3: number = this.handCountOf(seats, 3);
+    if (this.landed1 !== n1) {
+      this.landed1 = n1;
+    }
+    if (this.landed2 !== n2) {
+      this.landed2 = n2;
+    }
+    if (this.landed3 !== n3) {
+      this.landed3 = n3;
+    }
   }
 
   private handCountOf(seats: SeatModel[], id: number): number {

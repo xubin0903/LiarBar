@@ -16,24 +16,21 @@ export class SafeInsets {
  * Page-level orientation (docs 11 §6.1 / O1 / R-LAND-1).
  * Lock landscape at L-0 (quickstart), not after Table appears.
  * module.json5 stays portrait so lobby is not forced landscape.
+ *
+ * Use fixed LANDSCAPE — AUTO_ROTATION_LANDSCAPE fights emulator/system
+ * (black flash / desktop leak). Identical lock is a no-op so enter-table
+ * and return-lobby each call setPreferredOrientation at most once.
  */
 export class WindowOrientation {
+  private static lastWanted: window.Orientation | null = null;
+  private static inFlight: Promise<void> | null = null;
+
   static async lockLandscape(ctx: common.UIAbilityContext): Promise<void> {
-    try {
-      const win: window.Window = await window.getLastWindow(ctx);
-      await win.setPreferredOrientation(window.Orientation.AUTO_ROTATION_LANDSCAPE);
-    } catch (err) {
-      Logger.warn(TAG, 'landscape request fail-soft');
-    }
+    await WindowOrientation.applyPreferred(ctx, window.Orientation.LANDSCAPE);
   }
 
   static async lockPortrait(ctx: common.UIAbilityContext): Promise<void> {
-    try {
-      const win: window.Window = await window.getLastWindow(ctx);
-      await win.setPreferredOrientation(window.Orientation.PORTRAIT);
-    } catch (err) {
-      Logger.warn(TAG, 'portrait request fail-soft');
-    }
+    await WindowOrientation.applyPreferred(ctx, window.Orientation.PORTRAIT);
   }
 
   static async mainWindow(ctx: common.UIAbilityContext): Promise<window.Window | null> {
@@ -55,6 +52,50 @@ export class WindowOrientation {
     WindowOrientation.mergeType(out, win, window.AvoidAreaType.TYPE_SYSTEM_GESTURE);
     WindowOrientation.mergeType(out, win, window.AvoidAreaType.TYPE_NAVIGATION_INDICATOR);
     return out;
+  }
+
+  /**
+   * Skip setPreferredOrientation when this process already locked `want`.
+   * Coalesce overlapping calls so Table aboutToAppear cannot re-twist
+   * a window Lobby just locked (system-layer flash).
+   */
+  private static async applyPreferred(
+    ctx: common.UIAbilityContext,
+    want: window.Orientation
+  ): Promise<void> {
+    if (WindowOrientation.lastWanted === want) {
+      return;
+    }
+    if (WindowOrientation.inFlight !== null) {
+      await WindowOrientation.inFlight;
+      if (WindowOrientation.lastWanted === want) {
+        return;
+      }
+    }
+    const task: Promise<void> = WindowOrientation.commit(ctx, want);
+    WindowOrientation.inFlight = task;
+    try {
+      await task;
+    } finally {
+      if (WindowOrientation.inFlight === task) {
+        WindowOrientation.inFlight = null;
+      }
+    }
+  }
+
+  private static async commit(
+    ctx: common.UIAbilityContext,
+    want: window.Orientation
+  ): Promise<void> {
+    const label: string = want === window.Orientation.LANDSCAPE ? 'landscape' : 'portrait';
+    try {
+      const win: window.Window = await window.getLastWindow(ctx);
+      await win.setPreferredOrientation(want);
+      WindowOrientation.lastWanted = want;
+      Logger.info(TAG, `preferred ${label}`);
+    } catch (err) {
+      Logger.warn(TAG, `${label} request fail-soft`);
+    }
   }
 
   private static mergeType(out: SafeInsets, win: window.Window, type: window.AvoidAreaType): void {

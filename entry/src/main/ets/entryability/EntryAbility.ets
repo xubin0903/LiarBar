@@ -3,6 +3,7 @@ import { window } from '@kit.ArkUI';
 import { ConfigRepository } from '../config/ConfigRepository';
 import { AppRuntime } from '../common/AppRuntime';
 import { Logger } from '../common/Logger';
+import { WindowOrientation } from '../harmony/WindowOrientation';
 import { LocalStore } from '../persist/LocalStore';
 
 const TAG = 'EntryAbility';
@@ -27,8 +28,7 @@ export default class EntryAbility extends UIAbility {
     }
 
     try {
-      const win: window.Window = await windowStage.getMainWindow();
-      await win.setPreferredOrientation(window.Orientation.PORTRAIT);
+      await WindowOrientation.lockPortrait(this.context);
     } catch (err) {
       Logger.warn(TAG, 'portrait request fail-soft');
     }
