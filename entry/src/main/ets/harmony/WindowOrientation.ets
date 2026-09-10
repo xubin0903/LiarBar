@@ -64,11 +64,15 @@ export class WindowOrientation {
     want: window.Orientation
   ): Promise<void> {
     if (WindowOrientation.lastWanted === want) {
+      const label: string = want === window.Orientation.LANDSCAPE ? 'landscape' : 'portrait';
+      Logger.info(TAG, `skip want=${label}`);
       return;
     }
     if (WindowOrientation.inFlight !== null) {
       await WindowOrientation.inFlight;
       if (WindowOrientation.lastWanted === want) {
+        const label: string = want === window.Orientation.LANDSCAPE ? 'landscape' : 'portrait';
+        Logger.info(TAG, `skip want=${label}`);
         return;
       }
     }
@@ -92,9 +96,9 @@ export class WindowOrientation {
       const win: window.Window = await window.getLastWindow(ctx);
       await win.setPreferredOrientation(want);
       WindowOrientation.lastWanted = want;
-      Logger.info(TAG, `preferred ${label}`);
+      Logger.info(TAG, `commit want=${label} result=ok ts=${Date.now()}`);
     } catch (err) {
-      Logger.warn(TAG, `${label} request fail-soft`);
+      Logger.warn(TAG, `commit want=${label} result=fail ts=${Date.now()}`);
     }
   }
 

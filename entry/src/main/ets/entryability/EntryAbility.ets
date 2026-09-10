@@ -27,13 +27,25 @@ export default class EntryAbility extends UIAbility {
       Logger.error(TAG, 'config/persist bootstrap failed — pages may hydrate empty');
     }
 
+    Logger.info(TAG, 'bootstrap before orientation lock');
     try {
       await WindowOrientation.lockPortrait(this.context);
     } catch (err) {
       Logger.warn(TAG, 'portrait request fail-soft');
     }
+    Logger.info(TAG, 'bootstrap after orientation lock');
 
+    try {
+      const win: window.Window = await windowStage.getMainWindow();
+      const props: window.WindowProperties = win.getWindowProperties();
+      Logger.info(TAG, `bootstrap attach w=${props.windowRect.width} h=${props.windowRect.height}`);
+    } catch (err) {
+      Logger.warn(TAG, 'bootstrap attach/properties fail-soft');
+    }
+
+    Logger.info(TAG, 'bootstrap before loadContent');
     windowStage.loadContent('pages/Lobby', (err) => {
+      Logger.info(TAG, 'bootstrap after loadContent');
       if (err.code) {
         Logger.error(TAG, `load Lobby failed code=${err.code}`);
         return;

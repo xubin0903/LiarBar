@@ -89,6 +89,8 @@ struct Lobby {
   private matchLoadPersistDone: boolean = false;
 
   aboutToAppear(): void {
+    Logger.info(TAG,
+      `aboutToAppear lobbyBgOpacity=${this.lobbyBgOpacity} splashOpacity=${this.splashOpacity}`);
     this.lockPortraitSoft();
     this.begin();
   }
@@ -644,6 +646,8 @@ struct Lobby {
 
   private enableCta(): void {
     this.bootReady = true;
+    Logger.info(TAG,
+      `bootReady lobbyBgOpacity=${this.lobbyBgOpacity} splashOpacity=${this.splashOpacity}`);
     Logger.info(TAG, 'boot steady — lb_btn_quickstart enabled');
   }
 
