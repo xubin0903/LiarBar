@@ -26,16 +26,25 @@ export struct MatchLoadOverlay {
   @State dealerOpacity: number = 0;
   @State dealerScale: number = 0.96;
   @State hintValue: number = 0;
+  @State tipTick: number = 0;
   private timerIds: number[] = [];
+  private tipTimer: number = -1;
 
   aboutToAppear(): void {
     Logger.info(TAG, `${OverlayIds.MATCH_LOAD} L-0 cover`);
     LobbyAudio.playMatchOpen();
     this.playAxis();
+    this.tipTimer = setInterval((): void => {
+      this.tipTick = this.tipTick + 1;
+    }, MatchLoad.TIP_ROTATE_MS);
   }
 
   aboutToDisappear(): void {
     this.clearTimers();
+    if (this.tipTimer >= 0) {
+      clearInterval(this.tipTimer);
+      this.tipTimer = -1;
+    }
   }
 
   build() {
@@ -78,7 +87,11 @@ export struct MatchLoadOverlay {
       .alignItems(HorizontalAlign.Center)
       .hitTestBehavior(HitTestMode.None)
 
-      Column() {
+      Column({ space: 8 }) {
+        Text(this.tipText())
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+          .fontWeight(FontWeight.Medium)
         Progress({ value: this.hintValue, total: 100, type: ProgressType.Linear })
           .width('48%')
           .height(3)
@@ -88,6 +101,7 @@ export struct MatchLoadOverlay {
       .width('100%')
       .height('100%')
       .justifyContent(FlexAlign.End)
+      .alignItems(HorizontalAlign.Center)
       .padding({ bottom: 40 })
       .hitTestBehavior(HitTestMode.None)
     }
@@ -98,6 +112,18 @@ export struct MatchLoadOverlay {
     .onClick(() => {
       Logger.info(TAG, `${OverlayIds.MATCH_LOAD} tap ignored — not skippable`);
     })
+  }
+
+  /** Locked open-table semantics (08 L-2 / R-LAND-1). Overlay-local text, no new lb_str_*. */
+  private tipText(): string {
+    const slot: number = this.tipTick % 3;
+    if (slot === 0) {
+      return '入座';
+    }
+    if (slot === 1) {
+      return '牌来了';
+    }
+    return '开桌';
   }
 
   @Builder

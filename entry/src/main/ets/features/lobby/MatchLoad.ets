@@ -17,6 +17,8 @@ export class MatchLoad {
   static readonly L3_AT: number = 750;
   static readonly L3_NOD_MS: number = 280;
   static readonly VOL_MATCH_OPEN: number = 0.46;
+  /** Overlay tip rotate (R-LAND-1 · still L1, not a new gate). */
+  static readonly TIP_ROTATE_MS: number = 360;
 
   static clamp(ms: number): number {
     if (ms < MatchLoad.MATCH_LOAD_MS_MIN) {

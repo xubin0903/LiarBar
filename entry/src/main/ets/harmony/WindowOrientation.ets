@@ -13,7 +13,8 @@ export class SafeInsets {
 }
 
 /**
- * Page-level orientation (docs 11 §6.1 / O1).
+ * Page-level orientation (docs 11 §6.1 / O1 / R-LAND-1).
+ * Lock landscape at L-0 (quickstart), not after Table appears.
  * module.json5 stays portrait so lobby is not forced landscape.
  */
 export class WindowOrientation {
