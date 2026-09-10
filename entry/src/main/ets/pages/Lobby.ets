@@ -12,6 +12,7 @@ import { LobbyPanel } from '../features/lobby/LobbyPanel';
 import { MatchLoad } from '../features/lobby/MatchLoad';
 import { MatchLoadOverlay } from '../features/lobby/MatchLoadOverlay';
 import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
+import { WindowOrientation } from '../harmony/WindowOrientation';
 import { LastTable, LocalStore } from '../persist/LocalStore';
 
 const TAG = 'Lobby';
@@ -87,6 +88,7 @@ struct Lobby {
   private matchLoadPersistDone: boolean = false;
 
   aboutToAppear(): void {
+    this.lockPortraitSoft();
     this.begin();
   }
 
@@ -95,6 +97,15 @@ struct Lobby {
     this.idleLoopAlive = false;
     this.clearTimers();
     LobbyAudio.leaveThenRelease();
+  }
+
+  private async lockPortraitSoft(): Promise<void> {
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      await WindowOrientation.lockPortrait(ctx);
+    } catch (err) {
+      Logger.warn(TAG, 'portrait request fail-soft');
+    }
   }
 
   build() {

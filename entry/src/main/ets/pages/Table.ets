@@ -4,17 +4,19 @@ import { AppRuntime } from '../common/AppRuntime';
 import { ControlIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
-import { SpectatorStub } from '../features/spectator/SpectatorStub';
 import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
+import { TableBreakpoints } from '../features/table/TableLayout';
 import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
-import { TutorialStub } from '../features/tutorial/TutorialStub';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
+import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
 import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
 import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
 
 const TAG = 'Table';
+
+/** lb_scr_table landscape ring (docs 10/11 O1 LY1 X1–X4). Lobby stays portrait. */
 
 @Entry
 @Component
@@ -34,6 +36,7 @@ struct Table {
   @State dealerLine: string = '';
   @State claimText: string = '';
   @State timerText: string = '--';
+  @State phaseText: string = '';
   @State challengeEnabled: boolean = false;
   @State showFirstHint: boolean = false;
   @State playEnabled: boolean = false;
@@ -53,8 +56,8 @@ struct Table {
   @State cardBacks: number[] = [];
   @State dealPlaying: boolean = false;
   @State flyOn: boolean = false;
-  @State flyX: number = 152;
-  @State flyY: number = 210;
+  @State flyX: number = 0;
+  @State flyY: number = 0;
   @State flyScale: number = 0.72;
   @State flyRot: number = -16;
   @State flyZ: number = 1000;
@@ -63,28 +66,39 @@ struct Table {
   @State landed2: number = 0;
   @State landed3: number = 0;
   @State pileOn: boolean = false;
+  @State padL: number = 0;
+  @State padT: number = 0;
+  @State padR: number = 0;
+  @State padB: number = 0;
+  @State showDealerBust: boolean = true;
+  @State heartPadPct: number = 0;
   private pollId: number = -1;
   private pushedChallenge: boolean = false;
   private dealToken: string = '';
   private dealTimers: number[] = [];
   private stackGX: number = 0;
   private stackGY: number = 0;
-  private pileX: number = 152;
-  private pileY: number = 210;
+  private stackW: number = 0;
+  private stackH: number = 0;
+  private pileX: number = 0;
+  private pileY: number = 0;
   private pileW: number = DealFx.PILE_SLOT_W;
   private pileH: number = DealFx.PILE_SLOT_H;
   private pileGX: number = 0;
   private pileGY: number = 0;
   private pileMeasured: boolean = false;
-  private handX: number = 16;
-  private handY: number = 340;
-  private seatXs: number[] = [24, 108, 192, 276];
-  private seatYs: number[] = [128, 128, 128, 128];
+  private handX: number = 0;
+  private handY: number = 0;
+  private seatXs: number[] = [0, 0, 0, 0];
+  private seatYs: number[] = [0, 0, 0, 0];
+  private winRef: window.Window | null = null;
+  private avoidBound: boolean = false;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     DealAudio.bind(ctx);
     DealAudio.prepare();
+    this.lockTableWindow();
     this.pull();
     this.pollId = setInterval((): void => {
       this.pull();
@@ -99,201 +113,83 @@ struct Table {
     }
     this.cancelDealTimers();
     DealAudio.release();
+    this.unbindAvoid();
   }
 
   build() {
-    Stack() {
+    Stack({ alignContent: Alignment.TopStart }) {
       Image($r('app.media.art_table_bg'))
         .width('100%')
         .height('100%')
         .objectFit(ImageFit.Cover)
+        .objectPosition(Alignment.Center)
+        .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+          [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
       Column() {
-        Row({ space: 10 }) {
-          Image($r('app.media.art_dealer_bust_announce'))
-            .id(ControlIds.DEALER)
-            .width(72)
-            .height(96)
-          Column({ space: 4 }) {
-            Text(this.dealerLine)
-              .id(ControlIds.DEALER_LINE)
-              .fontColor($r('app.color.tavern_paper'))
-              .fontSize($r('app.float.subtitle_text_size'))
-            Text(this.claimText)
-              .id('lb_txt_claim')
-              .fontColor($r('app.color.tavern_candle'))
-            Text(this.timerText)
-              .id('lb_txt_timer')
-              .fontColor($r('app.color.tavern_accent'))
-          }
-          .id(ControlIds.DEALER_BANNER)
-        }
-        .id(ControlIds.TOPBAR)
-
-        Row({ space: 12 }) {
-          this.seatBlock(0, this.seat0, this.life0, ControlIds.SEAT_SELF)
-          this.seatBlock(1, this.seat1, this.life1, ControlIds.SEAT_P1)
-          this.seatBlock(2, this.seat2, this.life2, ControlIds.SEAT_P2)
-          this.seatBlock(3, this.seat3, this.life3, ControlIds.SEAT_P3)
-        }
-        .margin({ top: 12 })
-
-        Stack() {
-          Image($r('app.media.art_pool_slot'))
-            .id('lb_cmp_pool')
-            .width(DealFx.PILE_SLOT_W)
-            .height(DealFx.PILE_SLOT_H)
-          if (this.pileOn) {
-            this.dealPileStack()
-          }
-        }
-        .id('dealPileAnchor')
-        .width(DealFx.PILE_SLOT_W)
-        .height(DealFx.PILE_SLOT_H)
-        .margin({ top: 12 })
-        .onAreaChange((_old: Area, area: Area) => {
-          this.capturePile(area);
-        })
-        Text(this.poolText)
-          .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.subtitle_text_size'))
-
-        Row({ space: 6 }) {
-          ForEach(this.cardBacks, (idx: number) => {
-            CardFace({
-              rank: '',
-              faceUp: false,
-              compact: true,
-              instanceId: `lb_cmp_card_${idx}`
-            })
-              .gesture(
-                LongPressGesture()
-                  .onAction(() => {
-                    this.openPeek();
-                  })
-              )
-          }, (idx: number) => `${idx}`)
-        }
-        .id(ControlIds.HAND)
-        .margin({ top: 16 })
-        .onAreaChange((_old: Area, area: Area) => {
-          this.captureHand(area);
-        })
-
-        if (this.handEmpty) {
-          Text($r('app.string.lb_str_hand_empty'))
-            .fontColor($r('app.color.tavern_mute'))
-            .fontSize($r('app.float.subtitle_text_size'))
-        }
-
-        if (this.showFirstHint) {
-          Text($r('app.string.lb_str_challenge_disabled_first'))
-            .fontColor($r('app.color.tavern_mute'))
-            .fontSize($r('app.float.subtitle_text_size'))
-            .margin({ top: 8 })
-        }
-
-        SpectatorStub()
-        TutorialStub()
-
-        Row({ space: 10 }) {
-          Button($r('app.string.lb_str_challenge'))
-            .id(ControlIds.CHALLENGE)
-            .layoutWeight(1)
-            .height($r('app.float.cta_height'))
-            .fontSize($r('app.float.page_text_size'))
-            .enabled(this.challengeEnabled)
-            .backgroundColor($r('app.color.tavern_panel'))
-            .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
-            .onClick(() => {
-              if (!this.challengeEnabled) {
-                return;
-              }
-              AppRuntime.engine.intentChallenge();
-              this.pull();
-            })
-          if (this.skipEnabled) {
-            Button($r('app.string.lb_str_skip'))
-              .layoutWeight(1)
-              .height($r('app.float.cta_height'))
-              .fontSize($r('app.float.page_text_size'))
-              .backgroundColor($r('app.color.tavern_panel'))
-              .fontColor($r('app.color.tavern_paper'))
-              .onClick(() => {
-                AppRuntime.engine.skip();
-                this.pull();
-              })
-          } else {
-            Button($r('app.string.lb_str_play'))
-              .layoutWeight(1)
-              .height($r('app.float.cta_height'))
-              .fontSize($r('app.float.page_text_size'))
-              .enabled(this.playEnabled)
-              .backgroundColor($r('app.color.tavern_accent'))
-              .fontColor(this.playEnabled ? $r('app.color.tavern_bg') : $r('app.color.tavern_mute'))
-              .onClick(() => {
-                if (!this.playEnabled) {
-                  return;
-                }
-                AppRuntime.engine.intentPlay();
-                this.showPlay = true;
-                this.pull();
-              })
-          }
-        }
-        .width('100%')
-        .margin({ top: 12 })
-
-        Button($r('app.string.lb_str_home'))
+        this.topBar()
+        this.seatRing()
+          .layoutWeight(1)
           .width('100%')
-          .margin({ top: 10 })
-          .onClick(() => {
-            AppRuntime.director.stop();
-            AppRuntime.engine.toLobby();
-            LbRouter.toLobby();
-          })
-
-        PeekMaskOverlay({
-          visible: $showPeek,
-          ranks: $peekRanks,
-          onClose: () => {
-            this.closePeek();
-          }
-        })
-        PlaySheetOverlay({
-          visible: $showPlay,
-          cards: $selfCards,
-          selectedIds: $selectedIds,
-          styleName: $styleName,
-          namedSeatId: $namedSeatId,
-          playCountText: $playCountText,
-          confirmEnabled: $confirmEnabled,
-          nameP1: $nameP1,
-          nameP2: $nameP2,
-          nameP3: $nameP3,
-          onToggleCard: (cardId: string) => {
-            this.toggleCard(cardId);
-          },
-          onStyle: (style: string) => {
-            this.styleName = style;
-          },
-          onName: (seatId: number) => {
-            this.namedSeatId = seatId;
-          },
-          onConfirm: () => {
-            this.confirmPlay();
-          },
-          onClose: () => {
-            AppRuntime.engine.cancelPlay();
-            this.showPlay = false;
-            this.selectedIds = [];
-            this.pull();
-          }
-        })
+        this.handRow()
+        this.ctaRow()
       }
       .width('100%')
       .height('100%')
-      .padding(16)
+      .padding({
+        left: this.padL,
+        top: this.padT,
+        right: this.padR,
+        bottom: this.padB
+      })
+
+      PeekMaskOverlay({
+        visible: $showPeek
+      })
+
+      if (this.showPlay) {
+        Row() {
+          Column()
+            .layoutWeight(1)
+            .height('100%')
+            .onClick(() => {
+              this.cancelPlaySheet();
+            })
+          PlaySheetOverlay({
+            visible: $showPlay,
+            cards: $selfCards,
+            selectedIds: $selectedIds,
+            styleName: $styleName,
+            namedSeatId: $namedSeatId,
+            playCountText: $playCountText,
+            confirmEnabled: $confirmEnabled,
+            nameP1: $nameP1,
+            nameP2: $nameP2,
+            nameP3: $nameP3,
+            onToggleCard: (cardId: string) => {
+              this.toggleCard(cardId);
+            },
+            onStyle: (style: string) => {
+              this.styleName = style;
+            },
+            onName: (seatId: number) => {
+              this.namedSeatId = seatId;
+            },
+            onConfirm: () => {
+              this.confirmPlay();
+            },
+            onClose: () => {
+              this.cancelPlaySheet();
+            }
+          })
+            .width('36%')
+            .height('100%')
+            .constraintSize({ maxWidth: '36%' })
+        }
+        .width('100%')
+        .height('88%')
+        .margin({ top: '12%' })
+      }
 
       if (this.flyOn) {
         Image($r('app.media.art_card_back'))
@@ -312,7 +208,238 @@ struct Table {
     .onAreaChange((_old: Area, area: Area) => {
       this.stackGX = Number(area.globalPosition.x);
       this.stackGY = Number(area.globalPosition.y);
+      const w: number = Number(area.width);
+      const h: number = Number(area.height);
+      this.stackW = w;
+      this.stackH = h;
+      this.applyBreakpoint(w, h);
     })
+  }
+
+  @Builder
+  topBar() {
+    Column() {
+      Column({ space: 2 }) {
+        Row() {
+          Text(this.claimText)
+            .id('lb_txt_claim')
+            .fontColor($r('app.color.tavern_candle'))
+            .fontSize($r('app.float.page_text_size'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .layoutWeight(1)
+          Text(this.timerText)
+            .id('lb_txt_timer')
+            .fontColor($r('app.color.tavern_accent'))
+            .fontSize($r('app.float.page_text_size'))
+            .margin({ left: 8, right: 8 })
+          Text(this.phaseText)
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+            .margin({ right: 8 })
+          Text($r('app.string.lb_str_home'))
+            .id(ControlIds.HOME)
+            .fontColor($r('app.color.tavern_mute'))
+            .fontSize($r('app.float.caption_text_size'))
+            .onClick(() => {
+              this.goHome();
+            })
+        }
+        .width('100%')
+        Text(this.dealerLine)
+          .id(ControlIds.DEALER_LINE)
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
+      }
+      .id(ControlIds.DEALER_BANNER)
+      .width('100%')
+    }
+    .id(ControlIds.TOPBAR)
+    .width('100%')
+    .constraintSize({ maxHeight: '12%' })
+  }
+
+  @Builder
+  seatRing() {
+    Row() {
+      Column() {
+        Blank()
+          .layoutWeight(1)
+        this.seatBlock(3, this.seat3, this.life3, ControlIds.SEAT_P3)
+        Blank()
+          .layoutWeight(1)
+      }
+      .width('16%')
+      .height('100%')
+
+      Column() {
+        this.seatBlock(2, this.seat2, this.life2, ControlIds.SEAT_P2)
+        Column({ space: 4 }) {
+          if (this.showDealerBust) {
+            Image($r('app.media.art_dealer_bust_announce'))
+              .id(ControlIds.DEALER)
+              .height('28%')
+              .constraintSize({ maxWidth: '28%', maxHeight: '28%' })
+              .objectFit(ImageFit.Contain)
+          } else {
+            Image($r('app.media.art_dealer_bust_announce'))
+              .id(ControlIds.DEALER)
+              .width(0)
+              .height(0)
+              .visibility(Visibility.None)
+          }
+          Stack() {
+            Image($r('app.media.art_pool_slot'))
+              .id('lb_cmp_pool')
+              .width(DealFx.PILE_SLOT_W)
+              .height(DealFx.PILE_SLOT_H)
+            if (this.pileOn) {
+              this.dealPileStack()
+            }
+          }
+          .id('dealPileAnchor')
+          .width(DealFx.PILE_SLOT_W)
+          .height(DealFx.PILE_SLOT_H)
+          .onAreaChange((_old: Area, area: Area) => {
+            this.capturePile(area);
+          })
+          Text(this.poolText)
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        this.seatBlock(0, this.seat0, this.life0, ControlIds.SEAT_SELF)
+      }
+      .layoutWeight(1)
+      .height('100%')
+
+      Column() {
+        Blank()
+          .layoutWeight(1)
+        this.seatBlock(1, this.seat1, this.life1, ControlIds.SEAT_P1)
+        Blank()
+          .layoutWeight(1)
+      }
+      .width('16%')
+      .height('100%')
+    }
+    .width('100%')
+    .height('100%')
+    .padding({
+      left: `${this.heartPadPct}%`,
+      right: `${this.heartPadPct}%`
+    })
+  }
+
+  @Builder
+  handRow() {
+    Column({ space: 2 }) {
+      Scroll() {
+        Row({ space: 6 }) {
+          ForEach(this.cardBacks, (idx: number) => {
+            CardFace({
+              rank: this.rankAt(idx),
+              faceUp: this.showPeek,
+              compact: true,
+              instanceId: `lb_cmp_card_${idx}`
+            })
+              .gesture(
+                LongPressGesture()
+                  .onAction(() => {
+                    this.openPeek();
+                  })
+                  .onActionEnd(() => {
+                    this.closePeek();
+                  })
+                  .onActionCancel(() => {
+                    this.closePeek();
+                  })
+              )
+          }, (idx: number) => `${idx}`)
+        }
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+      }
+      .id(ControlIds.HAND)
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .layoutWeight(1)
+      .onAreaChange((_old: Area, area: Area) => {
+        this.captureHand(area);
+      })
+      if (this.handEmpty) {
+        Text($r('app.string.lb_str_hand_empty'))
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+      }
+      if (this.showFirstHint) {
+        Text($r('app.string.lb_str_challenge_disabled_first'))
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+      }
+    }
+    .width('100%')
+    .height('22%')
+    .constraintSize({ minHeight: '18%', maxHeight: '24%' })
+    .justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
+  ctaRow() {
+    Row({ space: 10 }) {
+      Button($r('app.string.lb_str_challenge'))
+        .id(ControlIds.CHALLENGE)
+        .layoutWeight(1)
+        .height($r('app.float.cta_height'))
+        .fontSize($r('app.float.page_text_size'))
+        .enabled(this.challengeEnabled)
+        .backgroundColor($r('app.color.tavern_panel'))
+        .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
+        .onClick(() => {
+          if (!this.challengeEnabled) {
+            return;
+          }
+          AppRuntime.engine.intentChallenge();
+          this.pull();
+        })
+      if (this.skipEnabled) {
+        Button($r('app.string.lb_str_skip'))
+          .layoutWeight(1)
+          .height($r('app.float.cta_height'))
+          .fontSize($r('app.float.page_text_size'))
+          .backgroundColor($r('app.color.tavern_panel'))
+          .fontColor($r('app.color.tavern_paper'))
+          .onClick(() => {
+            AppRuntime.engine.skip();
+            this.pull();
+          })
+      } else {
+        Button($r('app.string.lb_str_play'))
+          .layoutWeight(1)
+          .height($r('app.float.cta_height'))
+          .fontSize($r('app.float.page_text_size'))
+          .enabled(this.playEnabled)
+          .backgroundColor($r('app.color.tavern_accent'))
+          .fontColor(this.playEnabled ? $r('app.color.tavern_bg') : $r('app.color.tavern_mute'))
+          .onClick(() => {
+            if (!this.playEnabled) {
+              return;
+            }
+            AppRuntime.engine.intentPlay();
+            this.showPlay = true;
+            this.pull();
+          })
+      }
+    }
+    .width('100%')
   }
 
   @Builder
@@ -362,10 +489,12 @@ struct Table {
       }
       Text(name)
         .fontColor(this.turnSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_paper'))
-        .fontSize($r('app.float.subtitle_text_size'))
+        .fontSize($r('app.float.caption_text_size'))
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
       Text(life)
         .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
-        .fontSize($r('app.float.subtitle_text_size'))
+        .fontSize($r('app.float.caption_text_size'))
       if (seatId > 0 && this.stackOf(seatId) > 0) {
         Row({ space: -10 }) {
           ForEach(this.indexes(this.stackOf(seatId)), (idx: number) => {
@@ -376,9 +505,88 @@ struct Table {
         }
       }
     }
+    .padding(4)
+    .border({
+      width: this.turnSeat === seatId ? 2 : 0,
+      color: $r('app.color.tavern_accent')
+    })
+    .borderRadius(8)
     .onAreaChange((_old: Area, area: Area) => {
       this.captureSeat(seatId, area);
     })
+  }
+
+  private async lockTableWindow(): Promise<void> {
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      await WindowOrientation.lockLandscape(ctx);
+      const win: window.Window | null = await WindowOrientation.mainWindow(ctx);
+      this.winRef = win;
+      this.applyInsets(WindowOrientation.readSafeInsets(win));
+      if (win !== null && !this.avoidBound) {
+        win.on('avoidAreaChange', (): void => {
+          this.applyInsets(WindowOrientation.readSafeInsets(this.winRef));
+        });
+        this.avoidBound = true;
+      }
+    } catch (err) {
+      Logger.warn(TAG, 'landscape/safe-area fail-soft');
+    }
+  }
+
+  private unbindAvoid(): void {
+    if (this.winRef !== null && this.avoidBound) {
+      try {
+        this.winRef.off('avoidAreaChange');
+      } catch (err) {
+        Logger.warn(TAG, 'avoidArea off fail-soft');
+      }
+    }
+    this.avoidBound = false;
+    this.winRef = null;
+  }
+
+  private applyInsets(box: SafeInsets): void {
+    this.padL = this.pxToVp(box.left);
+    this.padT = this.pxToVp(box.top);
+    this.padR = this.pxToVp(box.right);
+    this.padB = this.pxToVp(box.bottom);
+  }
+
+  private pxToVp(px: number): number {
+    if (px <= 0) {
+      return 0;
+    }
+    try {
+      return this.getUIContext().px2vp(px);
+    } catch (err) {
+      return px;
+    }
+  }
+
+  private applyBreakpoint(w: number, h: number): void {
+    this.showDealerBust = TableBreakpoints.showDealerBust(w, h);
+    this.heartPadPct = TableBreakpoints.heartPadPct(w, h);
+  }
+
+  private goHome(): void {
+    AppRuntime.director.stop();
+    AppRuntime.engine.toLobby();
+    LbRouter.toLobby();
+  }
+
+  private cancelPlaySheet(): void {
+    AppRuntime.engine.cancelPlay();
+    this.showPlay = false;
+    this.selectedIds = [];
+    this.pull();
+  }
+
+  private rankAt(idx: number): string {
+    if (idx >= 0 && idx < this.peekRanks.length) {
+      return this.peekRanks[idx];
+    }
+    return '';
   }
 
   private pull(): void {
@@ -399,6 +607,7 @@ struct Table {
     }
     this.pushedChallenge = false;
     this.dealerLine = snap.dealerLine;
+    this.phaseText = snap.phase;
     DealAudio.setSilent(snap.silentMode);
     if (snap.phase === Phase.DEAL) {
       this.applyDealHud(snap);
@@ -706,7 +915,7 @@ struct Table {
 
   private destOf(seatId: number, slot: number): number[] {
     if (seatId === 0) {
-      return [this.handX + slot * 62, this.handY];
+      return [this.handX + slot * (DealFx.FLY_CARD_W + 6), this.handY];
     }
     const x: number = this.seatXs[seatId] + slot * 4;
     const y: number = this.seatYs[seatId] + 36;
@@ -730,13 +939,16 @@ struct Table {
     this.pileMeasured = true;
   }
 
-  /** Fly takeoff = remaining-pile center = dealPileAnchor (08 §2.1). */
+  /** Fly takeoff = remaining-pile center = dealPileAnchor (08 §2.1 / #48). */
   private flyFromPile(): number[] {
     let x: number = this.pileX;
     let y: number = this.pileY;
     if (this.pileMeasured) {
       x = this.pileGX - this.stackGX;
       y = this.pileGY - this.stackGY;
+    } else if (this.stackW > 0 && this.stackH > 0) {
+      x = this.stackW * 0.5 - this.pileW / 2;
+      y = this.stackH * 0.42 - this.pileH / 2;
     }
     return DealFx.flyOriginFromPile(x, y, this.pileW, this.pileH);
   }
