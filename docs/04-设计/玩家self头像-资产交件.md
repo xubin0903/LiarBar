@@ -33,5 +33,5 @@
 
 ## 会签
 
-- [ ] @LiarBar UI 挂点（selfDock 叠层顺序 / 圆裁）
+- [x] @LiarBar UI 挂点（selfDock 叠层顺序 / 圆裁）
 - [ ] @LiarBar负责人 终审
