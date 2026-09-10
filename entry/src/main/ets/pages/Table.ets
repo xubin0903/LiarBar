@@ -24,8 +24,11 @@ const SNAP_POLL_MS: number = 800;
  * R-LAND-3 手牌几乎贴中堆；或手牌裁半 / 半张出屏
  * R-LAND-5 环位错（老千不见 / self 跑到中上）
  * R-LAND-2 荷官没了 / 只剩空槽；或池旁张数落到手牌下
- * #59 / 11 §2.1.2: hand on bottom safe-area; lb_cmp_hand mid-line;
- * selfDock is a left slot — not in the hand Row layoutWeight chain.
+ * #66 / 11 v0.2.5 hangpoints (UI confirmed):
+ * 1. selfDock left independent slot; must NOT cover leftmost cards
+ *    (no BottomStart overlay on hand).
+ * 2. Larger pile gap via ring layoutWeight / heart compression —
+ *    do NOT increase padB to fake sink (that lifts cards).
  */
 
 @Entry
@@ -144,14 +147,21 @@ struct Table {
         }
         .layoutWeight(1)
         .width('100%')
-        this.handRow()
+        Column() {
+          Blank()
+            .layoutWeight(1)
+        }
+        .width('100%')
+        .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
+        this.bottomBand()
       }
       .width('100%')
       .height('100%')
       .padding({
         left: this.padL,
         top: this.padT,
-        right: this.padR
+        right: this.padR,
+        bottom: this.padB
       })
 
       PeekMaskOverlay({
@@ -356,10 +366,29 @@ struct Table {
   }
 
   /**
-   * Bottom band (11 §2.1.2 / §6.2): hand sits on the safe-area top edge.
-   * lb_cmp_hand is a full-width mid-line row — card count only stretches L/R.
-   * selfDock is a left overlay slot and must not share that row's layoutWeight.
+   * Hangpoint 1: selfDock is a left independent slot. Matching right inset
+   * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
    */
+  @Builder
+  bottomBand() {
+    Row() {
+      Row() {
+        this.selfDock()
+      }
+      .width(`${TableBreakpoints.SELF_SLOT_PCT}%`)
+      .justifyContent(FlexAlign.Start)
+      .alignItems(VerticalAlign.Bottom)
+
+      this.handRow()
+
+      Blank()
+        .width(`${TableBreakpoints.SELF_SLOT_PCT}%`)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Bottom)
+  }
+
+  /** Full mid-band hand: count stretches L/R only. Sits on safe-area top edge. */
   @Builder
   handRow() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -394,11 +423,6 @@ struct Table {
         this.captureHand(area);
       })
 
-      Row() {
-        this.selfDock()
-      }
-      .align(Alignment.BottomStart)
-
       if (this.handEmpty) {
         Text($r('app.string.lb_str_hand_empty'))
           .fontColor($r('app.color.tavern_mute'))
@@ -414,11 +438,11 @@ struct Table {
           .margin({ right: 8 })
       }
     }
+    .layoutWeight(1)
     .width('100%')
-    .padding({ bottom: this.padB })
   }
 
-  /** 下手 self: left independent slot on the bottom band, not in lb_cmp_hand flex. */
+  /** 下手 self: left independent slot. Not over cards, not in hand layoutWeight. */
   @Builder
   selfDock() {
     Row({ space: 4 }) {
@@ -443,8 +467,12 @@ struct Table {
           .fontColor(this.calledSeat === TableCompass.BOTTOM ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
           .fontSize($r('app.float.caption_text_size'))
       }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
     }
     .padding(2)
+    .width('100%')
+    .constraintSize({ maxWidth: '100%' })
     .border({
       width: this.turnSeat === TableCompass.BOTTOM ? 2 : 0,
       color: $r('app.color.tavern_accent')
@@ -657,15 +685,16 @@ struct Table {
     const nextL: number = TableBreakpoints.floorNotchPad(this.insetVp(box.left), this.stackW);
     const nextT: number = this.insetVp(box.top);
     const nextR: number = TableBreakpoints.floorNotchPad(this.insetVp(box.right), this.stackW);
-    const nextB: number = TableBreakpoints.floorHandPad(this.insetVp(box.bottom), this.stackH);
+    // Hangpoint 2: padB is avoidArea inset only — do not floorHandPad-inflate.
+    const nextB: number = this.insetVp(box.bottom);
     this.commitPads(nextL, nextT, nextR, nextB);
   }
 
   private applyInsetFloors(): void {
     const nextL: number = TableBreakpoints.floorNotchPad(this.padL, this.stackW);
     const nextR: number = TableBreakpoints.floorNotchPad(this.padR, this.stackW);
-    const nextB: number = TableBreakpoints.floorHandPad(this.padB, this.stackH);
-    this.commitPads(nextL, this.padT, nextR, nextB);
+    // Hangpoint 2: padB is avoidArea inset only. Do not floor/raise it.
+    this.commitPads(nextL, this.padT, nextR, this.padB);
   }
 
   /** avoidAreaChange jitter: do not write @State pad* when values are unchanged. */

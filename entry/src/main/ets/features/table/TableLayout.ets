@@ -5,8 +5,10 @@
  * Player ids stay p1 timid / p2 shark / p3 karen.
  * Landscape compass is L/T/R/B — not a top-row of faces.
  * #58 R-LAND-5: 左 p3 karen · 上 p2 shark · 右 p1 timid · 下手 self.
- * #59 / 11 §2.1.2: hand sinks to bottom safe-area; lb_cmp_hand mid-line;
- * selfDock is a left slot and must not share the hand Row layoutWeight.
+ * #59 / #66 / 11 v0.2.5 §2.1.2:
+ * hand sits on the bottom safe-area top edge; lb_cmp_hand mid-line;
+ * selfDock is a left independent slot — not an overlay, not in hand layoutWeight.
+ * Ring–hand gap is Blank/% (compress the heart). padB is inset only — never a lift.
  */
 
 /** Locked landscape ring. Bottom is the self dock + hand, not a mid-stack avatar. */
@@ -35,12 +37,22 @@ export class TableBreakpoints {
   static readonly BUST_MAX_PCT_SMALL: number = 18;
   static readonly HAND_MAX_PCT: number = 28;
   static readonly SIDE_SEAT_PCT: number = 14;
+  /**
+   * Left selfDock slot + matching right inset so lb_cmp_hand stays on the
+   * desktop mid-line (11 v0.2.5 闸 2 / hangpoint 8). Not a layoutWeight chain.
+   */
+  static readonly SELF_SLOT_PCT: number = 16;
+  /**
+   * Fixed gap between the seat ring (pile) and lb_cmp_hand (11 v0.2.5 闸 1 /
+   * hangpoint 9). Percent of the padded column — no hard px. Compresses the
+   * heart via leftover layoutWeight; must not be faked by inflating padB.
+   */
+  static readonly HAND_RING_GAP_PCT: number = 6;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
   static readonly NOTCH_FLOOR_PCT: number = 4;
   /**
-   * Bottom inset floor when avoidArea is 0 (11 §2.1.2 / §4.1).
-   * Hand sits on the safe-area top edge — this is gesture-bar clearance
-   * so cards stay 整张在区内, not extra lift that would 偏上贴中堆.
+   * Kept for reference only. Hangpoint 2 forbids using this to inflate padB
+   * and fake a sink (加大 padB 顶高手牌). Pile gap is HAND_RING_GAP_PCT.
    */
   static readonly HAND_SAFE_FLOOR_PCT: number = 3;
 
@@ -98,11 +110,15 @@ export class TableBreakpoints {
     return TableBreakpoints.floorPad(current, width, TableBreakpoints.NOTCH_FLOOR_PCT);
   }
 
+  /**
+   * Do not call this to manufacture the pile gap (hangpoint 2).
+   * padB must stay the avoidArea inset; gap is HAND_RING_GAP_PCT + ring weight.
+   */
   static floorHandPad(current: number, height: number): number {
     return TableBreakpoints.floorPad(current, height, TableBreakpoints.HAND_SAFE_FLOOR_PCT);
   }
 
-  /** Desktop content mid-line (padded column), not the selfDock+hand flex leftover. */
+  /** Desktop content mid-line (padded column), not the selfDock leftover. */
   static handBandCenterX(padL: number, padR: number, width: number): number {
     if (width <= 0) {
       return 0;
