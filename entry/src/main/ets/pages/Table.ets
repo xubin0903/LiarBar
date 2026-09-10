@@ -442,11 +442,15 @@ struct Table {
     .width('100%')
   }
 
-  /** 下手 self: left independent slot. Not over cards, not in hand layoutWeight. */
+  /** 下手 self: face under copper frame. Left independent slot. Not over cards. */
   @Builder
   selfDock() {
     Row({ space: 4 }) {
       Stack() {
+        Image($r('app.media.art_player_idle'))
+          .width(40)
+          .height(40)
+          .objectFit(ImageFit.Cover)
         Image($r('app.media.art_frame_player_idle'))
           .width(40)
           .height(40)
