@@ -51,9 +51,8 @@ export class TableBreakpoints {
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
   static readonly NOTCH_FLOOR_PCT: number = 4;
   /**
-   * Constraint margin when avoidArea bottom is 0 (11 §2.1.2 / §4.1 约束边距).
-   * Only keeps 整张在区内. Must not be raised to manufacture the pile gap
-   * (失败短句：加大 padB 顶高手牌).
+   * Kept for reference only. Hangpoint 2 forbids using this to inflate padB
+   * and fake a sink (加大 padB 顶高手牌). Pile gap is HAND_RING_GAP_PCT.
    */
   static readonly HAND_SAFE_FLOOR_PCT: number = 3;
 
@@ -112,8 +111,8 @@ export class TableBreakpoints {
   }
 
   /**
-   * Gesture-bar 约束边距 only. Callers must not add extra vp on top of this
-   * to sink/lift the hand toward the pile.
+   * Do not call this to manufacture the pile gap (hangpoint 2).
+   * padB must stay the avoidArea inset; gap is HAND_RING_GAP_PCT + ring weight.
    */
   static floorHandPad(current: number, height: number): number {
     return TableBreakpoints.floorPad(current, height, TableBreakpoints.HAND_SAFE_FLOOR_PCT);

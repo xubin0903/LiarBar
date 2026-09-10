@@ -24,9 +24,11 @@ const SNAP_POLL_MS: number = 800;
  * R-LAND-3 手牌几乎贴中堆；或手牌裁半 / 半张出屏
  * R-LAND-5 环位错（老千不见 / self 跑到中上）
  * R-LAND-2 荷官没了 / 只剩空槽；或池旁张数落到手牌下
- * #59 / #66 / 11 v0.2.5 §2.1.2 hangpoints 8–9:
- * ② selfDock = left independent slot (or above-left); never BottomStart over cards.
- * ③ ring–hand Blank/% gap; hand on safe-area top edge; padB = inset only.
+ * #66 / 11 v0.2.5 hangpoints (UI confirmed):
+ * 1. selfDock left independent slot; must NOT cover leftmost cards
+ *    (no BottomStart overlay on hand).
+ * 2. Larger pile gap via ring layoutWeight / heart compression —
+ *    do NOT increase padB to fake sink (that lifts cards).
  */
 
 @Entry
@@ -364,9 +366,8 @@ struct Table {
   }
 
   /**
-   * Bottom band (11 v0.2.5 §2.1.2 hangpoint 8): left self slot + matching
-   * right inset so lb_cmp_hand stays on the desktop mid-line. No Stack overlay,
-   * no BottomStart over lb_cmp_card_*.
+   * Hangpoint 1: selfDock is a left independent slot. Matching right inset
+   * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
    */
   @Builder
   bottomBand() {
@@ -692,6 +693,7 @@ struct Table {
   private applyInsetFloors(): void {
     const nextL: number = TableBreakpoints.floorNotchPad(this.padL, this.stackW);
     const nextR: number = TableBreakpoints.floorNotchPad(this.padR, this.stackW);
+    // Hangpoint 2: padB is avoidArea inset only. Do not floor/raise it.
     this.commitPads(nextL, this.padT, nextR, this.padB);
   }
 
