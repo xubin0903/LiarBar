@@ -100,6 +100,7 @@ struct Lobby {
     LobbyAudio.leaveThenRelease();
   }
 
+  /** Return-lobby lock. WindowOrientation skips if already portrait (cold start / debounce). */
   private async lockPortraitSoft(): Promise<void> {
     try {
       const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
