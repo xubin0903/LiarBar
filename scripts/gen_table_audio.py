@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
-"""Generate LiarBar table BGM + §5.2 SFX (noir lounge). Not lobby beds. No challenge slots.
+"""Table SFX only. BGM must NOT be generated here.
 
-Specs: docs/04-设计/13-局内声场与伴奏规格.md
-Outputs under entry/src/main/resources/rawfile/audio/ plus
-docs/04-设计/局内声场-资产交件.md
+BGM (`bgm_table_bluff`) is a licensed bed per
+docs/04-设计/13b-局内BGM打回换源.md — currently Moil (Ruskerdax, CC0).
+Running this script will hard-abort before any BGM bake. Do not restore
+numpy / sine-stack generation. Do not overwrite the ogg.
 
-Hard targets (within ~0.5 dB / ±50 ms):
-  bgm_table_bluff.ogg   stereo 48k Vorbis  28–32s  peak ≈ −13 dBFS  ~84 BPM
-  sfx_claim_set         mono 0.34s −10
-  sfx_play_soft         mono 0.16s −11
-  sfx_play_slam         mono 0.24s −9
-  sfx_play_hesitate     mono 0.18s −13
-  sfx_turn_tick         mono 0.08s −15
-  sfx_named_stare       mono 0.38s −11
-  sfx_result_win        stereo 0.95s −9
-  sfx_result_lose       mono 0.90s −9
+SFX §5.2 makers remain below for a later ticket; this script must not
+rewrite docs/04-设计/局内声场-资产交件.md.
+
+No challenge slots.
 """
 
 from __future__ import annotations
+
+# Hard abort when invoked as CLI — before numpy / soundfile, before any bake.
+if __name__ == "__main__":
+    raise SystemExit(
+        "refusing BGM generation: bgm_table_bluff must come from a licensed bed "
+        "(Moil / Ruskerdax / CC0) per docs/04-设计/13b-局内BGM打回换源.md. "
+        "Do not re-bake toy numpy BGM. See docs/04-设计/ATTRIBUTION-audio.md."
+    )
 
 import math
 from pathlib import Path
@@ -30,12 +33,9 @@ ROOT = Path(__file__).resolve().parents[1]
 AUDIO = ROOT / "entry/src/main/resources/rawfile/audio"
 DOC = ROOT / "docs/04-设计/局内声场-资产交件.md"
 SR = 48000
-BPM = 84.0
-BEAT = 60.0 / BPM
 
-# Measured-target durations (samples land on exact 48 kHz frames).
-BGM_SECONDS = 29.45
-XFADE_S = 0.55
+# BGM bake is forbidden (13b). Licensed bed: Moil / Ruskerdax / CC0.
+# Do not reintroduce BPM / BGM_SECONDS / XFADE_S generation knobs.
 
 SFX_SPEC: dict[str, tuple[float, float, int]] = {
     # name: (seconds, peak_db, channels)
@@ -176,189 +176,20 @@ def envelope_compress(x: np.ndarray, thresh: float = 0.22, ratio: float = 2.2) -
 
 
 # ---------------------------------------------------------------------------
-# BGM · 84 BPM noir lounge (pad + bass pulse + brush + sparse EP)
-# Distinct from lobby bgm_lobby_night (slow 60–72 cello bed, no pulse grid).
+# BGM · FORBIDDEN. Licensed bed only (13b). Do not restore numpy 拼曲.
 # ---------------------------------------------------------------------------
 
-def _pad_layer(n: int, t: np.ndarray) -> np.ndarray:
-    """Layer A: low-string / dark pad. D dorian cluster, slow bow."""
-    drones = (
-        harmonic_tone(73.42, n, [(1, 0.58), (2, 0.28), (3, 0.12), (4, 0.05)]) * 0.62
-        + harmonic_tone(98.00, n, [(1, 0.32), (2, 0.14), (3, 0.06)]) * 0.38  # G2, not lobby A2
-        + harmonic_tone(146.83, n, [(1, 0.20), (2, 0.08)]) * 0.22
-        + harmonic_tone(110.00, n, [(1, 0.16), (2, 0.06)]) * 0.14
+def refuse_bgm_bake() -> None:
+    raise SystemExit(
+        "refusing BGM generation: bgm_table_bluff must come from a licensed bed "
+        "(Moil / Ruskerdax / CC0) per docs/04-设计/13b-局内BGM打回换源.md. "
+        "Do not re-bake toy numpy BGM. See docs/04-设计/ATTRIBUTION-audio.md."
     )
-    lfo = 0.84 + 0.16 * np.sin(2.0 * math.pi * 0.055 * t)
-    pad = drones * lfo
-    # Detuned fifth wash — mid, under the EP.
-    wash = (
-        sine(174.61, n, 0.4) * 0.10
-        + sine(174.61 * 1.006, n, 1.7) * 0.08
-        + sine(196.00, n, 0.9) * 0.06
-    )
-    wash *= 0.70 + 0.30 * np.sin(2.0 * math.pi * 0.033 * t + 1.1)
-    y = one_pole_lp(pad + wash, 920.0)
-    return one_pole_hp(y, 36.0)
-
-
-def _bass_pulse(n: int, rng: np.random.Generator) -> np.ndarray:
-    """Layer B: 84 BPM finger-bass / cajon pulse. Strong 1 + 3, ghost 2 + 4."""
-    y = np.zeros(n, dtype=np.float64)
-    # Two-bar root cycle in D dorian (not the lobby irregular pluck times).
-    roots = (36.71, 36.71, 32.70, 36.71, 43.65, 36.71, 32.70, 27.50)  # D1 D1 C1 D1 F1 D1 C1 A0
-    note_n = int(0.62 * SR)
-    n_beats = int(math.ceil(n / (BEAT * SR))) + 1
-    for bi in range(n_beats):
-        i0 = int(round(bi * BEAT * SR))
-        if i0 >= n:
-            break
-        beat_in_bar = bi % 4
-        root = roots[(bi // 2) % len(roots)]
-        if beat_in_bar in (0, 2):
-            vel, decay = (0.90, 5.2) if beat_in_bar == 0 else (0.70, 6.0)
-            body = harmonic_tone(root, note_n, [(1, 0.72), (2, 0.28), (3, 0.10), (4, 0.04)])
-            body *= np.exp(-np.arange(note_n) / SR * decay) * vel
-            click_n = int(0.018 * SR)
-            click = band_noise(click_n, rng, 80.0, 900.0) * fade(click_n, 2, click_n // 2)
-            body[:click_n] += click * 0.22
-            # Cajon shell on downbeats.
-            if beat_in_bar == 0:
-                wood = karplus(58.0, int(0.16 * SR), 0.962, rng) * fade(
-                    int(0.16 * SR), 6, int(0.10 * SR)
-                )
-                body[: len(wood)] += wood * 0.18
-            add_at(y, one_pole_lp(body, 380.0), i0)
-        else:
-            # Ghost wood / finger.
-            gn = int(0.11 * SR)
-            ghost = karplus(72.0 + 8.0 * (bi % 3), gn, 0.948, rng)
-            ghost *= fade(gn, 4, int(0.07 * SR)) * 0.16
-            add_at(y, one_pole_lp(ghost, 520.0), i0)
-    return one_pole_hp(y, 28.0)
-
-
-def _brush_layer(n: int, rng: np.random.Generator) -> np.ndarray:
-    """Layer B2: very light brush on 2 and 4 — rhythm, not a drum loop."""
-    y = np.zeros(n, dtype=np.float64)
-    brush_n = int(0.090 * SR)
-    n_beats = int(math.ceil(n / (BEAT * SR))) + 1
-    for bi in range(n_beats):
-        if bi % 4 not in (1, 3):
-            continue
-        i0 = int(round(bi * BEAT * SR))
-        if i0 >= n:
-            break
-        burst = band_noise(brush_n, rng, 2800.0, 9000.0)
-        burst *= fade(brush_n, 8, int(0.070 * SR))
-        # Slight pitch-down sweep so it is a brush, not a hat beep.
-        t = np.arange(brush_n) / SR
-        burst *= 0.85 + 0.15 * np.sin(2.0 * math.pi * 18.0 * t)
-        add_at(y, burst * (0.20 if bi % 4 == 1 else 0.16), i0)
-    return y
-
-
-def _ep_motif(n: int, rng: np.random.Generator) -> np.ndarray:
-    """Layer C: sparse Rhodes / EP 2–4 bar motif. Memorable, not a fanfare."""
-    y = np.zeros(n, dtype=np.float64)
-    # D dorian colour: D F A C E — voicings, not a scale run.
-    # Times on the 84 BPM grid (beats), deliberately unlike lobby 1.4/3.6/5.2….
-    events: list[tuple[float, float, float]] = [
-        # (beat, hz, vel)
-        (0.00, 146.83, 0.62),  # D3
-        (2.00, 220.00, 0.48),  # A3
-        (4.00, 174.61, 0.40),  # F3
-        (8.00, 146.83, 0.55),
-        (10.00, 261.63, 0.36),  # C4
-        (12.00, 220.00, 0.42),
-        (16.00, 174.61, 0.50),
-        (18.00, 196.00, 0.34),  # G3
-        (20.00, 146.83, 0.58),
-        (24.00, 220.00, 0.44),
-        (26.00, 329.63, 0.28),  # E4 tine
-        (28.00, 174.61, 0.40),
-        (32.00, 146.83, 0.60),
-        (34.00, 220.00, 0.38),
-        (36.00, 261.63, 0.30),
-        (38.00, 196.00, 0.32),
-    ]
-    for beat, freq, vel in events:
-        i0 = int(round(beat * BEAT * SR))
-        if i0 >= n:
-            continue
-        length = int(1.85 * SR)
-        t = np.arange(length) / SR
-        tine = 7.02 + 0.04 * float(rng.uniform(-1.0, 1.0))
-        tone = (
-            np.sin(2.0 * math.pi * freq * t) * 0.52
-            + np.sin(2.0 * math.pi * freq * 2.0 * t) * 0.22
-            + np.sin(2.0 * math.pi * freq * 4.0 * t) * 0.07
-            + np.sin(2.0 * math.pi * freq * tine * t) * 0.045
-        )
-        tone *= np.exp(-t * 2.15) * vel
-        tone *= fade(length, int(0.004 * SR), int(0.55 * SR))
-        hammer = band_noise(int(0.012 * SR), rng, 1200.0, 5000.0)
-        tone[: len(hammer)] += hammer * 0.10 * vel
-        add_at(y, one_pole_lp(tone, 4200.0), i0)
-    return one_pole_hp(y, 90.0)
-
-
-def _ornament_layer(n: int, rng: np.random.Generator) -> np.ndarray:
-    """Layer D: tavern colour inside the cue — cup rim + timber. Not a SFX slot."""
-    y = np.zeros(n, dtype=np.float64)
-    modes = (1760.0, 2340.0, 3010.0, 890.0)
-    for start_beat, amp in ((5.5, 0.16), (17.5, 0.14), (29.0, 0.13), (37.0, 0.12)):
-        i0 = int(round(start_beat * BEAT * SR))
-        length = int(0.55 * SR)
-        t = np.arange(length) / SR
-        click = np.zeros(length, dtype=np.float64)
-        for i, f in enumerate(modes):
-            click += np.sin(2 * math.pi * f * t) * np.exp(-t * (8.0 + i * 2.0)) * (0.34 / (i + 1))
-        click += rng.normal(0.0, 1.0, length) * np.exp(-t * 36.0) * 0.12
-        add_at(y, click * fade(length, 6, int(0.32 * SR)) * amp, i0)
-    for start_beat in (3.0, 15.0, 27.0):
-        i0 = int(round(start_beat * BEAT * SR))
-        length = int(0.90 * SR)
-        beam = karplus(62.0, length, 0.990, rng) * fade(length, 28, int(0.62 * SR))
-        add_at(y, beam * 0.12, i0)
-    return y
 
 
 def make_bgm() -> np.ndarray:
-    rng = np.random.default_rng(20260910)
-    # Extra tail so ≥500 ms crossfade still leaves a 29.45 s loop body.
-    raw_s = BGM_SECONDS + XFADE_S
-    n = int(round(raw_s * SR))
-    t = np.arange(n) / SR
-
-    pad = _pad_layer(n, t)
-    bass = _bass_pulse(n, rng)
-    brush = _brush_layer(n, rng)
-    ep = _ep_motif(n, rng)
-    orn = _ornament_layer(n, rng)
-
-    # Mix: pad under pulse; EP readable; ornaments ~6 dB below pulse.
-    mono = pad * 0.46 + bass * 0.72 + brush * 0.85 + ep * 0.78 + orn * 0.36
-    mono = comb_delay(mono, 0.029, 0.22, 0.12)
-    mono = comb_delay(mono, 0.047, 0.16, 0.08)
-    mono = one_pole_hp(mono, 32.0)
-
-    # Stereo: bass/pad center-ish; EP and brush slightly wide.
-    left = mono + one_pole_lp(np.roll(ep, 220), 1800.0) * 0.10
-    right = mono + one_pole_lp(np.roll(ep, -260), 1800.0) * 0.10
-    left += np.roll(brush, 40) * 0.08
-    right += np.roll(brush, -55) * 0.08
-    st = stereo(left, right, width=0.24)
-    st = envelope_compress(st, thresh=0.21, ratio=2.1)
-    st = np.tanh(st / 0.62) * 0.62
-    st = seamless_loop(st, XFADE_S)
-    # Exact frame count for 29.45 s (crossfade may be ±1 sample).
-    want = int(round(BGM_SECONDS * SR))
-    if st.shape[0] > want:
-        st = st[:want]
-    elif st.shape[0] < want:
-        pad_n = want - st.shape[0]
-        st = np.concatenate([st, st[-pad_n:]], axis=0)
-    return peak_normalize(st, -13.0)
+    refuse_bgm_bake()
+    raise AssertionError("unreachable")
 
 
 # ---------------------------------------------------------------------------
@@ -586,222 +417,18 @@ def fmt_row(m: dict[str, float | int | str]) -> str:
 
 
 def write_delivery_doc(rows: list[dict[str, float | int | str]]) -> None:
-    by = {r["name"]: r for r in rows}
-    bgm = by["bgm_table_bluff.ogg"]
-    body = f"""# 局内声场 · 资产交件
-
-> **会签后真源 · #77 规格已合 · 本批零 ets**
-
-| 项 | 内容 |
-|----|------|
-| 文档版本 | v1.0 |
-| 状态 | **交件 ≠ 占位** · #77 [`13-局内声场与伴奏规格.md`](./13-局内声场与伴奏规格.md) 会签后授权生成 · **零 ets** · 不改玩法规则 · **质疑四拍不生成** |
-| 读者 | 音频 / UI / 鸿蒙、**@负责人终审**、测试（可抄 [13 §7](./13-局内声场与伴奏规格.md)） |
-| 规格对齐 | [13-局内声场与伴奏规格.md](./13-局内声场与伴奏规格.md) §2–§5.2 · 大厅对照 [04-开场声场与大厅氛围-v3.md](./04-开场声场与大厅氛围-v3.md) |
-| 生成 | 仓库根 `python3 scripts/gen_table_audio.py`（numpy / scipy / soundfile） |
-
-> 命名：音频 **`bgm_*` / `sfx_*`**；调用点 **`lb_bgm_*` / `lb_sfx_*`**。**禁止 `lb_art_*`。**  
-> 本 PR **零规则改动**（不改 GDD / PRD / 数值 / 引擎），**零 ets**（不改 Lobby / Table / 局内换绑）。  
-> **禁止**把大厅 `bgm_lobby_night` 改音量当局内床；**禁止** `sfx_challenge_*` 四槽真源。  
-> 已交发牌三槽（`sfx_match_open` / `sfx_deal_card` / `sfx_deal_whoosh`）**本批不重做**。
-
----
-
-## 1. BGM · `bgm_table_bluff`
-
-路径：`entry/src/main/resources/rawfile/audio/bgm/bgm_table_bluff.ogg`
-
-| 项 | 规格（13） | 本批实测 |
-|----|------------|----------|
-| 格式 | Vorbis · 立体声 48 kHz | Vorbis · {bgm['ch']}ch · {bgm['rate']} Hz |
-| 时长 | 循环体 24～40s | **{bgm['dur']:.2f}s** |
-| 峰值 | −14～−12 dBFS | **{bgm['peak']:.1f} dBFS** |
-| BPM | 78–92（目标 84） | **84**（1+3 低音脉冲 + 2+4 轻刷） |
-| 循环 | 交叉淡化 ≥500ms | 交叉 **550ms** 后裁成上表时长 |
-| 曲风 | 暗爵士 / noir lounge × 轻木感 | 垫底低弦 + 指弹/木箱脉冲 + 刷镲 + 稀疏 EP 动机 + 杯沿/木梁点缀 |
-
-编曲层次（关画面 10s 应能指认「垫底 ≠ 律动/动机」）：
-
-| 层 | 角色 | 本批做法 |
-|----|------|----------|
-| A 垫底 | 持续气场 | D 多利亚低弦 / 薄五度垫，慢 LFO |
-| B 律动 | 伴奏感 | **84 BPM** 指弹低音（1 / 3 实、2 / 4 鬼音）+ 极轻刷 |
-| C 动机 | 可记忆短句 | Rhodes / EP 2～4 小节稀疏动机（非大厅那条慢拨时间点） |
-| D 点缀 | 酒馆色 | 杯沿 + 木梁，融进曲，**不是**独立 SFX 槽 |
-
-进桌听感闸：相对 `bgm_lobby_night`（疏、慢、暖、少鼓点）本条 **有可数拍的脉冲与 EP**，不是同一振荡器改音量。
-
-客户端挂点（本 PR **不改 ets**）：进桌大厅 BGM **400ms 淡出** → 本条 **600ms 淡入**；回大厅反向。静默局三床全关。
-
----
-
-## 2. SFX · §5.2 新建八槽
-
-路径一律：`entry/src/main/resources/rawfile/audio/sfx/`。PCM 16-bit 48 kHz。
-
-| 文件 | 声道 | 时长（规格） | 本批时长 | 峰值规格 | 本批峰值 | 材质 | 调用建议 |
-|------|------|--------------|----------|----------|----------|------|----------|
-| `sfx_claim_set.wav` | 1 | 0.20～0.45s | {by['sfx_claim_set.wav']['dur']:.2f}s | −12～−8 | {by['sfx_claim_set.wav']['peak']:.1f} | 短铜铃 + 木桌一触；非 beep | `lb_sfx_claim_set` |
-| `sfx_play_soft.wav` | 1 | ≤0.20s | {by['sfx_play_soft.wav']['dur']:.2f}s | −12～−10 | {by['sfx_play_soft.wav']['peak']:.1f} | 轻纸落桌 | `lb_sfx_play_soft` |
-| `sfx_play_slam.wav` | 1 | ≤0.28s | {by['sfx_play_slam.wav']['dur']:.2f}s | −10～−8 | {by['sfx_play_slam.wav']['peak']:.1f} | 掌心拍桌 + 纸；比 soft 狠 | `lb_sfx_play_slam` |
-| `sfx_play_hesitate.wav` | 1 | ≤0.22s | {by['sfx_play_hesitate.wav']['dur']:.2f}s | −14～−12 | {by['sfx_play_hesitate.wav']['peak']:.1f} | 纸摩擦半下又停 | `lb_sfx_play_hesitate` |
-| `sfx_play_hesitate` 与 soft / slam **必须可盲听区分**。 | | | | | | | |
-| `sfx_turn_tick.wav` | 1 | ≤0.12s | {by['sfx_turn_tick.wav']['dur']:.2f}s | −16～−14 | {by['sfx_turn_tick.wav']['peak']:.1f} | 极短木击；勿吵 | `lb_sfx_turn_tick` |
-| `sfx_named_stare.wav` | 1 | 0.25～0.50s | {by['sfx_named_stare.wav']['dur']:.2f}s | −12～−10 | {by['sfx_named_stare.wav']['peak']:.1f} | 烛火 hoo + 低频聚焦 | `lb_sfx_named_stare` |
-| `sfx_result_win.wav` | 2 | 0.6～1.2s | {by['sfx_result_win.wav']['dur']:.2f}s | −10～−8 | {by['sfx_result_win.wav']['peak']:.1f} | 低弦收束 + 轻杯碰；禁 8-bit fanfare | `lb_sfx_result_win` |
-| `sfx_result_lose.wav` | 1 | 0.6～1.2s | {by['sfx_result_lose.wav']['dur']:.2f}s | −10～−8 | {by['sfx_result_lose.wav']['peak']:.1f} | 闷木 + 酒液短响；勿惨叫 | `lb_sfx_result_lose` |
-
-### 2.1 实测总表（脚本写入）
-
-| 文件 | Hz | ch | 时长 | 峰值 | 字节 |
-|------|----|----|------|------|------|
-{fmt_row(bgm)}
-{fmt_row(by['sfx_claim_set.wav'])}
-{fmt_row(by['sfx_play_soft.wav'])}
-{fmt_row(by['sfx_play_slam.wav'])}
-{fmt_row(by['sfx_play_hesitate.wav'])}
-{fmt_row(by['sfx_turn_tick.wav'])}
-{fmt_row(by['sfx_named_stare.wav'])}
-{fmt_row(by['sfx_result_win.wav'])}
-{fmt_row(by['sfx_result_lose.wav'])}
-
----
-
-## 3. 明确未做
-
-| 项 | 口径 |
-|----|------|
-| `sfx_challenge_windup` / `_standoff` / `_reveal` / `_result` | **不生成、不占位 beep**。玩法仍冻，解冻另开票 |
-| `sfx_amb_table.ogg` | P1 环境垫，本批不做（BGM 内嵌点缀顶上） |
-| 大厅五层声场 | **不改** `bgm_lobby_night` / `sfx_amb_tavern` / boot / cta / VO |
-| 发牌三槽 | **不重做** |
-| ets / `$r` 换绑 | **本 PR 不做**；等 UI 挂点会签 → `feat/client-*` |
-
----
-
-## 4. 请 UI / 鸿蒙会签挂点（本 PR 不改 ets）
-
-合入后文件在包里，**现挂槽不会自动换曲 / 换击**。请对拍 [13 §6](./13-局内声场与伴奏规格.md)：
-
-| 时机 | 挂本批哪份 | 不要做什么 |
-|------|------------|------------|
-| 进桌 | `bgm_table_bluff` 600ms 淡入；大厅 BGM 400ms 淡出 | 不要复用 `bgm_lobby_night` 改音量 |
-| 宣称锁定 | `sfx_claim_set` | 不要 beep / 方波 tip |
-| 出牌 soft / slam / hesitate | 对应三槽，跟动画峰值 | 不要一条 wav 改 pitch 填三槽 |
-| 轮转 | `sfx_turn_tick` | 不要盖过宣称 / 口播 |
-| 被点名盯梢 | `sfx_named_stare`（可与烛火同拍） | 不要用 turn_tick 交差 |
-| 结算 | `sfx_result_win` / `sfx_result_lose` | 不要 8-bit fanfare / 惨叫 |
-| 质疑四拍 | **不挂真源** | 不要先塞 beep |
-| 静默局 | BGM + 本批 SFX **全无** | 字幕可在 |
-
----
-
-## 5. 制作口径
-
-- 分层合成（垫底 / 84 BPM 脉冲 / 刷 / EP / 点缀），禁止一条振荡器刷两槽。  
-- SFX：铜 / 木 / 纸 / 气 可指认；soft / slam / hesitate 盲听可分。  
-- 重出：`python3 scripts/gen_table_audio.py`  
-- 脚手架 `gen_scaffold_assets.py` / `gen_lobby_sfx.py` / `gen_lobby_v3_audio.py` **不要**盖本表文件。
-
----
-
-## 6. 自检
-
-- [x] `bgm_table_bluff.ogg` 立体声 48 kHz Vorbis，时长 **{bgm['dur']:.2f}s**（≥24s），峰值 **{bgm['peak']:.1f} dBFS**，循环交叉 ≥500ms
-- [x] 听感有垫底 + 律动/动机两层；84 BPM 可感知；**不是**大厅那条
-- [x] 八槽 SFX 齐，时长 / 峰值落在 13 §5.2 窗内
-- [x] **无** `sfx_challenge_*` 文件
-- [x] 未改任何 `.ets`；未改 GDD / PRD / 互动方案 / 数值 v0.2
-- [x] 未改大厅音频资产、未改发牌三槽
-- [x] **@UI** 调用点 / 与动效同拍（阅即可）
-- [ ] **@鸿蒙开发** 路径与静默路由（阅即可）
-- [ ] **@负责人终审**
-
-### 审核记录
-
-| 日期 | 意见 | 提议修改 | 提出人 | 状态 |
-|------|------|----------|--------|------|
-| 2026-09-10 | #77 规格会签后落真源；禁方波 tip / 干 loop / 大厅复用 / 质疑四槽 | 本批：`bgm_table_bluff` + §5.2 八槽 + 交件表；零 ets | 负责人会签 #77 / 生成票 | **本批交件** |
-
----
-
-*维护人：美术 / 音频岗 · 2026-09-10*
-"""
-    # Fix the accidental extra table-break row — keep a clean 8-row SFX table.
-    body = body.replace(
-        "| `sfx_play_hesitate` 与 soft / slam **必须可盲听区分**。 | | | | | | | |\n",
-        "",
+    raise SystemExit(
+        "refusing to rewrite docs/04-设计/局内声场-资产交件.md: "
+        "that file is hand-maintained after the Moil (CC0) swap. "
+        "BGM must come from licensed beds per 13b."
     )
-    DOC.write_text(body, encoding="utf-8")
 
 
 def main() -> None:
-    AUDIO.mkdir(parents=True, exist_ok=True)
-    (AUDIO / "bgm").mkdir(parents=True, exist_ok=True)
-    (AUDIO / "sfx").mkdir(parents=True, exist_ok=True)
-
-    bgm_path = AUDIO / "bgm/bgm_table_bluff.ogg"
-    write_ogg_peak(bgm_path, make_bgm(), -13.0)
-
-    makers = {
-        "sfx_claim_set": make_claim_set,
-        "sfx_play_soft": make_play_soft,
-        "sfx_play_slam": make_play_slam,
-        "sfx_play_hesitate": make_play_hesitate,
-        "sfx_turn_tick": make_turn_tick,
-        "sfx_named_stare": make_named_stare,
-        "sfx_result_win": make_result_win,
-        "sfx_result_lose": make_result_lose,
-    }
-    for name, fn in makers.items():
-        write_wav(AUDIO / "sfx" / f"{name}.wav", fn())
-
-    # Guard: never emit challenge four.
-    for forbidden in (
-        "sfx_challenge_windup",
-        "sfx_challenge_standoff",
-        "sfx_challenge_reveal",
-        "sfx_challenge_result",
-    ):
-        for folder in (AUDIO / "sfx", AUDIO / "bgm", AUDIO):
-            for ext in (".wav", ".ogg"):
-                p = folder / f"{forbidden}{ext}"
-                if p.exists():
-                    raise SystemExit(f"refusing challenge slot on disk: {p}")
-
-    rows = [measure(bgm_path)]
-    for name, (sec, peak, ch) in SFX_SPEC.items():
-        path = AUDIO / "sfx" / f"{name}.wav"
-        m = measure(path)
-        rows.append(m)
-        if abs(float(m["dur"]) - sec) > 0.05:
-            raise SystemExit(f"{name} duration {m['dur']:.3f}s != {sec}")
-        if abs(float(m["peak"]) - peak) > 0.5:
-            raise SystemExit(f"{name} peak {m['peak']:.2f} != {peak}")
-        if int(m["ch"]) != ch:
-            raise SystemExit(f"{name} ch {m['ch']} != {ch}")
-        if int(m["rate"]) != SR:
-            raise SystemExit(f"{name} rate {m['rate']} != {SR}")
-
-    bgm_m = rows[0]
-    if float(bgm_m["dur"]) < 24.0 or float(bgm_m["dur"]) > 40.0:
-        raise SystemExit(f"BGM duration {bgm_m['dur']:.3f}s outside 24–40")
-    if abs(float(bgm_m["dur"]) - BGM_SECONDS) > 0.05:
-        raise SystemExit(f"BGM duration {bgm_m['dur']:.3f}s != {BGM_SECONDS}")
-    if abs(float(bgm_m["peak"]) - (-13.0)) > 0.5:
-        raise SystemExit(f"BGM peak {bgm_m['peak']:.2f} != -13")
-    if int(bgm_m["ch"]) != 2 or int(bgm_m["rate"]) != SR:
-        raise SystemExit("BGM must be stereo 48 kHz")
-
-    write_delivery_doc(rows)
-
-    print(f"{'file':<28} {'ch':>2} {'dur':>7} {'peak':>8}  path")
-    for m in rows:
-        print(
-            f"{m['name']:<28} {m['ch']:>2} {m['dur']:7.3f} {m['peak']:8.2f}  {m['rel']}"
-        )
-    print(f"wrote {DOC.relative_to(ROOT)}")
-    print("table audio written (no challenge slots)")
+    # Hard abort at the BGM path. Do not write/overwrite bgm_table_bluff.
+    # SFX makers remain in this file for a later ticket; this entrypoint
+    # must not re-bake toy BGM or rewrite the delivery doc.
+    refuse_bgm_bake()
 
 
 if __name__ == "__main__":

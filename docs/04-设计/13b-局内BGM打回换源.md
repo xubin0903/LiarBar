@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | **规格补丁交审** · 未授权前禁止再塞真源 |
+| 状态 | **规格补丁已合 #82** · 真源已换 **Moil CC0**（见 [局内声场-资产交件.md](./局内声场-资产交件.md) v1.1） |
 | 针对 | 用户否决 `#80`/`#81` 的 `bgm_table_bluff`（numpy 程序拼曲） |
 | 读者 | **@LiarBar负责人**、音频/美术、UI、鸿蒙、测试 |
 | 基线 | [13-局内声场与伴奏规格.md](./13-局内声场与伴奏规格.md)（层次/BPM/接缝/与大厅硬闸仍有效） |
@@ -38,7 +38,7 @@
 
 ## 3. 推荐候选（先审再下）
 
-> 以下均为公开页可核许可；**本批只写候选，不下载不进仓**。负责人可点名首选或否决。
+> 以下为打回当时的公开候选。负责人已锁 **P0 Moil**；真源已按交件裁转进仓（同名 `bgm_table_bluff`）。
 
 | 优先级 | 曲名 | 来源 | 许可（公开页） | 为何比脚本强 | 备注 |
 |---|---|---|---|---|---|
@@ -47,7 +47,7 @@
 | P1 | A Body In The Alley | [FMA · Patrick Davies](https://freemusicarchive.org/music/patrick-davies/single/a-body-in-the-alley/) | **CC0 1.0** | 作者自述 moody noir jazz；~2:29 可裁循环 | 注意页内拼写 Ally/Alley |
 | P2 备选 | Pixabay「Bar Noir」等 | Pixabay Music | **Pixabay Content License**（非 CC0，课设可嵌须文档标注） | 真编曲床，有酒吧 noir 向 | 优先 CC0；仅当 P0/P1 不可用 |
 
-**默认提案**：采用 **Moil（CC0）** 作 `bgm_table_bluff` 替换源；交件目录仍用同名 media，避免工程改 id。
+**已落地**：采用 **Moil（CC0）** 作 `bgm_table_bluff` 替换源；交件目录仍用同名 media，避免工程改 id。署名见 [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md)。
 
 ---
 
@@ -82,7 +82,7 @@
 
 ## 7. 会签
 
-- [ ] @LiarBar负责人 拍板候选（默认 Moil）并授权下载  
+- [x] @LiarBar负责人 拍板候选（默认 Moil）并授权下载  
 - [ ] @LiarBar UI 阅（无新挂点则勾阅即可）  
 - [ ] @LiarBar鸿蒙开发 阅：仍挂 `bgm_table_bluff` 同名替换  
 
