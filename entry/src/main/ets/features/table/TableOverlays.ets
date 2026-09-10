@@ -3,55 +3,34 @@ import { CardModel } from '../../engine/MatchTypes';
 import { PlayStyle } from '../../engine/Phase';
 import { CardFace } from './CardFace';
 
+/**
+ * Peek mask (docs 11 §2.4 / O1): dim table-heart + opponents.
+ * Faces flip on lb_cmp_card_{0-4} in the hand row — no title/skip chrome (X1/X2).
+ */
 @Component
 export struct PeekMaskOverlay {
   @Link visible: boolean;
-  @Link ranks: string[];
-  onClose: () => void = () => {};
 
   build() {
     if (this.visible) {
-      Column({ space: 10 }) {
-        Text($r('app.string.lb_str_overlay_peek'))
-          .fontColor($r('app.color.tavern_paper'))
-        Text($r('app.string.lb_str_peek_hint'))
-          .fontColor($r('app.color.tavern_candle'))
-        Text($r('app.string.lb_str_peek_first'))
-          .fontColor($r('app.color.tavern_mute'))
-          .fontSize($r('app.float.subtitle_text_size'))
-        Scroll() {
-          Row({ space: 8 }) {
-            ForEach(this.ranks, (rank: string, idx: number) => {
-              CardFace({
-                rank: rank,
-                faceUp: true,
-                compact: false
-              })
-            }, (rank: string, idx: number) => `${rank}_${idx}`)
-          }
-        }
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
-        Image($r('app.media.art_card_privacy_mask'))
-          .width($r('app.float.card_face_w'))
-          .height($r('app.float.card_face_h'))
-        Text($r('app.string.lb_str_privacy_on'))
-          .id(OverlayIds.PRIVACY_ON)
-          .fontColor($r('app.color.tavern_mute'))
-          .fontSize($r('app.float.subtitle_text_size'))
-        Button($r('app.string.lb_str_skip'))
-          .onClick(() => {
-            this.onClose();
-          })
+      Column() {
+        Blank()
       }
       .id(OverlayIds.PEEK_MASK)
       .width('100%')
-      .padding(16)
+      .height('52%')
+      .margin({ top: '12%' })
       .backgroundColor($r('app.color.tavern_shadow'))
+      .opacity(0.55)
+      .hitTestBehavior(HitTestMode.None)
     }
   }
 }
 
+/**
+ * Play package (docs 11 §2.3 / X3): right sidebar, cover ≤36% width.
+ * Claim + four seats stay pointable. Submit + style chips share this pane.
+ */
 @Component
 export struct PlaySheetOverlay {
   @Link visible: boolean;
@@ -72,25 +51,31 @@ export struct PlaySheetOverlay {
 
   build() {
     if (this.visible) {
-      Column({ space: 10 }) {
+      Column({ space: 8 }) {
         Text($r('app.string.lb_str_overlay_play'))
           .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.subtitle_text_size'))
         Text(this.playCountText)
           .id(ControlIds.PLAY_COUNT)
           .fontColor($r('app.color.tavern_candle'))
-        Row({ space: 6 }) {
-          ForEach(this.cards, (card: CardModel) => {
-            CardFace({
-              rank: card.rank,
-              faceUp: true,
-              compact: true,
-              selected: this.isSelected(card.cardId)
-            })
-              .onClick(() => {
-                this.onToggleCard(card.cardId);
+        Scroll() {
+          Row({ space: 6 }) {
+            ForEach(this.cards, (card: CardModel) => {
+              CardFace({
+                rank: card.rank,
+                faceUp: true,
+                compact: true,
+                selected: this.isSelected(card.cardId)
               })
-          }, (card: CardModel) => card.cardId)
+                .onClick(() => {
+                  this.onToggleCard(card.cardId);
+                })
+            }, (card: CardModel) => card.cardId)
+          }
         }
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .constraintSize({ maxHeight: '40%' })
         Row({ space: 12 }) {
           Image($r('app.media.art_play_soft'))
             .id(ControlIds.STYLE_SOFT)
@@ -117,42 +102,56 @@ export struct PlaySheetOverlay {
               this.onStyle(PlayStyle.HESITATE);
             })
         }
-        Row({ space: 8 }) {
+        Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start }) {
           Text($r('app.string.lb_str_skip_line'))
             .fontColor($r('app.color.tavern_mute'))
+            .fontSize($r('app.float.caption_text_size'))
+            .margin({ right: 8 })
           Button(this.nameP1)
+            .fontSize($r('app.float.caption_text_size'))
+            .height(36)
             .onClick(() => {
               this.onName(1);
             })
           Button(this.nameP2)
+            .fontSize($r('app.float.caption_text_size'))
+            .height(36)
             .onClick(() => {
               this.onName(2);
             })
           Button(this.nameP3)
+            .fontSize($r('app.float.caption_text_size'))
+            .height(36)
             .onClick(() => {
               this.onName(3);
             })
         }
+        .width('100%')
         Text(this.namedLabel())
           .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.subtitle_text_size'))
+          .fontSize($r('app.float.caption_text_size'))
         Button($r('app.string.lb_str_play'))
           .id(ControlIds.PLAY)
+          .width('100%')
+          .height($r('app.float.cta_height'))
           .enabled(this.confirmEnabled)
           .backgroundColor($r('app.color.tavern_accent'))
           .fontColor($r('app.color.tavern_bg'))
           .onClick(() => {
             this.onConfirm();
           })
-        Button($r('app.string.lb_str_skip'))
+        Text($r('app.string.lb_str_skip'))
           .id(ControlIds.PLAY_CANCEL)
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
           .onClick(() => {
             this.onClose();
           })
       }
       .id(OverlayIds.SHEET_PLAY)
       .width('100%')
-      .padding(16)
+      .height('100%')
+      .padding(12)
       .backgroundColor($r('app.color.tavern_panel'))
     }
   }
