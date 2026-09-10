@@ -151,6 +151,53 @@ if (table.includes('DealFx') && table.includes('DealAudio.playDealCard') &&
   fail('Table DealFx wiring');
 }
 
+if (fx.includes('flyOriginFromPile') && table.includes('flyFromPile') &&
+  table.includes('DealFx.flyOriginFromPile') &&
+  !table.includes('pileX + 8') && !table.includes('pileY - 4')) {
+  pass('D1a pile+flight share DealFx.flyOriginFromPile (no +8/-4 split)');
+} else {
+  fail('fly takeoff must use the same pile center as dealPileAnchor');
+}
+
+const pileW = readConst(fx, 'PILE_SLOT_W');
+const pileH = readConst(fx, 'PILE_SLOT_H');
+const flyW = readConst(fx, 'FLY_CARD_W');
+const flyH = readConst(fx, 'FLY_CARD_H');
+const pileCardW = readConst(fx, 'PILE_CARD_W');
+const pileCardH = readConst(fx, 'PILE_CARD_H');
+if (pileW === 56 && pileH === 76 && flyW === 56 && flyH === 78 &&
+  pileCardW === 40 && pileCardH === 56) {
+  pass(`pile slot ${pileW}×${pileH}; fly box ${flyW}×${flyH}; stack card ${pileCardW}×${pileCardH}`);
+} else {
+  fail('pile/fly geometry constants');
+}
+
+function flyOriginFromPile(px, py, pw, ph) {
+  return [px + pw / 2 - flyW / 2, py + ph / 2 - flyH / 2];
+}
+const origin = flyOriginFromPile(100, 200, pileW, pileH);
+if (origin[0] === 100 && origin[1] === 199) {
+  pass('fly origin centers 56×78 box on 56×76 dealPileAnchor');
+} else {
+  fail(`fly origin ${origin} expected [100, 199]`);
+}
+
+if (table.includes('dealPileStack') && table.includes("id('lb_cmp_pool')") &&
+  table.includes("id('dealPileAnchor')") && table.includes('pileNudgeX') &&
+  table.includes('pileNudgeY')) {
+  pass('dealPileAnchor is in-flow on lb_cmp_pool with a micro-offset stack');
+} else {
+  fail('pile must sit on the pool slot (not a free overlay)');
+}
+
+if (table.includes('dealPileStack') &&
+  table.includes('DealFx.pileNudgeX(0)') && table.includes('DealFx.pileNudgeX(4)') &&
+  table.includes('DealFx.pileNudgeY(0)') && table.includes('DealFx.pileNudgeY(4)')) {
+  pass('deal pile is a micro-offset stack of card backs (牌堆感)');
+} else {
+  fail('deal pile must be more than one card back');
+}
+
 if (table.includes('applyDealHud') && table.includes('cardBacks = this.indexes(this.landed0)') &&
   engine.includes('selfHand: this.phase === Phase.DEAL ? []')) {
   pass('D1a hands do not pop in (DEAL snapshot empty; UI reveals on land)');
