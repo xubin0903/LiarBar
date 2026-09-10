@@ -16,7 +16,7 @@ import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Ph
 
 const TAG = 'Table';
 
-/** lb_scr_table landscape ring (docs 10/11 O1 LY1 X1–X4). Lobby stays portrait. */
+/** lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait. */
 
 @Entry
 @Component
@@ -70,7 +70,7 @@ struct Table {
   @State padT: number = 0;
   @State padR: number = 0;
   @State padB: number = 0;
-  @State showDealerBust: boolean = true;
+  @State dealerBustPct: number = TableBreakpoints.BUST_MAX_PCT;
   @State heartPadPct: number = 0;
   private pollId: number = -1;
   private pushedChallenge: boolean = false;
@@ -132,8 +132,10 @@ struct Table {
         }
         .layoutWeight(1)
         .width('100%')
+        Blank()
+          .width('100%')
+          .height('6%')
         this.handRow()
-        this.ctaRow()
       }
       .width('100%')
       .height('100%')
@@ -238,6 +240,7 @@ struct Table {
             .fontColor($r('app.color.tavern_paper'))
             .fontSize($r('app.float.caption_text_size'))
             .margin({ right: 8 })
+          this.weakCta()
           Text($r('app.string.lb_str_home'))
             .id(ControlIds.HOME)
             .fontColor($r('app.color.tavern_mute'))
@@ -277,46 +280,57 @@ struct Table {
       .width('16%')
       .height('100%')
 
-      Column() {
-        this.seatBlock(2, this.seat2, this.life2, ControlIds.SEAT_P2)
+      Stack() {
         Column({ space: 4 }) {
-          if (this.showDealerBust) {
+          Row({ space: 8 }) {
             Image($r('app.media.art_dealer_bust_announce'))
               .id(ControlIds.DEALER)
-              .height('28%')
-              .constraintSize({ maxWidth: '28%', maxHeight: '28%' })
+              .height('56%')
+              .constraintSize({
+                maxWidth: `${this.dealerBustPct}%`,
+                maxHeight: `${this.dealerBustPct}%`
+              })
               .objectFit(ImageFit.Contain)
-          } else {
-            Image($r('app.media.art_dealer_bust_announce'))
-              .id(ControlIds.DEALER)
-              .width(0)
-              .height(0)
-              .visibility(Visibility.None)
-          }
-          Stack() {
-            Image($r('app.media.art_pool_slot'))
-              .id('lb_cmp_pool')
-              .width(DealFx.PILE_SLOT_W)
-              .height(DealFx.PILE_SLOT_H)
-            if (this.pileOn) {
-              this.dealPileStack()
+            Stack() {
+              Image($r('app.media.art_pool_slot'))
+                .id('lb_cmp_pool')
+                .width(DealFx.PILE_SLOT_W)
+                .height(DealFx.PILE_SLOT_H)
+              if (this.pileOn) {
+                this.dealPileStack()
+              }
             }
+            .id('dealPileAnchor')
+            .width(DealFx.PILE_SLOT_W)
+            .height(DealFx.PILE_SLOT_H)
+            .onAreaChange((_old: Area, area: Area) => {
+              this.capturePile(area);
+            })
           }
-          .id('dealPileAnchor')
-          .width(DealFx.PILE_SLOT_W)
-          .height(DealFx.PILE_SLOT_H)
-          .onAreaChange((_old: Area, area: Area) => {
-            this.capturePile(area);
-          })
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
           Text(this.poolText)
             .fontColor($r('app.color.tavern_paper'))
             .fontSize($r('app.float.caption_text_size'))
         }
-        .layoutWeight(1)
         .width('100%')
+        .height('100%')
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
-        this.seatBlock(0, this.seat0, this.life0, ControlIds.SEAT_SELF)
+
+        Column() {
+          this.seatBlock(2, this.seat2, this.life2, ControlIds.SEAT_P2)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
+        .align(Alignment.Top)
+
+        Column() {
+          this.seatBlock(0, this.seat0, this.life0, ControlIds.SEAT_SELF)
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Center)
+        .align(Alignment.Bottom)
       }
       .layoutWeight(1)
       .height('100%')
@@ -389,21 +403,18 @@ struct Table {
     }
     .width('100%')
     .height('22%')
-    .constraintSize({ minHeight: '18%', maxHeight: '24%' })
+    .constraintSize({ minHeight: '18%', maxHeight: '26%' })
     .justifyContent(FlexAlign.Center)
   }
 
+  /** R-LAND-4: lock-name play/challenge stay as caption links, not a dual bottom bar. */
   @Builder
-  ctaRow() {
-    Row({ space: 10 }) {
-      Button($r('app.string.lb_str_challenge'))
+  weakCta() {
+    Row({ space: 8 }) {
+      Text($r('app.string.lb_str_challenge'))
         .id(ControlIds.CHALLENGE)
-        .layoutWeight(1)
-        .height($r('app.float.cta_height'))
-        .fontSize($r('app.float.page_text_size'))
-        .enabled(this.challengeEnabled)
-        .backgroundColor($r('app.color.tavern_panel'))
         .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
+        .fontSize($r('app.float.caption_text_size'))
         .onClick(() => {
           if (!this.challengeEnabled) {
             return;
@@ -412,24 +423,18 @@ struct Table {
           this.pull();
         })
       if (this.skipEnabled) {
-        Button($r('app.string.lb_str_skip'))
-          .layoutWeight(1)
-          .height($r('app.float.cta_height'))
-          .fontSize($r('app.float.page_text_size'))
-          .backgroundColor($r('app.color.tavern_panel'))
+        Text($r('app.string.lb_str_skip'))
           .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
           .onClick(() => {
             AppRuntime.engine.skip();
             this.pull();
           })
-      } else {
-        Button($r('app.string.lb_str_play'))
-          .layoutWeight(1)
-          .height($r('app.float.cta_height'))
-          .fontSize($r('app.float.page_text_size'))
-          .enabled(this.playEnabled)
-          .backgroundColor($r('app.color.tavern_accent'))
-          .fontColor(this.playEnabled ? $r('app.color.tavern_bg') : $r('app.color.tavern_mute'))
+      } else if (!this.showPlay) {
+        Text($r('app.string.lb_str_play'))
+          .id(ControlIds.PLAY)
+          .fontColor(this.playEnabled ? $r('app.color.tavern_candle') : $r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
           .onClick(() => {
             if (!this.playEnabled) {
               return;
@@ -440,7 +445,7 @@ struct Table {
           })
       }
     }
-    .width('100%')
+    .margin({ right: 8 })
   }
 
   @Builder
@@ -479,15 +484,34 @@ struct Table {
   @Builder
   seatBlock(seatId: number, name: string, life: string, id: string) {
     Column({ space: 2 }) {
-      if (seatId === 0) {
-        Image($r('app.media.art_frame_player_idle')).width(48).height(48).id(id)
-      } else if (seatId === 1) {
-        Image($r('app.media.art_ai_timid_idle')).width(48).height(48).id(id)
-      } else if (seatId === 2) {
-        Image($r('app.media.art_ai_shark_idle')).width(48).height(48).id(id)
-      } else {
-        Image($r('app.media.art_ai_karen_idle')).width(48).height(48).id(id)
+      Stack() {
+        if (seatId === 0) {
+          Image($r('app.media.art_frame_player_idle'))
+            .width(52)
+            .height(52)
+            .objectFit(ImageFit.Cover)
+        } else if (seatId === 1) {
+          Image($r('app.media.art_ai_timid_idle'))
+            .width(52)
+            .height(52)
+            .objectFit(ImageFit.Cover)
+        } else if (seatId === 2) {
+          Image($r('app.media.art_ai_shark_idle'))
+            .width(52)
+            .height(52)
+            .objectFit(ImageFit.Cover)
+        } else {
+          Image($r('app.media.art_ai_karen_idle'))
+            .width(52)
+            .height(52)
+            .objectFit(ImageFit.Cover)
+        }
       }
+      .id(id)
+      .width(52)
+      .height(52)
+      .borderRadius(26)
+      .clip(true)
       Text(name)
         .fontColor(this.turnSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_paper'))
         .fontSize($r('app.float.caption_text_size'))
@@ -566,7 +590,7 @@ struct Table {
   }
 
   private applyBreakpoint(w: number, h: number): void {
-    this.showDealerBust = TableBreakpoints.showDealerBust(w, h);
+    this.dealerBustPct = TableBreakpoints.dealerBustMaxPct(w, h);
     this.heartPadPct = TableBreakpoints.heartPadPct(w, h);
   }
 

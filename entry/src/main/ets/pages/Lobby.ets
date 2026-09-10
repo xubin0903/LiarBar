@@ -67,6 +67,7 @@ struct Lobby {
   @State peekHotScale: number = 1;
   @State peekHotLit: boolean = false;
   @State matchLoading: boolean = false;
+  @State matchBusy: boolean = false;
   @State dealerScale: number = 1;
   @State candleOpacity: number = 0.70;
   @State candleScale: number = 1;
@@ -195,7 +196,7 @@ struct Lobby {
         .fontColor($r('app.color.tavern_mute'))
         .fontSize($r('app.float.caption_text_size'))
         .onClick(() => {
-          if (!this.bootReady || this.matchLoading) {
+          if (!this.bootReady || this.matchBusy || this.matchLoading) {
             return;
           }
           LbRouter.toReport();
@@ -322,7 +323,7 @@ struct Lobby {
         .fontColor($r('app.color.tavern_bg'))
         .stateEffect(false)
         .hoverEffect(HoverEffect.None)
-        .enabled(this.bootReady && !this.matchLoading)
+        .enabled(this.bootReady && !this.matchBusy && !this.matchLoading)
         .focusable(true)
         .onFocus(() => {
           this.setCtaFocusHot(true);
@@ -385,10 +386,10 @@ struct Lobby {
         this.onPeekTouch(event);
       })
       .onClick(() => {
-        if (!this.bootReady || this.matchLoading) {
+        if (!this.bootReady || this.matchBusy || this.matchLoading) {
           return;
         }
-        LbRouter.toTable();
+        this.lockThenPeekTable();
       })
   }
 
@@ -919,7 +920,7 @@ struct Lobby {
   }
 
   private onCtaTouch(event: TouchEvent): void {
-    if (!this.bootReady || this.matchLoading) {
+    if (!this.bootReady || this.matchBusy || this.matchLoading) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -947,7 +948,7 @@ struct Lobby {
   }
 
   private onPeekTouch(event: TouchEvent): void {
-    if (!this.bootReady || this.matchLoading) {
+    if (!this.bootReady || this.matchBusy || this.matchLoading) {
       return;
     }
     if (event.type === TouchType.Down) {
@@ -1032,9 +1033,9 @@ struct Lobby {
     await this.beginMatchLoad();
   }
 
-  /** Shared open-table gate: overlay first, T01 only after the locked axis. */
+  /** Shared open-table gate: lock landscape first, then L1 overlay (R-LAND-1). */
   private async beginMatchLoad(): Promise<void> {
-    if (!this.bootReady || this.matchLoading) {
+    if (!this.bootReady || this.matchBusy || this.matchLoading) {
       Logger.warn(TAG, 'match load ignored: boot not ready or already loading');
       return;
     }
@@ -1042,11 +1043,14 @@ struct Lobby {
       Logger.warn(TAG, 'match load ignored: config not loaded');
       return;
     }
+    this.matchBusy = true;
+    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    await WindowOrientation.lockLandscape(ctx);
     this.matchLoading = true;
     this.matchLoadAxisDone = false;
     this.matchLoadPersistDone = false;
     const axisMs: number = MatchLoad.axisMs();
-    Logger.info(TAG, `${OverlayIds.MATCH_LOAD} axis ${axisMs}ms — T01 after L-4`);
+    Logger.info(TAG, `${OverlayIds.MATCH_LOAD} L-0 landscape + axis ${axisMs}ms — T01 after L-4`);
     this.arm(axisMs, (): void => {
       this.matchLoadAxisDone = true;
       this.tryEnterTable();
@@ -1054,6 +1058,13 @@ struct Lobby {
     await this.persistQuickStart();
     this.matchLoadPersistDone = true;
     this.tryEnterTable();
+  }
+
+  /** Peek is not the L1 axis (08). Still lock landscape first — no enter-then-rotate. */
+  private async lockThenPeekTable(): Promise<void> {
+    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    await WindowOrientation.lockLandscape(ctx);
+    LbRouter.toTable();
   }
 
   private async persistQuickStart(): Promise<void> {
@@ -1082,8 +1093,10 @@ struct Lobby {
     if (!started) {
       Logger.warn(TAG, 'match load ignored: START_MATCH rejected');
       this.matchLoading = false;
+      this.matchBusy = false;
       this.matchLoadAxisDone = false;
       this.matchLoadPersistDone = false;
+      this.lockPortraitSoft();
       return;
     }
     AppRuntime.director.start();
