@@ -5,10 +5,10 @@
  * Player ids stay p1 timid / p2 shark / p3 karen.
  * Landscape compass is L/T/R/B — not a top-row of faces.
  * #58 R-LAND-5: 左 p3 karen · 上 p2 shark · 右 p1 timid · 下手 self.
- * #59 / #66 / 11 v0.2.6 §2.1.2:
+ * #59 / #66 / #78 / 11 v0.2.7 §2.1.2:
  * hand sits on the bottom safe-area top edge; lb_cmp_hand mid-line;
  * selfDock is a left independent slot — not an overlay, not in hand layoutWeight.
- * Ring–hand gap is 12% Blank (HAND_RING_GAP_PCT; compress the heart).
+ * Ring–hand gap is 18% Blank (HAND_RING_GAP_PCT; compress the heart).
  * padB is inset only — never a lift (禁加大 padB 顶高手牌).
  */
 
@@ -44,17 +44,17 @@ export class TableBreakpoints {
    */
   static readonly SELF_SLOT_PCT: number = 16;
   /**
-   * Fixed 12% gap between the seat ring (pile) and lb_cmp_hand (11 v0.2.6 闸 1 /
-   * hangpoint 9 / HAND_RING_GAP). Percent of the padded column — no hard px.
+   * Fixed 18% gap between the seat ring (pile) and lb_cmp_hand (11 v0.2.7 闸 1 /
+   * hangpoint 12 / HAND_RING_GAP). Percent of the padded column — no hard px.
    * Compresses the heart via leftover layoutWeight; must not be faked by
    * inflating padB (禁加大 padB 顶高手牌).
    */
-  static readonly HAND_RING_GAP_PCT: number = 12;
+  static readonly HAND_RING_GAP_PCT: number = 18;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
   static readonly NOTCH_FLOOR_PCT: number = 4;
   /**
    * Kept for reference only. Hangpoint 2 forbids using this to inflate padB
-   * and fake a sink (加大 padB 顶高手牌). Gap is HAND_RING_GAP_PCT (12%).
+   * and fake a sink (加大 padB 顶高手牌). Gap is HAND_RING_GAP_PCT (18%).
    */
   static readonly HAND_SAFE_FLOOR_PCT: number = 3;
 
@@ -113,8 +113,8 @@ export class TableBreakpoints {
   }
 
   /**
-   * Do not call this to manufacture the pile gap (hangpoint 2 / 11 v0.2.6).
-   * padB must stay the avoidArea inset; gap is HAND_RING_GAP_PCT (12%) + ring weight.
+   * Do not call this to manufacture the pile gap (hangpoint 2 / 11 v0.2.7).
+   * padB must stay the avoidArea inset; gap is HAND_RING_GAP_PCT (18%) + ring weight.
    * padB must NOT be used to fake sink (禁加大 padB 顶高手牌).
    */
   static floorHandPad(current: number, height: number): number {
