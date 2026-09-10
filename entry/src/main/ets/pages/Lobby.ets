@@ -33,7 +33,7 @@ struct Lobby {
   @State quickstartPressed: boolean = false;
   @State bootReady: boolean = false;
   @State splashOpacity: number = 0;
-  @State lobbyBgOpacity: number = 0;
+  @State lobbyBgOpacity: number = 1;
   @State loadOpacity: number = 0;
   @State loadValue: number = 0;
   @State idleOpacity: number = 0;
@@ -758,48 +758,15 @@ struct Lobby {
     this.dustY = 18;
   }
 
+  /** A/B: pause recursive animateTo. Steady ctaGlow opacity 1 / scale 1. */
   private pulseCtaGlow(): void {
-    if (!this.loopsAlive) {
-      return;
-    }
-    if (this.ctaHotActive) {
-      this.ctaGlowOpacity = 1;
-      this.ctaGlowScale = 1;
-      this.arm(Math.round(LobbyBoot.BOOT_MS_CTA_GLOW / 2), (): void => {
-        this.pulseCtaGlow();
-      });
-      return;
-    }
-    const nextOp: number = this.ctaGlowOpacity > 0.96 ? 0.92 : 1.0;
-    const nextSc: number = this.ctaGlowScale > 1.005 ? 1.0 : 1.01;
-    const opt: AnimateParam = {
-      duration: Math.round(LobbyBoot.BOOT_MS_CTA_GLOW / 2),
-      curve: Curve.EaseInOut,
-      onFinish: (): void => {
-        this.pulseCtaGlow();
-      }
-    };
-    animateTo(opt, (): void => {
-      this.ctaGlowOpacity = nextOp;
-      this.ctaGlowScale = nextSc;
-    });
+    this.ctaGlowOpacity = 1;
+    this.ctaGlowScale = 1;
   }
 
+  /** A/B: pause recursive animateTo. Steady topbarGlow=1. */
   private pulseTopbar(): void {
-    if (!this.loopsAlive) {
-      return;
-    }
-    const next: number = this.topbarGlow > 0.98 ? 0.96 : 1.0;
-    const opt: AnimateParam = {
-      duration: Math.round(LobbyBoot.BOOT_MS_TOPBAR_PULSE / 2),
-      curve: Curve.EaseInOut,
-      onFinish: (): void => {
-        this.pulseTopbar();
-      }
-    };
-    animateTo(opt, (): void => {
-      this.topbarGlow = next;
-    });
+    this.topbarGlow = 1;
   }
 
   private setCtaPointerHot(on: boolean): void {
