@@ -5,6 +5,8 @@
  * Player ids stay p1 timid / p2 shark / p3 karen.
  * Landscape compass is L/T/R/B — not a top-row of faces.
  * #58 R-LAND-5: 左 p3 karen · 上 p2 shark · 右 p1 timid · 下手 self.
+ * #59 / 11 §2.1.2: hand sinks to bottom safe-area; lb_cmp_hand mid-line;
+ * selfDock is a left slot and must not share the hand Row layoutWeight.
  */
 
 /** Locked landscape ring. Bottom is the self dock + hand, not a mid-stack avatar. */
@@ -35,7 +37,11 @@ export class TableBreakpoints {
   static readonly SIDE_SEAT_PCT: number = 14;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
   static readonly NOTCH_FLOOR_PCT: number = 4;
-  /** When avoidArea bottom is 0, keep a % so the hand is not 裁半. */
+  /**
+   * Bottom inset floor when avoidArea is 0 (11 §2.1.2 / §4.1).
+   * Hand sits on the safe-area top edge — this is gesture-bar clearance
+   * so cards stay 整张在区内, not extra lift that would 偏上贴中堆.
+   */
   static readonly HAND_SAFE_FLOOR_PCT: number = 3;
 
   static shortSide(w: number, h: number): number {
@@ -94,5 +100,19 @@ export class TableBreakpoints {
 
   static floorHandPad(current: number, height: number): number {
     return TableBreakpoints.floorPad(current, height, TableBreakpoints.HAND_SAFE_FLOOR_PCT);
+  }
+
+  /** Desktop content mid-line (padded column), not the selfDock+hand flex leftover. */
+  static handBandCenterX(padL: number, padR: number, width: number): number {
+    if (width <= 0) {
+      return 0;
+    }
+    return padL + (width - padL - padR) / 2;
+  }
+
+  /** Slot x on a 5-card row whose center stays on the desktop mid-line. */
+  static handSlotX(centerX: number, slot: number, cardW: number, gap: number, slots: number): number {
+    const rowW: number = slots * cardW + (slots - 1) * gap;
+    return centerX - rowW / 2 + slot * (cardW + gap);
   }
 }

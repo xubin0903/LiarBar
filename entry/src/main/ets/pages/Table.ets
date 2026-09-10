@@ -22,6 +22,8 @@ const TAG = 'Table';
  * R-LAND-3 手牌几乎贴中堆；或手牌裁半 / 半张出屏
  * R-LAND-5 环位错（老千不见 / self 跑到中上）
  * R-LAND-2 荷官没了 / 只剩空槽；或池旁张数落到手牌下
+ * #59 / 11 §2.1.2: hand on bottom safe-area; lb_cmp_hand mid-line;
+ * selfDock is a left slot — not in the hand Row layoutWeight chain.
  */
 
 @Entry
@@ -95,6 +97,7 @@ struct Table {
   private pileMeasured: boolean = false;
   private handX: number = 0;
   private handY: number = 0;
+  private handW: number = 0;
   private seatXs: number[] = [0, 0, 0, 0];
   private seatYs: number[] = [0, 0, 0, 0];
   private winRef: window.Window | null = null;
@@ -349,67 +352,70 @@ struct Table {
     .alignItems(VerticalAlign.Center)
   }
 
+  /**
+   * Bottom band (11 §2.1.2 / §6.2): hand sits on the safe-area top edge.
+   * lb_cmp_hand is a full-width mid-line row — card count only stretches L/R.
+   * selfDock is a left overlay slot and must not share that row's layoutWeight.
+   */
   @Builder
   handRow() {
-    Column({ space: 2 }) {
-      Row({ space: 8 }) {
-        this.selfDock()
-        Scroll() {
-          Row({ space: 6 }) {
-            ForEach(this.cardBacks, (idx: number) => {
-              CardFace({
-                rank: this.rankAt(idx),
-                faceUp: this.showPeek,
-                compact: true,
-                instanceId: `lb_cmp_card_${idx}`
-              })
-                .gesture(
-                  LongPressGesture()
-                    .onAction(() => {
-                      this.openPeek();
-                    })
-                    .onActionEnd(() => {
-                      this.closePeek();
-                    })
-                    .onActionCancel(() => {
-                      this.closePeek();
-                    })
-                )
-            }, (idx: number) => `${idx}`)
-          }
-          .height('100%')
-          .justifyContent(FlexAlign.Center)
-          .alignItems(VerticalAlign.Center)
-        }
-        .id(ControlIds.HAND)
-        .scrollable(ScrollDirection.Horizontal)
-        .scrollBar(BarState.Off)
-        .layoutWeight(1)
-        .height($r('app.float.card_h'))
-        .onAreaChange((_old: Area, area: Area) => {
-          this.captureHand(area);
-        })
+    Stack({ alignContent: Alignment.Bottom }) {
+      Row({ space: 6 }) {
+        ForEach(this.cardBacks, (idx: number) => {
+          CardFace({
+            rank: this.rankAt(idx),
+            faceUp: this.showPeek,
+            compact: true,
+            instanceId: `lb_cmp_card_${idx}`
+          })
+            .gesture(
+              LongPressGesture()
+                .onAction(() => {
+                  this.openPeek();
+                })
+                .onActionEnd(() => {
+                  this.closePeek();
+                })
+                .onActionCancel(() => {
+                  this.closePeek();
+                })
+            )
+        }, (idx: number) => `${idx}`)
       }
+      .id(ControlIds.HAND)
       .width('100%')
       .height($r('app.float.card_h'))
+      .justifyContent(FlexAlign.Center)
       .alignItems(VerticalAlign.Center)
+      .onAreaChange((_old: Area, area: Area) => {
+        this.captureHand(area);
+      })
+
+      Row() {
+        this.selfDock()
+      }
+      .align(Alignment.BottomStart)
+
       if (this.handEmpty) {
         Text($r('app.string.lb_str_hand_empty'))
           .fontColor($r('app.color.tavern_mute'))
           .fontSize($r('app.float.caption_text_size'))
+          .align(Alignment.BottomEnd)
+          .margin({ right: 8 })
       }
       if (this.showFirstHint) {
         Text($r('app.string.lb_str_challenge_disabled_first'))
           .fontColor($r('app.color.tavern_mute'))
           .fontSize($r('app.float.caption_text_size'))
+          .align(Alignment.BottomEnd)
+          .margin({ right: 8 })
       }
     }
     .width('100%')
     .padding({ bottom: this.padB })
-    .justifyContent(FlexAlign.End)
   }
 
-  /** 下手 self: docked with the hand band, not Stack-bottom of the heart. */
+  /** 下手 self: left independent slot on the bottom band, not in lb_cmp_hand flex. */
   @Builder
   selfDock() {
     Row({ space: 4 }) {
@@ -1020,7 +1026,20 @@ struct Table {
 
   private destOf(seatId: number, slot: number): number[] {
     if (seatId === 0) {
-      return [this.handX + slot * (DealFx.FLY_CARD_W + 6), this.handY];
+      let centerX: number = TableBreakpoints.handBandCenterX(this.padL, this.padR, this.stackW);
+      if (centerX <= 0 && this.handW > 0) {
+        centerX = this.handX + this.handW / 2;
+      }
+      let slots: number = this.landed0 + 1;
+      if (slots < 1) {
+        slots = 1;
+      }
+      if (slots > DealFx.HAND_SLOTS) {
+        slots = DealFx.HAND_SLOTS;
+      }
+      const x: number = TableBreakpoints.handSlotX(
+        centerX, slot, DealFx.FLY_CARD_W, 6, slots);
+      return [x, this.handY];
     }
     const x: number = this.seatXs[seatId] + slot * 4;
     const y: number = this.seatYs[seatId] + 36;
@@ -1062,6 +1081,10 @@ struct Table {
     const loc: number[] = this.localOf(area);
     this.handX = loc[0];
     this.handY = loc[1];
+    const w: number = Number(area.width);
+    if (w > 0) {
+      this.handW = w;
+    }
   }
 
   private captureSeat(seatId: number, area: Area): void {
