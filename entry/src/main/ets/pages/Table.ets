@@ -16,7 +16,13 @@ import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Ph
 
 const TAG = 'Table';
 
-/** lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait. */
+/**
+ * lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait.
+ * #58 locked fail sentences this page must not trip:
+ * R-LAND-3 手牌几乎贴中堆；或手牌裁半 / 半张出屏
+ * R-LAND-5 环位错（老千不见 / self 跑到中上）
+ * R-LAND-2 荷官没了 / 只剩空槽；或池旁张数落到手牌下
+ */
 
 @Entry
 @Component
@@ -256,7 +262,7 @@ struct Table {
     }
     .id(ControlIds.TOPBAR)
     .width('100%')
-    .constraintSize({ maxHeight: '10%' })
+    .constraintSize({ maxHeight: '12%' })
   }
 
   /**
@@ -305,7 +311,7 @@ struct Table {
     })
   }
 
-  /** R-LAND-2: bust + pool + poolText stay in the heart, never under the hand. */
+  /** R-LAND-2: bust + pile visible at center; poolText beside the pool, never under lb_cmp_hand. */
   @Builder
   tableHeart() {
     Row({ space: 8 }) {
@@ -317,28 +323,25 @@ struct Table {
           maxHeight: '100%'
         })
         .objectFit(ImageFit.Contain)
-      Column({ space: 2 }) {
-        Stack() {
-          Image($r('app.media.art_pool_slot'))
-            .id('lb_cmp_pool')
-            .width(DealFx.PILE_SLOT_W)
-            .height(DealFx.PILE_SLOT_H)
-          if (this.pileOn) {
-            this.dealPileStack()
-          }
+      Stack() {
+        Image($r('app.media.art_pool_slot'))
+          .id('lb_cmp_pool')
+          .width(DealFx.PILE_SLOT_W)
+          .height(DealFx.PILE_SLOT_H)
+        if (this.pileOn) {
+          this.dealPileStack()
         }
-        .id('dealPileAnchor')
-        .width(DealFx.PILE_SLOT_W)
-        .height(DealFx.PILE_SLOT_H)
-        .onAreaChange((_old: Area, area: Area) => {
-          this.capturePile(area);
-        })
-        Text(this.poolText)
-          .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.caption_text_size'))
       }
-      .justifyContent(FlexAlign.Center)
-      .alignItems(HorizontalAlign.Center)
+      .id('dealPileAnchor')
+      .width(DealFx.PILE_SLOT_W)
+      .height(DealFx.PILE_SLOT_H)
+      .onAreaChange((_old: Area, area: Area) => {
+        this.capturePile(area);
+      })
+      Text(this.poolText)
+        .fontColor($r('app.color.tavern_paper'))
+        .fontSize($r('app.float.caption_text_size'))
+        .maxLines(1)
     }
     .width('100%')
     .height('100%')

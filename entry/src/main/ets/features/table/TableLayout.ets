@@ -4,6 +4,7 @@
  *
  * Player ids stay p1 timid / p2 shark / p3 karen.
  * Landscape compass is L/T/R/B — not a top-row of faces.
+ * #58 R-LAND-5: 左 p3 karen · 上 p2 shark · 右 p1 timid · 下手 self.
  */
 
 /** Locked landscape ring. Bottom is the self dock + hand, not a mid-stack avatar. */
