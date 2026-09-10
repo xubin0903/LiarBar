@@ -713,7 +713,7 @@ def write_delivery_doc(rows: list[dict[str, float | int | str]]) -> None:
 - [x] **无** `sfx_challenge_*` 文件
 - [x] 未改任何 `.ets`；未改 GDD / PRD / 互动方案 / 数值 v0.2
 - [x] 未改大厅音频资产、未改发牌三槽
-- [ ] **@UI** 调用点 / 与动效同拍（阅即可）
+- [x] **@UI** 调用点 / 与动效同拍（阅即可）
 - [ ] **@鸿蒙开发** 路径与静默路由（阅即可）
 - [ ] **@负责人终审**
 
