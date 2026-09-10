@@ -139,7 +139,6 @@ struct Lobby {
         .width(108)
         .height(108)
         .objectFit(ImageFit.Contain)
-        .blendMode(BlendMode.PLUS)
         .opacity(this.candleOpacity)
         .scale({ x: this.candleScale, y: this.candleScale })
         .hitTestBehavior(HitTestMode.None)
@@ -742,59 +741,21 @@ struct Lobby {
     });
   }
 
+  /** A/B: pause recursive animateTo. Steady dealerScale=1. */
   private pulseBreath(): void {
-    if (!this.loopsAlive) {
-      return;
-    }
-    const next: number = this.dealerScale > 1.01 ? 1.0 : 1.02;
-    const opt: AnimateParam = {
-      duration: Math.round(LobbyBoot.BOOT_MS_BREATH / 2),
-      curve: Curve.EaseInOut,
-      onFinish: (): void => {
-        this.pulseBreath();
-      }
-    };
-    animateTo(opt, (): void => {
-      this.dealerScale = next;
-    });
+    this.dealerScale = 1;
   }
 
+  /** A/B: pause recursive animateTo. Steady candle ~0.70 / scale 1. */
   private pulseCandle(): void {
-    if (!this.loopsAlive) {
-      return;
-    }
-    const nextOp: number = this.candleOpacity > 0.85 ? 0.70 : 1.0;
-    const nextSc: number = this.candleScale > 1.03 ? 1.0 : 1.06;
-    const opt: AnimateParam = {
-      duration: Math.round(LobbyBoot.BOOT_MS_CANDLE / 2),
-      curve: Curve.EaseInOut,
-      onFinish: (): void => {
-        this.pulseCandle();
-      }
-    };
-    animateTo(opt, (): void => {
-      this.candleOpacity = nextOp;
-      this.candleScale = nextSc;
-    });
+    this.candleOpacity = 0.70;
+    this.candleScale = 1;
   }
 
+  /** A/B: pause recursive animateTo. Steady dust ~0.20 / y 18. */
   private pulseDust(): void {
-    if (!this.loopsAlive) {
-      return;
-    }
-    const nextOp: number = this.dustOpacity > 0.32 ? 0.20 : 0.45;
-    const nextY: number = this.dustY > 0 ? -16 : 18;
-    const opt: AnimateParam = {
-      duration: Math.round(LobbyBoot.BOOT_MS_DUST / 2),
-      curve: Curve.EaseInOut,
-      onFinish: (): void => {
-        this.pulseDust();
-      }
-    };
-    animateTo(opt, (): void => {
-      this.dustOpacity = nextOp;
-      this.dustY = nextY;
-    });
+    this.dustOpacity = 0.20;
+    this.dustY = 18;
   }
 
   private pulseCtaGlow(): void {
