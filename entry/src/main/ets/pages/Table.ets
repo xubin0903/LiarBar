@@ -246,15 +246,14 @@ struct Table {
             })
         }
         .width('100%')
-        if (this.dealerLine.length > 0) {
-          Text(this.dealerLine)
-            .id(ControlIds.DEALER_LINE)
-            .fontColor($r('app.color.tavern_paper'))
-            .fontSize($r('app.float.caption_text_size'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-        }
+        Text(this.dealerLine)
+          .id(ControlIds.DEALER_LINE)
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
       }
       .id(ControlIds.DEALER_BANNER)
       .width('100%')
