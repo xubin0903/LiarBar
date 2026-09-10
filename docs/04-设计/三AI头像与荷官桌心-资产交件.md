@@ -29,7 +29,7 @@
 | 2 | `lb_cmp_seat_p2` | 老千 SHARK | `art_ai_shark_idle` |
 | 3 | `lb_cmp_seat_p3` | 杠精 KAREN | `art_ai_karen_idle` |
 
-（旧稿 karen→p1 / timid→p3 作废；座映射锁上表。）
+座映射锁死上表；媒体 PNG 名不动。
 
 ## 2. 荷官 bust 桌心（必交·说明）
 
