@@ -122,15 +122,16 @@ struct Table {
         .width('100%')
         .height('100%')
         .objectFit(ImageFit.Cover)
-        .objectPosition(Alignment.Center)
         .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
           [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
       Column() {
         this.topBar()
-        this.seatRing()
-          .layoutWeight(1)
-          .width('100%')
+        Column() {
+          this.seatRing()
+        }
+        .layoutWeight(1)
+        .width('100%')
         this.handRow()
         this.ctaRow()
       }
