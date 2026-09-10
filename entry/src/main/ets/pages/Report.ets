@@ -2,6 +2,7 @@ import { AppRuntime } from '../common/AppRuntime';
 import { ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { ReportPanel } from '../features/report/ReportPanel';
+import { TableAudio } from '../features/table/TableAudio';
 import { MatchSnapshot } from '../engine/MatchTypes';
 import { SeatRole } from '../engine/Phase';
 
@@ -36,6 +37,9 @@ struct Report {
       lines = `${lines}${row.nickname} 出${row.playCount} 假${row.fakeHandCount} 疑${row.challengeCount} 中${row.challengeHits}\n`;
     }
     this.recapText = lines;
+    TableAudio.setSilent(snap.silentMode);
+    TableAudio.playResult(this.humanWon);
+    TableAudio.fadeBgmOut(TableAudio.BGM_FADE_OUT_MS);
   }
 
   build() {

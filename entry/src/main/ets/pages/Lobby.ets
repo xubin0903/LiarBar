@@ -8,6 +8,7 @@ import { StartMatchOpts } from '../engine/MatchEngine';
 import { DealerIdleKind, DealerIdleMachine } from '../features/lobby/DealerIdleMachine';
 import { LobbyAudio } from '../features/lobby/LobbyAudio';
 import { BootMarks, LobbyBoot, LobbySession } from '../features/lobby/LobbyBoot';
+import { TableAudio } from '../features/table/TableAudio';
 import { LobbyPanel } from '../features/lobby/LobbyPanel';
 import { MatchLoad } from '../features/lobby/MatchLoad';
 import { MatchLoadOverlay } from '../features/lobby/MatchLoadOverlay';
@@ -399,6 +400,7 @@ struct Lobby {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     LobbyAudio.bind(ctx);
     await this.hydrate();
+    TableAudio.leaveThenRelease();
     LobbyAudio.setSilent(this.silent);
     LobbyAudio.prepare();
     const cold: boolean = LobbySession.takeColdStart();
