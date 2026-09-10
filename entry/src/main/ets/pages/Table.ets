@@ -7,6 +7,7 @@ import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
+import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
 import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
@@ -108,11 +109,20 @@ struct Table {
   private seatYs: number[] = [0, 0, 0, 0];
   private winRef: window.Window | null = null;
   private avoidBound: boolean = false;
+  private heardPlayId: string = '';
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     DealAudio.bind(ctx);
     DealAudio.prepare();
+    TableAudio.bind(ctx);
+    TableAudio.prepare();
+    const boot: MatchSnapshot | null = AppRuntime.engine.current();
+    if (boot !== null) {
+      DealAudio.setSilent(boot.silentMode);
+      TableAudio.setSilent(boot.silentMode);
+    }
+    TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
     this.lockTableWindow();
     this.pull();
     this.pollId = setInterval((): void => {
@@ -781,6 +791,7 @@ struct Table {
     this.pushedChallenge = false;
     const stamp: string = this.hudStamp(snap);
     DealAudio.setSilent(snap.silentMode);
+    TableAudio.setSilent(snap.silentMode);
     if (snap.phase === Phase.DEAL) {
       if (stamp !== this.lastHudStamp) {
         this.lastHudStamp = stamp;
@@ -815,6 +826,9 @@ struct Table {
     }
     if (this.claimText !== nextClaim) {
       this.claimText = nextClaim;
+      if (nextClaim !== '') {
+        TableAudio.playClaimSet();
+      }
     }
     this.takeSelfHand(snap.selfHand);
     this.takePeekRanks(this.ranksOf(snap.selfHand));
@@ -825,7 +839,11 @@ struct Table {
     }
     if (this.turnSeat !== snap.currentSeatId) {
       this.turnSeat = snap.currentSeatId;
+      if (this.turnSeat >= 0 && snap.phase === Phase.TURN) {
+        TableAudio.playTurnTick();
+      }
     }
+    this.hearLastPlay(snap);
     const called: number = snap.lastPlay === null ? -1 : snap.lastPlay.namedSeatId;
     if (this.calledSeat !== called) {
       this.calledSeat = called;
@@ -1137,6 +1155,22 @@ struct Table {
     }
     if (this.calledSeat !== -1) {
       this.calledSeat = -1;
+    }
+    this.heardPlayId = '';
+  }
+
+  /** 13 §5.2: play-style peak + named stare when a new lastPlay lands in the pool. */
+  private hearLastPlay(snap: MatchSnapshot): void {
+    if (snap.lastPlay === null || snap.playIndexInRound <= 0) {
+      return;
+    }
+    if (snap.lastPlay.playId === this.heardPlayId) {
+      return;
+    }
+    this.heardPlayId = snap.lastPlay.playId;
+    TableAudio.playStyleAtPeak(snap.lastPlay.style);
+    if (snap.lastPlay.namedSeatId >= 0) {
+      TableAudio.playNamedStare();
     }
   }
 

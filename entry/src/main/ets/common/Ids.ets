@@ -89,6 +89,15 @@ export class SfxIds {
   static readonly VO_DEALER_GREET: string = 'lb_vo_dealer_greet';
   static readonly MATCH_OPEN: string = 'lb_sfx_match_open';
   static readonly DEAL_CARD: string = 'lb_sfx_deal_card';
+  static readonly BGM_TABLE_BLUFF: string = 'lb_bgm_table_bluff';
+  static readonly CLAIM_SET: string = 'lb_sfx_claim_set';
+  static readonly PLAY_SOFT: string = 'lb_sfx_play_soft';
+  static readonly PLAY_SLAM: string = 'lb_sfx_play_slam';
+  static readonly PLAY_HESITATE: string = 'lb_sfx_play_hesitate';
+  static readonly TURN_TICK: string = 'lb_sfx_turn_tick';
+  static readonly NAMED_STARE: string = 'lb_sfx_named_stare';
+  static readonly RESULT_WIN: string = 'lb_sfx_result_win';
+  static readonly RESULT_LOSE: string = 'lb_sfx_result_lose';
 }
 
 export class PersistNs {
