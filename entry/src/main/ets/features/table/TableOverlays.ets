@@ -18,8 +18,8 @@ export struct PeekMaskOverlay {
       }
       .id(OverlayIds.PEEK_MASK)
       .width('100%')
-      .height('52%')
-      .margin({ top: '12%' })
+      .height('58%')
+      .margin({ top: '10%' })
       .backgroundColor($r('app.color.tavern_shadow'))
       .opacity(0.55)
       .hitTestBehavior(HitTestMode.None)

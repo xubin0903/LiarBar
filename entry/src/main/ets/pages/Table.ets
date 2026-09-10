@@ -7,7 +7,7 @@ import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
-import { TableBreakpoints } from '../features/table/TableLayout';
+import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
 import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
@@ -16,7 +16,13 @@ import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Ph
 
 const TAG = 'Table';
 
-/** lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait. */
+/**
+ * lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait.
+ * #58 locked fail sentences this page must not trip:
+ * R-LAND-3 手牌几乎贴中堆；或手牌裁半 / 半张出屏
+ * R-LAND-5 环位错（老千不见 / self 跑到中上）
+ * R-LAND-2 荷官没了 / 只剩空槽；或池旁张数落到手牌下
+ */
 
 @Entry
 @Component
@@ -132,9 +138,6 @@ struct Table {
         }
         .layoutWeight(1)
         .width('100%')
-        Blank()
-          .width('100%')
-          .height('6%')
         this.handRow()
       }
       .width('100%')
@@ -142,8 +145,7 @@ struct Table {
       .padding({
         left: this.padL,
         top: this.padT,
-        right: this.padR,
-        bottom: this.padB
+        right: this.padR
       })
 
       PeekMaskOverlay({
@@ -221,43 +223,39 @@ struct Table {
 
   @Builder
   topBar() {
-    Column() {
-      Column({ space: 2 }) {
-        Row() {
-          Text(this.claimText)
-            .id('lb_txt_claim')
-            .fontColor($r('app.color.tavern_candle'))
-            .fontSize($r('app.float.page_text_size'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .layoutWeight(1)
-          Text(this.timerText)
-            .id('lb_txt_timer')
-            .fontColor($r('app.color.tavern_accent'))
-            .fontSize($r('app.float.page_text_size'))
-            .margin({ left: 8, right: 8 })
-          Text(this.phaseText)
-            .fontColor($r('app.color.tavern_paper'))
-            .fontSize($r('app.float.caption_text_size'))
-            .margin({ right: 8 })
-          this.weakCta()
-          Text($r('app.string.lb_str_home'))
-            .id(ControlIds.HOME)
-            .fontColor($r('app.color.tavern_mute'))
-            .fontSize($r('app.float.caption_text_size'))
-            .onClick(() => {
-              this.goHome();
-            })
-        }
-        .width('100%')
+    Column({ space: 2 }) {
+      Row() {
+        Text(this.claimText)
+          .id('lb_txt_claim')
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1)
+        Text(this.timerText)
+          .id('lb_txt_timer')
+          .fontColor($r('app.color.tavern_accent'))
+          .fontSize($r('app.float.page_text_size'))
+          .margin({ left: 8, right: 8 })
+        this.weakCta()
+      }
+      .width('100%')
+      Row() {
         Text(this.dealerLine)
           .id(ControlIds.DEALER_LINE)
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.caption_text_size'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
+          .layoutWeight(1)
           .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
+        Text($r('app.string.lb_str_home'))
+          .id(ControlIds.HOME)
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+          .onClick(() => {
+            this.goHome();
+          })
       }
       .id(ControlIds.DEALER_BANNER)
       .width('100%')
@@ -267,70 +265,30 @@ struct Table {
     .constraintSize({ maxHeight: '12%' })
   }
 
+  /**
+   * Compass (12 §3 / R-LAND-5): L karen p3 · T shark p2 · R timid p1 · B self+hand.
+   * Column + layoutWeight — do not Stack-align self onto shark (device 裁半 / 环位错).
+   */
   @Builder
   seatRing() {
     Row() {
       Column() {
         Blank()
           .layoutWeight(1)
-        this.seatBlock(3, this.seat3, this.life3, ControlIds.SEAT_P3)
+        this.seatBlock(TableCompass.LEFT, this.seat3, this.life3, ControlIds.SEAT_P3)
         Blank()
           .layoutWeight(1)
       }
-      .width('16%')
+      .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
 
-      Stack() {
-        Column({ space: 4 }) {
-          Row({ space: 8 }) {
-            Image($r('app.media.art_dealer_bust_announce'))
-              .id(ControlIds.DEALER)
-              .height('56%')
-              .constraintSize({
-                maxWidth: `${this.dealerBustPct}%`,
-                maxHeight: `${this.dealerBustPct}%`
-              })
-              .objectFit(ImageFit.Contain)
-            Stack() {
-              Image($r('app.media.art_pool_slot'))
-                .id('lb_cmp_pool')
-                .width(DealFx.PILE_SLOT_W)
-                .height(DealFx.PILE_SLOT_H)
-              if (this.pileOn) {
-                this.dealPileStack()
-              }
-            }
-            .id('dealPileAnchor')
-            .width(DealFx.PILE_SLOT_W)
-            .height(DealFx.PILE_SLOT_H)
-            .onAreaChange((_old: Area, area: Area) => {
-              this.capturePile(area);
-            })
-          }
-          .justifyContent(FlexAlign.Center)
-          .alignItems(VerticalAlign.Center)
-          Text(this.poolText)
-            .fontColor($r('app.color.tavern_paper'))
-            .fontSize($r('app.float.caption_text_size'))
-        }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-
+      Column() {
+        this.seatBlock(TableCompass.TOP, this.seat2, this.life2, ControlIds.SEAT_P2)
         Column() {
-          this.seatBlock(2, this.seat2, this.life2, ControlIds.SEAT_P2)
+          this.tableHeart()
         }
+        .layoutWeight(1)
         .width('100%')
-        .alignItems(HorizontalAlign.Center)
-        .align(Alignment.Top)
-
-        Column() {
-          this.seatBlock(0, this.seat0, this.life0, ControlIds.SEAT_SELF)
-        }
-        .width('100%')
-        .alignItems(HorizontalAlign.Center)
-        .align(Alignment.Bottom)
       }
       .layoutWeight(1)
       .height('100%')
@@ -338,11 +296,11 @@ struct Table {
       Column() {
         Blank()
           .layoutWeight(1)
-        this.seatBlock(1, this.seat1, this.life1, ControlIds.SEAT_P1)
+        this.seatBlock(TableCompass.RIGHT, this.seat1, this.life1, ControlIds.SEAT_P1)
         Blank()
           .layoutWeight(1)
       }
-      .width('16%')
+      .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
     }
     .width('100%')
@@ -353,43 +311,88 @@ struct Table {
     })
   }
 
+  /** R-LAND-2: bust + pile visible at center; poolText beside the pool, never under lb_cmp_hand. */
+  @Builder
+  tableHeart() {
+    Row({ space: 8 }) {
+      Image($r('app.media.art_dealer_bust_announce'))
+        .id(ControlIds.DEALER)
+        .height('72%')
+        .constraintSize({
+          maxWidth: `${this.dealerBustPct}%`,
+          maxHeight: '100%'
+        })
+        .objectFit(ImageFit.Contain)
+      Stack() {
+        Image($r('app.media.art_pool_slot'))
+          .id('lb_cmp_pool')
+          .width(DealFx.PILE_SLOT_W)
+          .height(DealFx.PILE_SLOT_H)
+        if (this.pileOn) {
+          this.dealPileStack()
+        }
+      }
+      .id('dealPileAnchor')
+      .width(DealFx.PILE_SLOT_W)
+      .height(DealFx.PILE_SLOT_H)
+      .onAreaChange((_old: Area, area: Area) => {
+        this.capturePile(area);
+      })
+      Text(this.poolText)
+        .fontColor($r('app.color.tavern_paper'))
+        .fontSize($r('app.float.caption_text_size'))
+        .maxLines(1)
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+  }
+
   @Builder
   handRow() {
     Column({ space: 2 }) {
-      Scroll() {
-        Row({ space: 6 }) {
-          ForEach(this.cardBacks, (idx: number) => {
-            CardFace({
-              rank: this.rankAt(idx),
-              faceUp: this.showPeek,
-              compact: true,
-              instanceId: `lb_cmp_card_${idx}`
-            })
-              .gesture(
-                LongPressGesture()
-                  .onAction(() => {
-                    this.openPeek();
-                  })
-                  .onActionEnd(() => {
-                    this.closePeek();
-                  })
-                  .onActionCancel(() => {
-                    this.closePeek();
-                  })
-              )
-          }, (idx: number) => `${idx}`)
+      Row({ space: 8 }) {
+        this.selfDock()
+        Scroll() {
+          Row({ space: 6 }) {
+            ForEach(this.cardBacks, (idx: number) => {
+              CardFace({
+                rank: this.rankAt(idx),
+                faceUp: this.showPeek,
+                compact: true,
+                instanceId: `lb_cmp_card_${idx}`
+              })
+                .gesture(
+                  LongPressGesture()
+                    .onAction(() => {
+                      this.openPeek();
+                    })
+                    .onActionEnd(() => {
+                      this.closePeek();
+                    })
+                    .onActionCancel(() => {
+                      this.closePeek();
+                    })
+                )
+            }, (idx: number) => `${idx}`)
+          }
+          .height('100%')
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
         }
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
+        .id(ControlIds.HAND)
+        .scrollable(ScrollDirection.Horizontal)
+        .scrollBar(BarState.Off)
+        .layoutWeight(1)
+        .height($r('app.float.card_h'))
+        .onAreaChange((_old: Area, area: Area) => {
+          this.captureHand(area);
+        })
       }
-      .id(ControlIds.HAND)
-      .scrollable(ScrollDirection.Horizontal)
-      .scrollBar(BarState.Off)
       .width('100%')
-      .layoutWeight(1)
-      .onAreaChange((_old: Area, area: Area) => {
-        this.captureHand(area);
-      })
+      .height($r('app.float.card_h'))
+      .alignItems(VerticalAlign.Center)
       if (this.handEmpty) {
         Text($r('app.string.lb_str_hand_empty'))
           .fontColor($r('app.color.tavern_mute'))
@@ -402,9 +405,45 @@ struct Table {
       }
     }
     .width('100%')
-    .height('22%')
-    .constraintSize({ minHeight: '18%', maxHeight: '26%' })
-    .justifyContent(FlexAlign.Center)
+    .padding({ bottom: this.padB })
+    .justifyContent(FlexAlign.End)
+  }
+
+  /** 下手 self: docked with the hand band, not Stack-bottom of the heart. */
+  @Builder
+  selfDock() {
+    Row({ space: 4 }) {
+      Stack() {
+        Image($r('app.media.art_frame_player_idle'))
+          .width(40)
+          .height(40)
+          .objectFit(ImageFit.Cover)
+      }
+      .id(ControlIds.SEAT_SELF)
+      .width(40)
+      .height(40)
+      .borderRadius(20)
+      .clip(true)
+      Column({ space: 1 }) {
+        Text(this.seat0)
+          .fontColor(this.turnSeat === TableCompass.BOTTOM ? $r('app.color.tavern_accent') : $r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.life0)
+          .fontColor(this.calledSeat === TableCompass.BOTTOM ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+      }
+    }
+    .padding(2)
+    .border({
+      width: this.turnSeat === TableCompass.BOTTOM ? 2 : 0,
+      color: $r('app.color.tavern_accent')
+    })
+    .borderRadius(8)
+    .onAreaChange((_old: Area, area: Area) => {
+      this.captureSeat(TableCompass.BOTTOM, area);
+    })
   }
 
   /** R-LAND-4: lock-name play/challenge stay as caption links, not a dual bottom bar. */
@@ -483,62 +522,95 @@ struct Table {
 
   @Builder
   seatBlock(seatId: number, name: string, life: string, id: string) {
-    Column({ space: 2 }) {
-      Stack() {
-        if (seatId === 0) {
-          Image($r('app.media.art_frame_player_idle'))
-            .width(52)
-            .height(52)
-            .objectFit(ImageFit.Cover)
-        } else if (seatId === 1) {
-          Image($r('app.media.art_ai_timid_idle'))
-            .width(52)
-            .height(52)
-            .objectFit(ImageFit.Cover)
-        } else if (seatId === 2) {
-          Image($r('app.media.art_ai_shark_idle'))
-            .width(52)
-            .height(52)
-            .objectFit(ImageFit.Cover)
-        } else {
-          Image($r('app.media.art_ai_karen_idle'))
-            .width(52)
-            .height(52)
-            .objectFit(ImageFit.Cover)
+    if (TableCompass.isTop(seatId)) {
+      Row({ space: 6 }) {
+        this.seatAvatar(seatId, id)
+        Column({ space: 1 }) {
+          Text(name)
+            .fontColor(this.turnSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(life)
+            .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
+            .fontSize($r('app.float.caption_text_size'))
+          this.oppBacks(seatId)
         }
+        .alignItems(HorizontalAlign.Start)
       }
-      .id(id)
-      .width(52)
-      .height(52)
-      .borderRadius(26)
-      .clip(true)
-      Text(name)
-        .fontColor(this.turnSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_paper'))
-        .fontSize($r('app.float.caption_text_size'))
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-      Text(life)
-        .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
-        .fontSize($r('app.float.caption_text_size'))
-      if (seatId > 0 && this.stackOf(seatId) > 0) {
-        Row({ space: -10 }) {
-          ForEach(this.indexes(this.stackOf(seatId)), (idx: number) => {
-            Image($r('app.media.art_card_back'))
-              .width(22)
-              .height(30)
-          }, (idx: number) => `stk_${seatId}_${idx}`)
-        }
+      .padding(4)
+      .justifyContent(FlexAlign.Center)
+      .border({
+        width: this.turnSeat === seatId ? 2 : 0,
+        color: $r('app.color.tavern_accent')
+      })
+      .borderRadius(8)
+      .onAreaChange((_old: Area, area: Area) => {
+        this.captureSeat(seatId, area);
+      })
+    } else {
+      Column({ space: 2 }) {
+        this.seatAvatar(seatId, id)
+        Text(name)
+          .fontColor(this.turnSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(life)
+          .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+        this.oppBacks(seatId)
+      }
+      .padding(4)
+      .border({
+        width: this.turnSeat === seatId ? 2 : 0,
+        color: $r('app.color.tavern_accent')
+      })
+      .borderRadius(8)
+      .onAreaChange((_old: Area, area: Area) => {
+        this.captureSeat(seatId, area);
+      })
+    }
+  }
+
+  @Builder
+  seatAvatar(seatId: number, id: string) {
+    Stack() {
+      if (seatId === TableCompass.RIGHT) {
+        Image($r('app.media.art_ai_timid_idle'))
+          .width(44)
+          .height(44)
+          .objectFit(ImageFit.Cover)
+      } else if (seatId === TableCompass.TOP) {
+        Image($r('app.media.art_ai_shark_idle'))
+          .width(44)
+          .height(44)
+          .objectFit(ImageFit.Cover)
+      } else {
+        Image($r('app.media.art_ai_karen_idle'))
+          .width(44)
+          .height(44)
+          .objectFit(ImageFit.Cover)
       }
     }
-    .padding(4)
-    .border({
-      width: this.turnSeat === seatId ? 2 : 0,
-      color: $r('app.color.tavern_accent')
-    })
-    .borderRadius(8)
-    .onAreaChange((_old: Area, area: Area) => {
-      this.captureSeat(seatId, area);
-    })
+    .id(id)
+    .width(44)
+    .height(44)
+    .borderRadius(22)
+    .clip(true)
+  }
+
+  @Builder
+  oppBacks(seatId: number) {
+    Row({ space: -10 }) {
+      if (seatId > 0 && this.stackOf(seatId) > 0) {
+        ForEach(this.indexes(this.stackOf(seatId)), (idx: number) => {
+          Image($r('app.media.art_card_back'))
+            .width(18)
+            .height(24)
+        }, (idx: number) => `stk_${seatId}_${idx}`)
+      }
+    }
   }
 
   private async lockTableWindow(): Promise<void> {
@@ -576,6 +648,13 @@ struct Table {
     this.padT = this.pxToVp(box.top);
     this.padR = this.pxToVp(box.right);
     this.padB = this.pxToVp(box.bottom);
+    this.applyInsetFloors();
+  }
+
+  private applyInsetFloors(): void {
+    this.padL = TableBreakpoints.floorNotchPad(this.padL, this.stackW);
+    this.padR = TableBreakpoints.floorNotchPad(this.padR, this.stackW);
+    this.padB = TableBreakpoints.floorHandPad(this.padB, this.stackH);
   }
 
   private pxToVp(px: number): number {
@@ -592,6 +671,7 @@ struct Table {
   private applyBreakpoint(w: number, h: number): void {
     this.dealerBustPct = TableBreakpoints.dealerBustMaxPct(w, h);
     this.heartPadPct = TableBreakpoints.heartPadPct(w, h);
+    this.applyInsetFloors();
   }
 
   private goHome(): void {
