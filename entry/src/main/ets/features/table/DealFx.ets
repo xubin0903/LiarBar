@@ -22,6 +22,17 @@ export class DealFx {
   static readonly DEAL_OPENING_N4: number = 20;
   static readonly DEAL_OPENING_MS: number = 5445;
   static readonly HAND_SLOTS: number = 5;
+  /** Table-center pool slot (lb_cmp_pool / art_pool_slot). */
+  static readonly PILE_SLOT_W: number = 56;
+  static readonly PILE_SLOT_H: number = 76;
+  /** Visible deal-pile card (matches takeoff scale 0.72 of 56×78). */
+  static readonly PILE_CARD_W: number = 40;
+  static readonly PILE_CARD_H: number = 56;
+  /** In-flight card box (app.float.card_w / card_h). */
+  static readonly FLY_CARD_W: number = 56;
+  static readonly FLY_CARD_H: number = 78;
+  /** Micro-offset between stacked backs (牌堆感). */
+  static readonly PILE_NUDGE: number = 1.2;
 
   static totalMs(n: number, cardMs: number, staggerMs: number): number {
     if (n <= 0) {
@@ -97,6 +108,24 @@ export class DealFx {
 
   static landAt(index: number, cardMs: number, staggerMs: number): number {
     return DealFx.takeoffAt(index, cardMs, staggerMs) + cardMs;
+  }
+
+  /**
+   * Top-left of the fly layer so its center == dealPileAnchor center.
+   * Opening and rebuild share this origin (docs 08 §2.1).
+   */
+  static flyOriginFromPile(pileX: number, pileY: number, pileW: number, pileH: number): number[] {
+    const cx: number = pileX + pileW / 2;
+    const cy: number = pileY + pileH / 2;
+    return [cx - DealFx.FLY_CARD_W / 2, cy - DealFx.FLY_CARD_H / 2];
+  }
+
+  static pileNudgeX(layer: number): number {
+    return (layer - 2) * DealFx.PILE_NUDGE;
+  }
+
+  static pileNudgeY(layer: number): number {
+    return (2 - layer) * DealFx.PILE_NUDGE;
   }
 }
 

@@ -71,6 +71,11 @@ struct Table {
   private stackGY: number = 0;
   private pileX: number = 152;
   private pileY: number = 210;
+  private pileW: number = DealFx.PILE_SLOT_W;
+  private pileH: number = DealFx.PILE_SLOT_H;
+  private pileGX: number = 0;
+  private pileGY: number = 0;
+  private pileMeasured: boolean = false;
   private handX: number = 16;
   private handY: number = 340;
   private seatXs: number[] = [24, 108, 192, 276];
@@ -133,14 +138,22 @@ struct Table {
         }
         .margin({ top: 12 })
 
-        Image($r('app.media.art_pool_slot'))
-          .id('lb_cmp_pool')
-          .width(56)
-          .height(76)
-          .margin({ top: 12 })
-          .onAreaChange((_old: Area, area: Area) => {
-            this.capturePile(area);
-          })
+        Stack() {
+          Image($r('app.media.art_pool_slot'))
+            .id('lb_cmp_pool')
+            .width(DealFx.PILE_SLOT_W)
+            .height(DealFx.PILE_SLOT_H)
+          if (this.pileOn) {
+            this.dealPileStack()
+          }
+        }
+        .id('dealPileAnchor')
+        .width(DealFx.PILE_SLOT_W)
+        .height(DealFx.PILE_SLOT_H)
+        .margin({ top: 12 })
+        .onAreaChange((_old: Area, area: Area) => {
+          this.capturePile(area);
+        })
         Text(this.poolText)
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.subtitle_text_size'))
@@ -282,14 +295,6 @@ struct Table {
       .height('100%')
       .padding(16)
 
-      if (this.pileOn) {
-        Image($r('app.media.art_card_back'))
-          .id('dealPileAnchor')
-          .width(40)
-          .height(56)
-          .position({ x: this.pileX + 8, y: this.pileY - 4 })
-          .zIndex(900)
-      }
       if (this.flyOn) {
         Image($r('app.media.art_card_back'))
           .width($r('app.float.card_w'))
@@ -308,6 +313,39 @@ struct Table {
       this.stackGX = Number(area.globalPosition.x);
       this.stackGY = Number(area.globalPosition.y);
     })
+  }
+
+  @Builder
+  dealPileStack() {
+    Stack() {
+      Image($r('app.media.art_card_back'))
+        .width(DealFx.PILE_CARD_W)
+        .height(DealFx.PILE_CARD_H)
+        .objectFit(ImageFit.Cover)
+        .offset({ x: DealFx.pileNudgeX(0), y: DealFx.pileNudgeY(0) })
+      Image($r('app.media.art_card_back'))
+        .width(DealFx.PILE_CARD_W)
+        .height(DealFx.PILE_CARD_H)
+        .objectFit(ImageFit.Cover)
+        .offset({ x: DealFx.pileNudgeX(1), y: DealFx.pileNudgeY(1) })
+      Image($r('app.media.art_card_back'))
+        .width(DealFx.PILE_CARD_W)
+        .height(DealFx.PILE_CARD_H)
+        .objectFit(ImageFit.Cover)
+        .offset({ x: DealFx.pileNudgeX(2), y: DealFx.pileNudgeY(2) })
+      Image($r('app.media.art_card_back'))
+        .width(DealFx.PILE_CARD_W)
+        .height(DealFx.PILE_CARD_H)
+        .objectFit(ImageFit.Cover)
+        .offset({ x: DealFx.pileNudgeX(3), y: DealFx.pileNudgeY(3) })
+      Image($r('app.media.art_card_back'))
+        .width(DealFx.PILE_CARD_W)
+        .height(DealFx.PILE_CARD_H)
+        .objectFit(ImageFit.Cover)
+        .offset({ x: DealFx.pileNudgeX(4), y: DealFx.pileNudgeY(4) })
+    }
+    .width(DealFx.PILE_SLOT_W)
+    .height(DealFx.PILE_SLOT_H)
   }
 
   @Builder
@@ -589,8 +627,9 @@ struct Table {
       return;
     }
     const beat: DealBeat = beats[i];
-    this.flyX = this.pileX;
-    this.flyY = this.pileY;
+    const origin: number[] = this.flyFromPile();
+    this.flyX = origin[0];
+    this.flyY = origin[1];
     this.flyScale = 0.72;
     this.flyRot = -16;
     this.flyZ = 1000 + beat.index;
@@ -675,9 +714,31 @@ struct Table {
   }
 
   private capturePile(area: Area): void {
+    this.pileGX = Number(area.globalPosition.x);
+    this.pileGY = Number(area.globalPosition.y);
+    const w: number = Number(area.width);
+    const h: number = Number(area.height);
+    if (w > 0) {
+      this.pileW = w;
+    }
+    if (h > 0) {
+      this.pileH = h;
+    }
     const loc: number[] = this.localOf(area);
     this.pileX = loc[0];
     this.pileY = loc[1];
+    this.pileMeasured = true;
+  }
+
+  /** Fly takeoff = remaining-pile center = dealPileAnchor (08 §2.1). */
+  private flyFromPile(): number[] {
+    let x: number = this.pileX;
+    let y: number = this.pileY;
+    if (this.pileMeasured) {
+      x = this.pileGX - this.stackGX;
+      y = this.pileGY - this.stackGY;
+    }
+    return DealFx.flyOriginFromPile(x, y, this.pileW, this.pileH);
   }
 
   private captureHand(area: Area): void {
