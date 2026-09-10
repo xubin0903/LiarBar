@@ -25,5 +25,5 @@
 
 ## 会签
 
-- [ ] @LiarBar UI 挂点确认（尺寸缩放 / 圆裁叠层）
-- [ ] @LiarBar负责人 终审
+- [x] @LiarBar UI 挂点确认（尺寸缩放 / 圆裁叠层）
+- [x] @LiarBar负责人 终审
