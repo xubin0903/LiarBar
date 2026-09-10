@@ -652,9 +652,11 @@ struct Table {
 
   /** Bind avoid-area. Landscape itself is locked once at L-0; this call is a no-op if already LANDSCAPE. */
   private async lockTableWindow(): Promise<void> {
+    Logger.info(TAG, 'lockTableWindow enter');
     try {
       const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
       await WindowOrientation.lockLandscape(ctx);
+      Logger.info(TAG, 'lockTableWindow after landscape lock');
       const win: window.Window | null = await WindowOrientation.mainWindow(ctx);
       this.winRef = win;
       this.applyInsets(WindowOrientation.readSafeInsets(win));
