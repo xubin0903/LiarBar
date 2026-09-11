@@ -158,9 +158,11 @@ struct Table {
       Stack({ alignContent: Alignment.TopStart }) {
         Column() {
           this.topBar()
-          this.seatRing()
-            .layoutWeight(1)
-            .width('100%')
+          Column() {
+            this.seatRing()
+          }
+          .layoutWeight(1)
+          .width('100%')
           // HAND_RING_GAP 24%: between ring and hand. Never a spacer under lb_cmp_hand.
           Blank()
             .width('100%')
