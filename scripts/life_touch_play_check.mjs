@@ -109,9 +109,9 @@ if (life.includes('HitTestMode.None')) {
 }
 
 const candles = [
-  ['art_life_candle_full', 96, 96],
-  ['art_life_candle_hurt', 96, 96],
-  ['art_life_candle_dying', 96, 96],
+  ['art_life_candle_full', 128, 128],
+  ['art_life_candle_hurt', 128, 128],
+  ['art_life_candle_dying', 128, 128],
   ['art_btn_play_confirm', 720, 144],
   ['art_btn_play_confirm_on', 720, 144]
 ];
@@ -122,10 +122,11 @@ for (const [stem, w, h] of candles) {
     continue;
   }
   const size = pngSize(rel);
-  if (size.w === w && size.h === h) {
-    pass(`${stem} ${w}×${h}`);
+  const bytes = readFileSync(join(root, rel)).length;
+  if (size.w === w && size.h === h && bytes >= 2000) {
+    pass(`${stem} ${w}×${h} (${bytes}B, not stub)`);
   } else {
-    fail(`${stem} ${size.w}×${size.h}, want ${w}×${h}`);
+    fail(`${stem} ${size.w}×${size.h} ${bytes}B, want ${w}×${h} ≥2KB`);
   }
 }
 
