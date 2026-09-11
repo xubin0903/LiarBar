@@ -10,11 +10,12 @@
  * lb_cmp_hand mid-line; selfDock is a left independent slot.
  * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; number frozen).
  * That Blank sits ABOVE lb_cmp_hand — never a spacer under the hand.
- * [gap + bottomBand] is a hug-height Column, Stack-Bottom on padB
- * (no full-height End wrap: that still parked leftover under the hand).
- * tableHeart (bust+pile) is centered on the padded screen heart.
- * padB is inset only — never a lift (禁加大 padB 顶高手牌).
- * Steady table does not hang first-hand empty tip.
+ * [gap + bottomBand] is a hug-height Column, the ONLY child of a
+ * dedicated Stack(alignContent: Bottom) sibling of the upper playfield
+ * (ring + tableHeart Center overlay). Must not share a Stack with a
+ * Center child or a 100% ring — that still parked leftover under the hand.
+ * No child .align(Alignment.Bottom). padB is inset only — never a lift
+ * (禁加大 padB 顶高手牌). Steady table does not hang first-hand empty tip.
  */
 
 /** Locked landscape ring. Bottom is the self dock + hand, not a mid-stack avatar. */
@@ -52,12 +53,19 @@ export class TableBreakpoints {
    * Fixed 24% gap between the seat ring and lb_cmp_hand (11 v0.2.9 /
    * HAND_RING_GAP). Number must not change. Percent of the padded column —
    * no hard px. Lives ABOVE the hand band (never under lb_cmp_hand) inside
-   * a hug-height [gap + bottomBand] Column, Stack-Bottom on padB.
-   * Do not wrap that pair in a 100% FlexAlign.End Column (leftover under cards).
+   * a hug-height [gap + bottomBand] Column, the ONLY child of a dedicated
+   * Stack(alignContent: Bottom) on padB. Do not nest that pair under a
+   * Center overlay or a 100% ring sibling (leftover under cards).
    * tableHeart stays on the padded screen heart; must not be faked by
    * inflating padB (禁加大 padB 顶高手牌). padB is never a lift.
    */
   static readonly HAND_RING_GAP_PCT: number = 24;
+  /**
+   * Matches app.float.card_h (78vp). Used only to hug the pin Column
+   * (gap + band) so a Bottom Stack cannot stretch leftover under the cards.
+   * Not a spacer under lb_cmp_hand.
+   */
+  static readonly HAND_BAND_VP: number = 78;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
   static readonly NOTCH_FLOOR_PCT: number = 4;
   /**
@@ -127,6 +135,41 @@ export class TableBreakpoints {
    */
   static floorHandPad(current: number, height: number): number {
     return TableBreakpoints.floorPad(current, height, TableBreakpoints.HAND_SAFE_FLOOR_PCT);
+  }
+
+  /**
+   * Padded playfield height for the 24% gap. playH is the measured inner
+   * box; if it is 0 or larger than the padded root, fall back to
+   * stackH − padT − padB so the Blank neither collapses nor explodes.
+   */
+  static clampPlayfieldHeight(playH: number, stackH: number, padT: number, padB: number): number {
+    const inner: number = stackH - padT - padB;
+    let h: number = playH;
+    if (h <= 0 && inner > 0) {
+      h = inner;
+    }
+    if (inner > 0 && h > inner) {
+      h = inner;
+    }
+    if (h < 0) {
+      return 0;
+    }
+    return h;
+  }
+
+  /** HAND_RING_GAP 24% of the clamped playfield. Never a spacer under the hand. */
+  static handRingGapVp(playH: number, stackH: number, padT: number, padB: number): number {
+    const h: number = TableBreakpoints.clampPlayfieldHeight(playH, stackH, padT, padB);
+    if (h <= 0) {
+      return 0;
+    }
+    return h * TableBreakpoints.HAND_RING_GAP_PCT / 100;
+  }
+
+  /** Hug height of [24% gap + hand band]. Pin column must not stretch to 100%. */
+  static handPinVp(playH: number, stackH: number, padT: number, padB: number): number {
+    return TableBreakpoints.handRingGapVp(playH, stackH, padT, padB) +
+      TableBreakpoints.HAND_BAND_VP;
   }
 
   /** Desktop content mid-line (padded column), not the selfDock leftover. */
