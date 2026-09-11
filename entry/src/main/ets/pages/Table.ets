@@ -178,7 +178,8 @@ struct Table {
           // 24% Blank is a sibling ABOVE bottomBand, packed to the stack bottom.
           // Parent is 100% so the % resolves against the padded playfield.
           // End (not Start) keeps leftover ABOVE the gap — never under the cards.
-          // Blank is hit-transparent so the seat ring underneath stays tappable.
+          // Column Transparent: children (hand / selfDock) stay tappable; parent
+          // None would swallow those hits. Blank stays transparent for the ring.
           Column() {
             Blank()
               .width('100%')
@@ -189,7 +190,7 @@ struct Table {
           .width('100%')
           .height('100%')
           .justifyContent(FlexAlign.End)
-          .hitTestBehavior(HitTestMode.None)
+          .hitTestBehavior(HitTestMode.Transparent)
         }
         .width('100%')
         .height('100%')
