@@ -30,11 +30,12 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
- * 11 v0.2.9 / 12 v0.1.7 Rebuild 三闸 (#89 后再修):
- * R-LAND-3 手牌底缘离底过大 / 悬空偏高 — bottomBand last on padB; 24%
- *   HAND_RING_GAP Blank is above the hand, never a card_h spacer under it.
+ * 11 v0.2.10 / #90+#92 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
+ *   FlexAlign.Start + % Blank + layoutWeight left leftover UNDER bottomBand.
+ *   Pin bottomBand with Stack Bottom (on padB), independent of Column leftover.
+ *   HAND_RING_GAP 24% sits ABOVE the hand only; never a card_h spacer under it.
  * R-LAND-2 荷官离开桌心牌堆（偏上偏左） — bust+pile overlay the padded
- *   playfield at Alignment.Center (true screen heart), not the leftover.
+ *   playfield at Alignment.Center (true screen heart). Keep #90; do not regress.
  * R-LAND-2 tip 仍在 / 第一手还没人出过牌仍显示 — no first-hand empty tip.
  */
 
@@ -156,22 +157,38 @@ struct Table {
           [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
       Stack({ alignContent: Alignment.TopStart }) {
-        Column() {
-          this.topBar()
+        // Hand sits on padB via Bottom align — not last Column child (device leftover).
+        Stack({ alignContent: Alignment.Bottom }) {
           Column() {
-            this.seatRing()
-          }
-          .layoutWeight(1)
-          .width('100%')
-          // HAND_RING_GAP 24%: between ring and hand. Never a spacer under lb_cmp_hand.
-          Blank()
+            this.topBar()
+            Column() {
+              this.seatRing()
+            }
+            .layoutWeight(1)
             .width('100%')
-            .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
-          this.bottomBand()
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.Start)
+          // 24% in the upper column: ring ends above the gap (not under the hand).
+          .padding({
+            bottom: `${TableBreakpoints.HAND_RING_GAP_PCT}%`
+          })
+
+          // 24% Blank is a sibling ABOVE bottomBand, packed to the stack bottom.
+          // Parent is 100% so the % resolves against the padded playfield.
+          Column() {
+            Blank()
+              .width('100%')
+              .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
+            this.bottomBand()
+          }
+          .width('100%')
+          .height('100%')
+          .justifyContent(FlexAlign.End)
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Start)
 
         Stack({ alignContent: Alignment.Center }) {
           this.tableHeart()
@@ -396,8 +413,8 @@ struct Table {
   /**
    * Hangpoint 1: selfDock is a left independent slot. Matching right inset
    * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
-   * 11 v0.2.9: last Column child on padB (inset only; 禁加大 padB).
-   * HAND_RING_GAP Blank is above this band — never a spacer under lb_cmp_hand.
+   * 11 v0.2.10: Stack-Bottom on padB (inset only; 禁加大 padB).
+   * HAND_RING_GAP 24% is the sibling above this band — never under lb_cmp_hand.
    */
   @Builder
   bottomBand() {
