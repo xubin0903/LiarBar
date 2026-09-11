@@ -75,6 +75,18 @@ export class ControlIds {
   static readonly SEAT_P1: string = 'lb_cmp_seat_p1';
   static readonly SEAT_P2: string = 'lb_cmp_seat_p2';
   static readonly SEAT_P3: string = 'lb_cmp_seat_p3';
+  /** 14 · selfDock 近旁生命组（主读烛，次读数字） */
+  static readonly LIFE_SELF: string = 'lb_cmp_life_self';
+  static readonly LIFE_SEAT_P1: string = 'lb_cmp_life_seat_p1';
+  static readonly LIFE_SEAT_P2: string = 'lb_cmp_life_seat_p2';
+  static readonly LIFE_SEAT_P3: string = 'lb_cmp_life_seat_p3';
+  static readonly LIFE_PIP_0: string = 'lb_cmp_life_pip_0';
+  static readonly LIFE_PIP_1: string = 'lb_cmp_life_pip_1';
+  static readonly LIFE_PIP_2: string = 'lb_cmp_life_pip_2';
+  static readonly TXT_LIFE_SELF: string = 'lb_txt_life_self';
+  /** 15 · 桌上确认条（合法选中才出；主提交） */
+  static readonly PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar';
+  static readonly PLAY_CONFIRM: string = 'lb_btn_play_confirm';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
@@ -98,6 +110,10 @@ export class SfxIds {
   static readonly NAMED_STARE: string = 'lb_sfx_named_stare';
   static readonly RESULT_WIN: string = 'lb_sfx_result_win';
   static readonly RESULT_LOSE: string = 'lb_sfx_result_lose';
+  /** 15 · call-site only; no wav in this PR */
+  static readonly CARD_FLIP: string = 'lb_sfx_card_flip';
+  static readonly CARD_SELECT: string = 'lb_sfx_card_select';
+  static readonly PLAY_CONFIRM: string = 'lb_sfx_play_confirm';
 }
 
 export class PersistNs {

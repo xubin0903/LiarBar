@@ -195,6 +195,8 @@ def make_icon(path: Path, size: int) -> None:
     write_png(path, size, size, pixels)
 
 
+# 14/15 shaped placeholders live in gen_life_touch_placeholders.py.
+# Do not flatten those art_* ids back to generic glyph bars.
 # Illustrated / delivered by scripts/gen_lobby_v2_art.py and
 # scripts/gen_card_faces.py — do not flatten back to color blocks.
 ILLUSTRATED_P0 = {
