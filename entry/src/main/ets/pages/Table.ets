@@ -30,6 +30,10 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
+ * 11 v0.2.9 / 12 v0.1.7 Rebuild 三闸:
+ * R-LAND-3 手牌底缘离底过大 / 悬空偏高 — hand flush to padB (inset only).
+ * R-LAND-2 荷官被环-手空隙顶飞 / 不在桌心牌堆旁 — bust stays on the pile.
+ * R-LAND-2 tip 仍在 / 第一手还没人出过牌仍显示 — no first-hand empty tip.
  */
 
 @Entry
@@ -52,7 +56,6 @@ struct Table {
   @State timerText: string = '--';
   @State phaseText: string = '';
   @State challengeEnabled: boolean = false;
-  @State showFirstHint: boolean = false;
   @State playEnabled: boolean = false;
   @State skipEnabled: boolean = false;
   @State handEmpty: boolean = false;
@@ -150,19 +153,26 @@ struct Table {
         .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
           [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
-      Column() {
-        this.topBar()
+      Stack({ alignContent: Alignment.Bottom }) {
         Column() {
-          this.seatRing()
-        }
-        .layoutWeight(1)
-        .width('100%')
-        Column() {
+          this.topBar()
+          Stack({ alignContent: Alignment.Center }) {
+            this.seatRing()
+            this.tableHeart()
+          }
+          .layoutWeight(1)
+          .width('100%')
           Blank()
-            .layoutWeight(1)
+            .width('100%')
+            .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
+          Blank()
+            .width('100%')
+            .height($r('app.float.card_h'))
         }
         .width('100%')
-        .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
+        .height('100%')
+        .justifyContent(FlexAlign.Start)
+
         this.bottomBand()
       }
       .width('100%')
@@ -310,11 +320,8 @@ struct Table {
 
       Column() {
         this.seatBlock(TableCompass.TOP, this.seat2, this.life2, ControlIds.SEAT_P2)
-        Column() {
-          this.tableHeart()
-        }
-        .layoutWeight(1)
-        .width('100%')
+        Blank()
+          .layoutWeight(1)
       }
       .layoutWeight(1)
       .height('100%')
@@ -337,7 +344,11 @@ struct Table {
     })
   }
 
-  /** R-LAND-2: bust + pile visible at center; poolText beside the pool, never under lb_cmp_hand. */
+  /**
+   * R-LAND-2: bust + pile stay a centered pair on dealPileAnchor / lb_cmp_pool.
+   * Overlaid on the heart Stack so HAND_RING_GAP (24%) compresses leftover
+   * below the pair — never lifts lb_cmp_dealer onto the top bar.
+   */
   @Builder
   tableHeart() {
     Row({ space: 8 }) {
@@ -370,14 +381,16 @@ struct Table {
         .maxLines(1)
     }
     .width('100%')
-    .height('100%')
+    .height('72%')
     .justifyContent(FlexAlign.Center)
     .alignItems(VerticalAlign.Center)
+    .hitTestBehavior(HitTestMode.Transparent)
   }
 
   /**
    * Hangpoint 1: selfDock is a left independent slot. Matching right inset
    * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
+   * 11 v0.2.9: Stack-Bottom flush — band sits on padB (inset only; 禁加大 padB).
    */
   @Builder
   bottomBand() {
@@ -435,13 +448,6 @@ struct Table {
 
       if (this.handEmpty) {
         Text($r('app.string.lb_str_hand_empty'))
-          .fontColor($r('app.color.tavern_mute'))
-          .fontSize($r('app.float.caption_text_size'))
-          .align(Alignment.BottomEnd)
-          .margin({ right: 8 })
-      }
-      if (this.showFirstHint) {
-        Text($r('app.string.lb_str_challenge_disabled_first'))
           .fontColor($r('app.color.tavern_mute'))
           .fontSize($r('app.float.caption_text_size'))
           .align(Alignment.BottomEnd)
@@ -862,10 +868,6 @@ struct Table {
     if (this.challengeEnabled !== nextChallenge) {
       this.challengeEnabled = nextChallenge;
     }
-    const nextHint: boolean = !snap.canChallenge && snap.playIndexInRound === 0 && humanTurn;
-    if (this.showFirstHint !== nextHint) {
-      this.showFirstHint = nextHint;
-    }
     const nextPlay: boolean = humanTurn && snap.hasCards && snap.phase === Phase.TURN &&
       snap.turnWindow !== TurnWindow.CHALLENGE_ONLY;
     if (this.playEnabled !== nextPlay) {
@@ -1136,9 +1138,6 @@ struct Table {
     }
     if (this.showPeek) {
       this.showPeek = false;
-    }
-    if (this.showFirstHint) {
-      this.showFirstHint = false;
     }
     if (this.handEmpty) {
       this.handEmpty = false;

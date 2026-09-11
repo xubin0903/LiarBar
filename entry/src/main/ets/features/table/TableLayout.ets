@@ -5,11 +5,13 @@
  * Player ids stay p1 timid / p2 shark / p3 karen.
  * Landscape compass is L/T/R/B — not a top-row of faces.
  * #58 R-LAND-5: 左 p3 karen · 上 p2 shark · 右 p1 timid · 下手 self.
- * #59 / #66 / #78 / #83 / 11 v0.2.8 §2.1.2:
- * hand sits on the bottom safe-area top edge; lb_cmp_hand mid-line;
- * selfDock is a left independent slot — not an overlay, not in hand layoutWeight.
- * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; compress the heart).
+ * #59 / #66 / #78 / #83 / 11 v0.2.9 §2.1.2 / §2.1.3:
+ * hand sits on the bottom safe-area top edge (inset + 极小约束缝);
+ * lb_cmp_hand mid-line; selfDock is a left independent slot.
+ * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; number frozen).
+ * Compress leftover under the dealer–pile pair — do not lift bust to the top bar.
  * padB is inset only — never a lift (禁加大 padB 顶高手牌).
+ * Steady table does not hang first-hand empty tip.
  */
 
 /** Locked landscape ring. Bottom is the self dock + hand, not a mid-stack avatar. */
@@ -44,10 +46,11 @@ export class TableBreakpoints {
    */
   static readonly SELF_SLOT_PCT: number = 16;
   /**
-   * Fixed 24% gap between the seat ring (pile) and lb_cmp_hand (11 v0.2.8 /
-   * #83 hangpoint 13 / HAND_RING_GAP). Percent of the padded column — no hard px.
-   * Compresses the heart via leftover layoutWeight; must not be faked by
-   * inflating padB (禁加大 padB 顶高手牌). padB is never a lift.
+   * Fixed 24% gap between the seat ring (pile) and lb_cmp_hand (11 v0.2.9 /
+   * HAND_RING_GAP). Number must not change. Percent of the padded column —
+   * no hard px. Compresses leftover under the dealer–pile pair; must not
+   * lift lb_cmp_dealer onto the top bar, and must not be faked by inflating
+   * padB (禁加大 padB 顶高手牌). padB is never a lift.
    */
   static readonly HAND_RING_GAP_PCT: number = 24;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
