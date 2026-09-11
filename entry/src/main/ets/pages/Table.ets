@@ -37,6 +37,8 @@ const SNAP_POLL_MS: number = 800;
  *   (no .height 100%), Stack-Bottom on padB; 24% only ABOVE the hand;
  *   playfield ignoreLayoutSafeArea so padB is the only bottom inset.
  *   Never a card_h spacer under the hand.
+ * 环位偏高 / 左右座贴顶 — L/R columns FlexAlign.Center (side-mid).
+ *   Do not move top shark / bottom self.
  * R-LAND-2 荷官离开桌心牌堆（偏上偏左） — bust+pile overlay the padded
  *   playfield at Alignment.Center (true screen heart). Keep #90; do not regress.
  * R-LAND-2 tip 仍在 / 第一手还没人出过牌仍显示 — no first-hand empty tip.
@@ -346,19 +348,18 @@ struct Table {
   /**
    * Compass (12 §3 / R-LAND-5): L karen p3 · T shark p2 · R timid p1 · B self+hand.
    * Column + layoutWeight — do not Stack-align self onto shark (device 裁半 / 环位错).
+   * L/R: FlexAlign.Center (side-mid). Blank+weight under Start glued them to the
+   * top bar (环位偏高 / 左右座贴顶). Top shark stays Start; self stays in bottomBand.
    */
   @Builder
   seatRing() {
     Row() {
       Column() {
-        Blank()
-          .layoutWeight(1)
         this.seatBlock(TableCompass.LEFT, this.seat3, this.life3, ControlIds.SEAT_P3)
-        Blank()
-          .layoutWeight(1)
       }
       .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
+      .justifyContent(FlexAlign.Center)
 
       Column() {
         this.seatBlock(TableCompass.TOP, this.seat2, this.life2, ControlIds.SEAT_P2)
@@ -369,14 +370,11 @@ struct Table {
       .height('100%')
 
       Column() {
-        Blank()
-          .layoutWeight(1)
         this.seatBlock(TableCompass.RIGHT, this.seat1, this.life1, ControlIds.SEAT_P1)
-        Blank()
-          .layoutWeight(1)
       }
       .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
+      .justifyContent(FlexAlign.Center)
     }
     .width('100%')
     .height('100%')
