@@ -10,6 +10,8 @@
  * lb_cmp_hand mid-line; selfDock is a left independent slot.
  * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; number frozen).
  * That Blank sits ABOVE lb_cmp_hand — never a spacer under the hand.
+ * bottomBand is Stack-Bottom on padB (not last Column child: Start + % Blank
+ * + layoutWeight left leftover under the hand on device).
  * Compress leftover under the ring; tableHeart (bust+pile) is centered on
  * the padded screen heart (not inside the leftover — that shifts up/left).
  * padB is inset only — never a lift (禁加大 padB 顶高手牌).
@@ -51,9 +53,10 @@ export class TableBreakpoints {
    * Fixed 24% gap between the seat ring and lb_cmp_hand (11 v0.2.9 /
    * HAND_RING_GAP). Number must not change. Percent of the padded column —
    * no hard px. Lives ABOVE the hand band (never under lb_cmp_hand) and
-   * compresses leftover under the ring. tableHeart stays on the padded
-   * screen heart; must not be faked by inflating padB (禁加大 padB 顶高手牌).
-   * padB is never a lift.
+   * compresses leftover under the ring. bottomBand is Stack-Bottom on padB
+   * so Column leftover cannot open an empty band under the cards.
+   * tableHeart stays on the padded screen heart; must not be faked by
+   * inflating padB (禁加大 padB 顶高手牌). padB is never a lift.
    */
   static readonly HAND_RING_GAP_PCT: number = 24;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */
