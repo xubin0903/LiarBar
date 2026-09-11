@@ -30,10 +30,15 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
- * 11 v0.2.10 / #90+#92 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
- *   FlexAlign.Start + % Blank + layoutWeight left leftover UNDER bottomBand.
- *   Pin bottomBand with Stack Bottom (on padB), independent of Column leftover.
- *   HAND_RING_GAP 24% sits ABOVE the hand only; never a card_h spacer under it.
+ * 11 v0.2.10 / #93 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
+ *   #93 pinned via Stack Bottom but wrapped [24% Blank, bottomBand] in a
+ *   full-height FlexAlign.End Column (plus upper padding.bottom 24%).
+ *   Device leftover still parked UNDER the hand. Fix: wrap-content Column
+ *   (no .height 100%), Stack-Bottom on padB; 24% only ABOVE the hand;
+ *   playfield ignoreLayoutSafeArea so padB is the only bottom inset.
+ *   Never a card_h spacer under the hand.
+ * 环位偏高 / 左右座贴顶 — L/R columns FlexAlign.Center (side-mid).
+ *   Do not move top shark / bottom self.
  * R-LAND-2 荷官离开桌心牌堆（偏上偏左） — bust+pile overlay the padded
  *   playfield at Alignment.Center (true screen heart). Keep #90; do not regress.
  * R-LAND-2 tip 仍在 / 第一手还没人出过牌仍显示 — no first-hand empty tip.
@@ -90,6 +95,8 @@ struct Table {
   @State padT: number = 0;
   @State padR: number = 0;
   @State padB: number = 0;
+  /** Padded playfield height (vp). 24% Blank cannot % a wrap-content parent. */
+  @State playH: number = 0;
   @State dealerBustPct: number = TableBreakpoints.BUST_MAX_PCT;
   @State heartPadPct: number = 0;
   private pollId: number = -1;
@@ -157,7 +164,8 @@ struct Table {
           [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
       Stack({ alignContent: Alignment.TopStart }) {
-        // Hand sits on padB via Bottom align — not last Column child (device leftover).
+        // Hand sits on padB via Bottom align — wrap-content [gap + band].
+        // #93 full-height End Column still parked leftover under the cards.
         Stack({ alignContent: Alignment.Bottom }) {
           Column() {
             this.topBar()
@@ -170,30 +178,31 @@ struct Table {
           .width('100%')
           .height('100%')
           .justifyContent(FlexAlign.Start)
-          // 24% in the upper column: ring ends above the gap (not under the hand).
-          .padding({
-            bottom: `${TableBreakpoints.HAND_RING_GAP_PCT}%`
-          })
 
-          // 24% Blank is a sibling ABOVE bottomBand, packed to the stack bottom.
-          // Parent is 100% so the % resolves against the padded playfield.
-          // End (not Start) keeps leftover ABOVE the gap — never under the cards.
-          // Column Transparent: children (hand / selfDock) stay tappable; parent
-          // None would swallow those hits. Blank stays transparent for the ring.
+          // Intrinsic [24% gap + bottomBand]. No .height('100%'): Stack Bottom
+          // puts the band bottom edge on padB. 24% is ONLY this Blank above
+          // the hand (not also upper padding — that fought #93).
+          // Transparent: children (hand / selfDock) stay tappable; parent None
+          // would swallow those hits. Blank stays transparent for the ring.
           Column() {
             Blank()
               .width('100%')
-              .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
+              .height(this.handRingGapVp())
               .hitTestBehavior(HitTestMode.Transparent)
             this.bottomBand()
           }
           .width('100%')
-          .height('100%')
-          .justifyContent(FlexAlign.End)
+          .align(Alignment.Bottom)
           .hitTestBehavior(HitTestMode.Transparent)
         }
         .width('100%')
         .height('100%')
+        .onAreaChange((_old: Area, area: Area) => {
+          const h: number = Number(area.height);
+          if (h > 0 && this.playH !== h) {
+            this.playH = h;
+          }
+        })
 
         Stack({ alignContent: Alignment.Center }) {
           this.tableHeart()
@@ -204,6 +213,11 @@ struct Table {
       }
       .width('100%')
       .height('100%')
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+        [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+      // Layout must reach the physical bottom; padB is then the only inset.
+      // expandSafeArea only paints; without ignore, the playfield stays short.
+      .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.ALL])
       .padding({
         left: this.padL,
         top: this.padT,
@@ -272,6 +286,9 @@ struct Table {
     .id(ScreenIds.TABLE)
     .width('100%')
     .height('100%')
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.ALL])
     .backgroundColor($r('app.color.tavern_bg'))
     .onAreaChange((_old: Area, area: Area) => {
       this.stackGX = Number(area.globalPosition.x);
@@ -331,19 +348,18 @@ struct Table {
   /**
    * Compass (12 §3 / R-LAND-5): L karen p3 · T shark p2 · R timid p1 · B self+hand.
    * Column + layoutWeight — do not Stack-align self onto shark (device 裁半 / 环位错).
+   * L/R: FlexAlign.Center (side-mid). Blank+weight under Start glued them to the
+   * top bar (环位偏高 / 左右座贴顶). Top shark stays Start; self stays in bottomBand.
    */
   @Builder
   seatRing() {
     Row() {
       Column() {
-        Blank()
-          .layoutWeight(1)
         this.seatBlock(TableCompass.LEFT, this.seat3, this.life3, ControlIds.SEAT_P3)
-        Blank()
-          .layoutWeight(1)
       }
       .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
+      .justifyContent(FlexAlign.Center)
 
       Column() {
         this.seatBlock(TableCompass.TOP, this.seat2, this.life2, ControlIds.SEAT_P2)
@@ -354,14 +370,11 @@ struct Table {
       .height('100%')
 
       Column() {
-        Blank()
-          .layoutWeight(1)
         this.seatBlock(TableCompass.RIGHT, this.seat1, this.life1, ControlIds.SEAT_P1)
-        Blank()
-          .layoutWeight(1)
       }
       .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
+      .justifyContent(FlexAlign.Center)
     }
     .width('100%')
     .height('100%')
@@ -420,6 +433,7 @@ struct Table {
    * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
    * 11 v0.2.10: Stack-Bottom on padB (inset only; 禁加大 padB).
    * HAND_RING_GAP 24% is the sibling above this band — never under lb_cmp_hand.
+   * Wrap is hug-height (no vertical layoutWeight / 100% stretch).
    */
   @Builder
   bottomBand() {
@@ -485,6 +499,7 @@ struct Table {
     }
     .layoutWeight(1)
     .width('100%')
+    .height($r('app.float.card_h'))
   }
 
   /** 下手 self: art_player_idle + Cover + round crop (same as AI seatAvatar). Left independent slot. Not over cards. */
@@ -758,6 +773,14 @@ struct Table {
     if (this.padB !== b) {
       this.padB = b;
     }
+  }
+
+  /** HAND_RING_GAP 24% of the padded playfield. Not % of the hug-height wrap. */
+  private handRingGapVp(): number {
+    if (this.playH <= 0) {
+      return 0;
+    }
+    return this.playH * TableBreakpoints.HAND_RING_GAP_PCT / 100;
   }
 
   private insetVp(px: number): number {
