@@ -213,6 +213,11 @@ ILLUSTRATED_P0 = {
     "art_card_q",
     "art_card_joker",
     "art_card_back",
+    "art_life_candle_full",
+    "art_life_candle_hurt",
+    "art_life_candle_dying",
+    "art_btn_play_confirm",
+    "art_btn_play_confirm_on",
 }
 
 
