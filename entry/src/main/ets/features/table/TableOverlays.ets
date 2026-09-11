@@ -178,3 +178,65 @@ export struct PlaySheetOverlay {
     return '';
   }
 }
+
+/**
+ * 15 · on-table confirm bar. Visible only in ConfirmReady.
+ * Chrome is art_btn_play_confirm / _on (PLACEHOLDER). Not a system gray Button.
+ * Near bottom = tappable UX. Does not change padB / HAND_RING_GAP.
+ */
+@Component
+export struct PlayConfirmBar {
+  @Prop visible: boolean = false;
+  @Prop enabled: boolean = false;
+  onConfirm: () => void = () => {};
+  @State pressed: boolean = false;
+
+  build() {
+    if (this.visible) {
+      Stack() {
+        // PLACEHOLDER: art_btn_play_confirm / _on — tavern chrome, not system gray.
+        if (this.pressed) {
+          Image($r('app.media.art_btn_play_confirm_on'))
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Fill)
+        } else {
+          Image($r('app.media.art_btn_play_confirm'))
+            .width('100%')
+            .height('100%')
+            .objectFit(ImageFit.Fill)
+        }
+        Button($r('app.string.lb_str_play'))
+          .id(ControlIds.PLAY_CONFIRM)
+          .type(ButtonType.Normal)
+          .width('100%')
+          .height('100%')
+          .fontSize($r('app.float.page_text_size'))
+          .fontWeight(FontWeight.Medium)
+          .backgroundColor(Color.Transparent)
+          .fontColor($r('app.color.tavern_paper'))
+          .stateEffect(false)
+          .enabled(this.enabled)
+          .onTouch((event: TouchEvent) => {
+            if (event.type === TouchType.Down) {
+              this.pressed = true;
+            } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+              this.pressed = false;
+            }
+          })
+          .onClick(() => {
+            if (!this.enabled) {
+              return;
+            }
+            this.onConfirm();
+          })
+      }
+      .id(ControlIds.PLAY_CONFIRM_BAR)
+      .width($r('app.float.play_confirm_w'))
+      .height($r('app.float.play_confirm_h'))
+      .borderRadius($r('app.float.cta_radius'))
+      .clip(true)
+      .margin({ right: 8, bottom: 8 })
+    }
+  }
+}

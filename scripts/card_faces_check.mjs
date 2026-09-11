@@ -85,20 +85,20 @@ if (/Text\(\s*['"]A['"]/.test(face) || face.includes('Text(this.rank)')) {
 }
 
 if (table.includes("import { CardFace }") &&
-    table.includes('faceUp: false') &&
     table.includes('this.cardBacks') &&
     table.includes('lb_cmp_card_') &&
     table.includes('LongPressGesture') &&
-    table.includes('openPeek')) {
-  pass('Table steady hand is CardFace backs + long-press peek (PM 2026-09-09)');
+    table.includes('openPeek') &&
+    table.includes('cardFaceUp')) {
+  pass('Table hand is CardFace + long-press peek; tap-select may flip (docs 15)');
 } else {
-  fail('Table hand missing backs or long-press peek');
+  fail('Table hand missing backs, long-press peek, or cardFaceUp');
 }
 
-if (!table.includes('faceUp: true')) {
-  pass('lb_cmp_hand never face-up; C1 readable ≠ steady faces');
+if (table.includes('faceUp: true')) {
+  fail('Table forces faceUp: true on the hand strip (C1 ≠ steady faces)');
 } else {
-  fail('Table still shows faces in the hand strip after DEAL');
+  pass('lb_cmp_hand not hard-wired face-up; peek/select drive cardFaceUp');
 }
 
 if (table.includes("Image($r('app.media.art_card_back'))") && table.includes('dealPileAnchor')) {
@@ -113,15 +113,13 @@ if (table.includes('PeekMaskOverlay') && table.includes('peekRanks') && table.in
   fail('lost peek rank wiring');
 }
 
-if (overlays.includes('CardFace') &&
-    overlays.includes('faceUp: true') &&
-    overlays.includes('compact: false') &&
-    overlays.includes('lb_str_peek_hint') &&
-    overlays.includes('lb_str_peek_first') &&
-    overlays.includes('art_card_privacy_mask')) {
-  pass('Peek overlay shows rank faces at 80×112 + C1 copy');
+if (overlays.includes('PEEK_MASK') &&
+    overlays.includes('tavern_shadow') &&
+    table.includes('PeekMaskOverlay') &&
+    table.includes('openPeek')) {
+  pass('Peek overlay is a dim mask; faces flip on lb_cmp_card_* (C1 / 15)');
 } else {
-  fail('Peek overlay missing faces or C1 copy');
+  fail('Peek overlay missing');
 }
 
 if (overlays.includes('selected: this.isSelected') &&
