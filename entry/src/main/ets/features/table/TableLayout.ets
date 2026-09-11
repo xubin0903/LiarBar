@@ -10,10 +10,9 @@
  * lb_cmp_hand mid-line; selfDock is a left independent slot.
  * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; number frozen).
  * That Blank sits ABOVE lb_cmp_hand — never a spacer under the hand.
- * bottomBand is Stack-Bottom on padB (not last Column child: Start + % Blank
- * + layoutWeight left leftover under the hand on device).
- * Compress leftover under the ring; tableHeart (bust+pile) is centered on
- * the padded screen heart (not inside the leftover — that shifts up/left).
+ * [gap + bottomBand] is a hug-height Column, Stack-Bottom on padB
+ * (no full-height End wrap: that still parked leftover under the hand).
+ * tableHeart (bust+pile) is centered on the padded screen heart.
  * padB is inset only — never a lift (禁加大 padB 顶高手牌).
  * Steady table does not hang first-hand empty tip.
  */
@@ -52,9 +51,9 @@ export class TableBreakpoints {
   /**
    * Fixed 24% gap between the seat ring and lb_cmp_hand (11 v0.2.9 /
    * HAND_RING_GAP). Number must not change. Percent of the padded column —
-   * no hard px. Lives ABOVE the hand band (never under lb_cmp_hand) and
-   * compresses leftover under the ring. bottomBand is Stack-Bottom on padB
-   * so Column leftover cannot open an empty band under the cards.
+   * no hard px. Lives ABOVE the hand band (never under lb_cmp_hand) inside
+   * a hug-height [gap + bottomBand] Column, Stack-Bottom on padB.
+   * Do not wrap that pair in a 100% FlexAlign.End Column (leftover under cards).
    * tableHeart stays on the padded screen heart; must not be faked by
    * inflating padB (禁加大 padB 顶高手牌). padB is never a lift.
    */
