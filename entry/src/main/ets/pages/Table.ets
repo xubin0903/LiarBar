@@ -30,16 +30,15 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
- * 11 v0.2.10 / #94 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
- *   #94 hug-height [gap+band] still lived in a Bottom Stack that also hosted
- *   the 100% ring AND sat beside a full-size Alignment.Center overlay.
- *   Device leftover still parked UNDER the hand (almost identical to #93).
- *   Fix: decouple the band from any Center ancestor. Padded TopStart Stack
- *   holds (1) upper playfield = ring + tableHeart Center overlay, (2) a
- *   dedicated Stack(alignContent: Bottom) whose ONLY child is hug
- *   [24% Blank + bottomBand]. No .align(Alignment.Bottom) fight, no
- *   full-height wrap, no VerticalAlign/FlexAlign.Center on the band parent.
- *   24% only ABOVE the hand. Never a card_h spacer under the hand.
+ * 11 v0.2.11 flush / #96 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
+ *   #96 decoupled the band from Center / 100% ring (keep that). It still
+ *   set .height(gap + HAND_BAND_VP(78)) on the handPin Column (default
+ *   FlexAlign.Start). When the band hugged shorter than 78, leftover
+ *   parked UNDER the cards — same fail sentence, 真机几乎不变.
+ *   Fix: true hug (no HAND_BAND_VP pin height) + FlexAlign.End so any
+ *   leftover stays ABOVE the 24% Blank, never under lb_cmp_hand.
+ *   11 flush: 底缘贴底安全区上沿，只留一丢丢缝. 24% only ABOVE the hand.
+ *   Never a card_h / HAND_BAND_VP spacer under the hand. 禁加大 padB.
  *   ignoreLayoutSafeArea so the pin Stack bottom = padB = safe-area top.
  * 环位偏高 / 左右座贴顶 — L/R columns FlexAlign.Center (side-mid).
  *   Do not move top shark / bottom self.
@@ -200,7 +199,8 @@ struct Table {
         })
 
         // Dedicated Bottom pin. ONLY child = hug [24% gap + bottomBand].
-        // Parent alignContent: Bottom (no child .align()). No 100% wrap.
+        // Parent alignContent: Bottom (no child .align()). No HAND_BAND_VP
+        // height — leftover must not park under the cards (11 flush).
         // Transparent: hand / selfDock stay tappable; parent None swallows hits.
         Stack({ alignContent: Alignment.Bottom }) {
           this.handPin()
@@ -428,10 +428,13 @@ struct Table {
   }
 
   /**
-   * Hug-height pin content: 24% Blank ABOVE the hand, then bottomBand.
-   * Lives as the ONLY child of Stack(alignContent: Bottom). No .align(),
-   * no .height 100%, no FlexAlign/VerticalAlign.Center — leftover must
-   * not park under lb_cmp_hand. Gap is never a spacer under the cards.
+   * Hug pin: 24% Blank ABOVE the hand, then bottomBand.
+   * ONLY child of Stack(alignContent: Bottom). No .align(), no .height
+   * 100% / HAND_BAND_VP — a fixed gap+78 slot + FlexAlign.Start parked
+   * leftover under the cards when the band hugged shorter than 78
+   * (11 flush: 贴底只留一丢丢缝). FlexAlign.End: if the Bottom Stack
+   * stretches this Column, leftover stays ABOVE the Blank, never under
+   * lb_cmp_hand. Gap is never a spacer under the cards.
    */
   @Builder
   handPin() {
@@ -443,16 +446,16 @@ struct Table {
       this.bottomBand()
     }
     .width('100%')
-    .height(this.handPinVp())
+    .justifyContent(FlexAlign.End)
     .hitTestBehavior(HitTestMode.Transparent)
   }
 
   /**
    * Hangpoint 1: selfDock is a left independent slot. Matching right inset
    * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
-   * 11 v0.2.10: pin Stack-Bottom on padB (inset only; 禁加大 padB).
+   * 11 v0.2.11 flush: pin Stack-Bottom on padB (inset only; 禁加大 padB).
    * HAND_RING_GAP 24% is the sibling above this band — never under lb_cmp_hand.
-   * Wrap is hug-height (no vertical layoutWeight / 100% stretch / Center).
+   * Parent Column hugs content (no HAND_BAND_VP / 100% stretch / Center).
    */
   @Builder
   bottomBand() {
@@ -794,14 +797,9 @@ struct Table {
     }
   }
 
-  /** HAND_RING_GAP 24% of the padded playfield. Not % of the hug-height wrap. */
+  /** HAND_RING_GAP 24% of the padded playfield. Not % of the hug wrap. */
   private handRingGapVp(): number {
     return TableBreakpoints.handRingGapVp(this.playH, this.stackH, this.padT, this.padB);
-  }
-
-  /** Intrinsic [gap + band] height so the Bottom Stack cannot stretch leftover under the hand. */
-  private handPinVp(): number {
-    return TableBreakpoints.handPinVp(this.playH, this.stackH, this.padT, this.padB);
   }
 
   private insetVp(px: number): number {
