@@ -9,7 +9,9 @@
  * hand sits on the bottom safe-area top edge (inset + 极小约束缝);
  * lb_cmp_hand mid-line; selfDock is a left independent slot.
  * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; number frozen).
- * Compress leftover under the dealer–pile pair — do not lift bust to the top bar.
+ * That Blank sits ABOVE lb_cmp_hand — never a spacer under the hand.
+ * Compress leftover under the ring; tableHeart (bust+pile) is centered on
+ * the padded screen heart (not inside the leftover — that shifts up/left).
  * padB is inset only — never a lift (禁加大 padB 顶高手牌).
  * Steady table does not hang first-hand empty tip.
  */
@@ -46,11 +48,12 @@ export class TableBreakpoints {
    */
   static readonly SELF_SLOT_PCT: number = 16;
   /**
-   * Fixed 24% gap between the seat ring (pile) and lb_cmp_hand (11 v0.2.9 /
+   * Fixed 24% gap between the seat ring and lb_cmp_hand (11 v0.2.9 /
    * HAND_RING_GAP). Number must not change. Percent of the padded column —
-   * no hard px. Compresses leftover under the dealer–pile pair; must not
-   * lift lb_cmp_dealer onto the top bar, and must not be faked by inflating
-   * padB (禁加大 padB 顶高手牌). padB is never a lift.
+   * no hard px. Lives ABOVE the hand band (never under lb_cmp_hand) and
+   * compresses leftover under the ring. tableHeart stays on the padded
+   * screen heart; must not be faked by inflating padB (禁加大 padB 顶高手牌).
+   * padB is never a lift.
    */
   static readonly HAND_RING_GAP_PCT: number = 24;
   /** When avoidArea left/right is 0, keep a % so the notch cannot crop p3. */

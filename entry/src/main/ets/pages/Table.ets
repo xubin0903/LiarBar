@@ -30,9 +30,11 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
- * 11 v0.2.9 / 12 v0.1.7 Rebuild 三闸:
- * R-LAND-3 手牌底缘离底过大 / 悬空偏高 — hand flush to padB (inset only).
- * R-LAND-2 荷官被环-手空隙顶飞 / 不在桌心牌堆旁 — bust stays on the pile.
+ * 11 v0.2.9 / 12 v0.1.7 Rebuild 三闸 (#89 后再修):
+ * R-LAND-3 手牌底缘离底过大 / 悬空偏高 — bottomBand last on padB; 24%
+ *   HAND_RING_GAP Blank is above the hand, never a card_h spacer under it.
+ * R-LAND-2 荷官离开桌心牌堆（偏上偏左） — bust+pile overlay the padded
+ *   playfield at Alignment.Center (true screen heart), not the leftover.
  * R-LAND-2 tip 仍在 / 第一手还没人出过牌仍显示 — no first-hand empty tip.
  */
 
@@ -153,27 +155,28 @@ struct Table {
         .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
           [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
 
-      Stack({ alignContent: Alignment.Bottom }) {
+      Stack({ alignContent: Alignment.TopStart }) {
         Column() {
           this.topBar()
-          Stack({ alignContent: Alignment.Center }) {
-            this.seatRing()
-            this.tableHeart()
-          }
-          .layoutWeight(1)
-          .width('100%')
+          this.seatRing()
+            .layoutWeight(1)
+            .width('100%')
+          // HAND_RING_GAP 24%: between ring and hand. Never a spacer under lb_cmp_hand.
           Blank()
             .width('100%')
             .height(`${TableBreakpoints.HAND_RING_GAP_PCT}%`)
-          Blank()
-            .width('100%')
-            .height($r('app.float.card_h'))
+          this.bottomBand()
         }
         .width('100%')
         .height('100%')
         .justifyContent(FlexAlign.Start)
 
-        this.bottomBand()
+        Stack({ alignContent: Alignment.Center }) {
+          this.tableHeart()
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
       }
       .width('100%')
       .height('100%')
@@ -345,19 +348,20 @@ struct Table {
   }
 
   /**
-   * R-LAND-2: bust + pile stay a centered pair on dealPileAnchor / lb_cmp_pool.
-   * Overlaid on the heart Stack so HAND_RING_GAP (24%) compresses leftover
-   * below the pair — never lifts lb_cmp_dealer onto the top bar.
+   * R-LAND-2: bust + pile stay a glued pair on dealPileAnchor / lb_cmp_pool.
+   * Overlay is the full padded playfield, Alignment.Center — true screen heart
+   * (H+V). Must not live in the ring leftover above HAND_RING_GAP (that shifts
+   * the pair up/left). Gap compresses leftover under the ring, never the bust.
    */
   @Builder
   tableHeart() {
     Row({ space: 8 }) {
       Image($r('app.media.art_dealer_bust_announce'))
         .id(ControlIds.DEALER)
-        .height('72%')
+        .height(`${this.dealerBustPct}%`)
         .constraintSize({
           maxWidth: `${this.dealerBustPct}%`,
-          maxHeight: '100%'
+          maxHeight: `${this.dealerBustPct}%`
         })
         .objectFit(ImageFit.Contain)
       Stack() {
@@ -381,7 +385,7 @@ struct Table {
         .maxLines(1)
     }
     .width('100%')
-    .height('72%')
+    .height('100%')
     .justifyContent(FlexAlign.Center)
     .alignItems(VerticalAlign.Center)
     .hitTestBehavior(HitTestMode.Transparent)
@@ -390,7 +394,8 @@ struct Table {
   /**
    * Hangpoint 1: selfDock is a left independent slot. Matching right inset
    * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
-   * 11 v0.2.9: Stack-Bottom flush — band sits on padB (inset only; 禁加大 padB).
+   * 11 v0.2.9: last Column child on padB (inset only; 禁加大 padB).
+   * HAND_RING_GAP Blank is above this band — never a spacer under lb_cmp_hand.
    */
   @Builder
   bottomBand() {
