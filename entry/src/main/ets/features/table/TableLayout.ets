@@ -11,10 +11,14 @@
  * Ring–hand gap is 24% Blank (HAND_RING_GAP_PCT; number frozen).
  * That Blank sits ABOVE lb_cmp_hand — never a spacer under the hand.
  * [gap + bottomBand] is a true hug Column (no HAND_BAND_VP pin height),
- * the ONLY child of a dedicated hug Stack(alignContent: Bottom) sibling
- * of the upper playfield (ring + tableHeart Center overlay).
- * Child .align(Alignment.Bottom) on the hug pin — do NOT stretch that
- * stack to 100% without child align (device TopStart → 手下大空带).
+ * the ONLY child of a full-height transparent Stack(alignContent: Bottom)
+ * sibling of the upper playfield (ring + tableHeart Center overlay).
+ * BOTH halves required (#98 regression / joint memo PRIMARY):
+ *   pin Stack .width/.height 100% (alignment box) AND
+ *   hug child .align(Alignment.Bottom).
+ * A 100% box without child align TopStarts (手下大空带). A hug pin +
+ * parent .align(Bottom) is NOT a substitute — device then parks the
+ * band at y≈0 (手牌飞到桌心 / 底带消失).
  * FlexAlign.End so leftover cannot park under the cards.
  * 钉层底边 = 底安全区上沿 (11 flush: 贴底只留一丢丢缝).
  * Must not share a Stack with a Center child or a 100% ring.
@@ -58,11 +62,12 @@ export class TableBreakpoints {
    * HAND_RING_GAP). Number must not change. Percent of the padded column —
    * no hard px. Lives ABOVE the hand band (never under lb_cmp_hand) inside
    * a true-hug [gap + bottomBand] Column (no HAND_BAND_VP height), the ONLY
-   * child of a dedicated hug Stack(alignContent: Bottom) on padB, with
-   * child .align(Alignment.Bottom). Do not .height('100%') that pin without
-   * child align (device TopStart). FlexAlign.End so leftover cannot sit
-   * under the cards. Do not nest that pair under a Center overlay or a
-   * 100% ring sibling. 钉层底边 = 底安全区上沿.
+   * child of a full-height transparent Stack(alignContent: Bottom) on padB.
+   * BOTH halves required (#98): pin .height('100%') AND child
+   * .align(Alignment.Bottom). Do not drop the 100% box for hug pin + parent
+   * .align(Bottom) (device TopStart at y≈0 → 手牌飞到桌心). FlexAlign.End
+   * so leftover cannot sit under the cards. Do not nest that pair under a
+   * Center overlay or a 100% ring sibling. 钉层底边 = 底安全区上沿.
    * tableHeart stays on the padded screen heart; must not be faked by
    * inflating padB (禁加大 padB 顶高手牌). padB is never a lift.
    */

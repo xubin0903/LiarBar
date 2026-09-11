@@ -36,17 +36,24 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
- * 11 v0.2.11 flush / #97 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
- *   #97 true-hug (no HAND_BAND_VP) still left handPin as the ONLY child of
- *   Stack({ alignContent: Alignment.Bottom }).height('100%') with NO child
- *   .align(Alignment.Bottom). Joint memo (Harmony+UI): that hug child lays
- *   out TopStart on device → huge empty UNDER the hand (paper-pass, 真机不变).
- *   Fix: hug pin + child .align(Alignment.Bottom); do NOT stretch the pin
- *   stack to 100%. 钉层底边 = 底安全区上沿 (padded playfield bottom / padB).
+ * 11 v0.2.11 flush / #98 Rebuild: 手牌飞到桌心 / 底带消失 —
+ *   Joint memo PRIMARY (Harmony+UI): full-height Bottom stack + hug child
+ *   WITHOUT child .align(Bottom) fails (TopStart → 手下大空带). #98 only
+ *   did half: kept child .align(Bottom), cut pin .height('100%'), and
+ *   substituted hug pin + parent .align(Bottom). On device that parent
+ *   align does NOT bottom-pin the hug stack → TopStart at y≈0 → 24%
+ *   Blank then hand band sits mid-table (blocks dealer); bottom empty;
+ *   self floats with the band.
+ *   Co-signed fix (BOTH halves): pin Stack is a full-height transparent
+ *   overlay (.width/.height 100%, alignContent Bottom) AND hug child
+ *   handPin keeps .align(Alignment.Bottom). Do NOT use hug pin + parent
+ *   .align(Bottom) as a substitute for the 100% alignment box.
+ *   钉层底边 = 底安全区上沿 (padded playfield bottom / padB).
  *   11 flush: 底缘贴底安全区上沿，只留一丢丢缝. 24% only ABOVE the hand.
  *   Never a card_h / HAND_BAND_VP spacer under the hand. 禁加大 padB.
  *   ignoreLayoutSafeArea so layout reaches the physical bottom; padB is
- *   the only inset — pin bottom = safe-area top.
+ *   the only inset — pin bottom = safe-area top. Hangpoint: pinBottomGY≈
+ *   safeTopGY, slack≈0.
  * 环位偏高 / 左右座贴顶 — L/R columns FlexAlign.Center (side-mid).
  *   Do not move top shark / bottom self.
  * R-LAND-2 荷官离开桌心牌堆（偏上偏左） — bust+pile overlay the padded
@@ -214,16 +221,19 @@ struct Table {
           this.logFlushGate('playH');
         })
 
-        // Dedicated hug pin (joint memo PRIMARY). Do NOT .height('100%') a
-        // hug child without child .align(Bottom) — device then TopStarts
-        // handPin on a full-height transparent stack (手下大空带).
-        // Child .align(Bottom) + hug stack: 钉层底边 = padded 底 = 底安全区上沿.
+        // Full-height transparent pin overlay + hug child .align(Bottom).
+        // BOTH halves required (joint memo PRIMARY / #98 regression):
+        //   1) Stack({ alignContent: Bottom }).width/height 100% = alignment box
+        //   2) hug handPin .align(Alignment.Bottom) so the child is not TopStart
+        // #98 cut (1) and used hug pin + parent .align(Bottom) instead.
+        // Device ignored that parent align → pin at y≈0 → 手牌飞到桌心 / 底带消失.
+        // Do NOT substitute hug pin + parent .align(Bottom) for the 100% box.
         // Transparent: hand / selfDock stay tappable; parent None swallows hits.
         Stack({ alignContent: Alignment.Bottom }) {
           this.handPin()
         }
         .width('100%')
-        .align(Alignment.Bottom)
+        .height('100%')
         .hitTestBehavior(HitTestMode.Transparent)
         .onAreaChange((_old: Area, area: Area) => {
           this.captureFlushPin(area);
@@ -450,12 +460,14 @@ struct Table {
   }
 
   /**
-   * Hug pin: 24% Blank ABOVE the hand, then bottomBand.
-   * Child .align(Alignment.Bottom) on the hug pin stack (joint memo).
-   * No .height 100% / HAND_BAND_VP — a full-height parent without this
-   * align laid out TopStart on device (手下大空带). FlexAlign.End: if a
-   * parent still stretches this Column, leftover stays ABOVE the Blank,
-   * never under lb_cmp_hand. Gap is never a spacer under the cards.
+   * Hug pin child of the full-height Bottom overlay (not a hug pin stack).
+   * 24% Blank ABOVE the hand, then bottomBand. Child .align(Alignment.Bottom)
+   * is required: a 100% Bottom stack WITHOUT this align TopStarts on device
+   * (手下大空带 / joint memo PRIMARY). #98 kept this align but cut the
+   * parent 100% box — that half-fix flew the band to 桌心. Keep BOTH.
+   * FlexAlign.End: if a parent still stretches this Column, leftover stays
+   * ABOVE the Blank, never under lb_cmp_hand. Gap is never a spacer under
+   * the cards. No HAND_BAND_VP.
    */
   @Builder
   handPin() {
@@ -1488,6 +1500,7 @@ struct Table {
   /**
    * Temporary flush-gate diagnosis (11 / joint memo). One line when values
    * change: padB, stackH/W, playH, handPin (h+globalY), HAND / band bottomGY.
+   * Hangpoint (full-height pin box): pinBottomGY≈safeTopGY, slack≈0.
    * slack>0 ⇒ empty under the hand vs 底安全区上沿 (stackGY+stackH-padB).
    */
   private logFlushGate(src: string): void {
