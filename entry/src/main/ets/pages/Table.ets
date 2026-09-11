@@ -16,6 +16,12 @@ import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
 import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
 
 const TAG = 'Table';
+/**
+ * Temporary flush-gate diagnosis (11 / Harmony+UI joint memo).
+ * Rebuild testers fill padB / stack / playH / pin / hand bottomGY into the memo.
+ * Not product telemetry — do not add unrelated logs under this TAG.
+ */
+const FLUSH_TAG: string = 'TableFlush';
 /** HUD poll floor: 200ms @State spam flickered the page. Skip writes if stamp unchanged. */
 const SNAP_POLL_MS: number = 800;
 
@@ -30,16 +36,17 @@ const SNAP_POLL_MS: number = 800;
  *    (no BottomStart overlay on hand).
  * 2. Larger pile gap via ring layoutWeight / heart compression —
  *    do NOT increase padB to fake sink (that lifts cards).
- * 11 v0.2.11 flush / #96 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
- *   #96 decoupled the band from Center / 100% ring (keep that). It still
- *   set .height(gap + HAND_BAND_VP(78)) on the handPin Column (default
- *   FlexAlign.Start). When the band hugged shorter than 78, leftover
- *   parked UNDER the cards — same fail sentence, 真机几乎不变.
- *   Fix: true hug (no HAND_BAND_VP pin height) + FlexAlign.End so any
- *   leftover stays ABOVE the 24% Blank, never under lb_cmp_hand.
+ * 11 v0.2.11 flush / #97 Rebuild: 手牌底缘离底过大 / 悬空偏高 —
+ *   #97 true-hug (no HAND_BAND_VP) still left handPin as the ONLY child of
+ *   Stack({ alignContent: Alignment.Bottom }).height('100%') with NO child
+ *   .align(Alignment.Bottom). Joint memo (Harmony+UI): that hug child lays
+ *   out TopStart on device → huge empty UNDER the hand (paper-pass, 真机不变).
+ *   Fix: hug pin + child .align(Alignment.Bottom); do NOT stretch the pin
+ *   stack to 100%. 钉层底边 = 底安全区上沿 (padded playfield bottom / padB).
  *   11 flush: 底缘贴底安全区上沿，只留一丢丢缝. 24% only ABOVE the hand.
  *   Never a card_h / HAND_BAND_VP spacer under the hand. 禁加大 padB.
- *   ignoreLayoutSafeArea so the pin Stack bottom = padB = safe-area top.
+ *   ignoreLayoutSafeArea so layout reaches the physical bottom; padB is
+ *   the only inset — pin bottom = safe-area top.
  * 环位偏高 / 左右座贴顶 — L/R columns FlexAlign.Center (side-mid).
  *   Do not move top shark / bottom self.
  * R-LAND-2 荷官离开桌心牌堆（偏上偏左） — bust+pile overlay the padded
@@ -126,6 +133,14 @@ struct Table {
   private winRef: window.Window | null = null;
   private avoidBound: boolean = false;
   private heardPlayId: string = '';
+  /** Flush-gate last line — skip identical onAreaChange spam. */
+  private lastFlushLine: string = '';
+  private flushPinH: number = 0;
+  private flushPinGY: number = 0;
+  private flushBandH: number = 0;
+  private flushBandGY: number = 0;
+  private flushHandH: number = 0;
+  private flushHandGY: number = 0;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -196,18 +211,23 @@ struct Table {
           if (h > 0 && this.playH !== h) {
             this.playH = h;
           }
+          this.logFlushGate('playH');
         })
 
-        // Dedicated Bottom pin. ONLY child = hug [24% gap + bottomBand].
-        // Parent alignContent: Bottom (no child .align()). No HAND_BAND_VP
-        // height — leftover must not park under the cards (11 flush).
+        // Dedicated hug pin (joint memo PRIMARY). Do NOT .height('100%') a
+        // hug child without child .align(Bottom) — device then TopStarts
+        // handPin on a full-height transparent stack (手下大空带).
+        // Child .align(Bottom) + hug stack: 钉层底边 = padded 底 = 底安全区上沿.
         // Transparent: hand / selfDock stay tappable; parent None swallows hits.
         Stack({ alignContent: Alignment.Bottom }) {
           this.handPin()
         }
         .width('100%')
-        .height('100%')
+        .align(Alignment.Bottom)
         .hitTestBehavior(HitTestMode.Transparent)
+        .onAreaChange((_old: Area, area: Area) => {
+          this.captureFlushPin(area);
+        })
       }
       .width('100%')
       .height('100%')
@@ -215,7 +235,8 @@ struct Table {
         [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
       // Layout must reach the physical bottom; padB is then the only inset.
       // expandSafeArea only paints; without ignore, the playfield stays short
-      // and Stack-Bottom pins to a mid-screen content box.
+      // and the pin sits on a mid-screen content box (joint memo SECONDARY).
+      // ignore + padB (not raised) ⇒ pin bottom = 底安全区上沿.
       .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.ALL])
       .padding({
         left: this.padL,
@@ -297,6 +318,7 @@ struct Table {
       this.stackW = w;
       this.stackH = h;
       this.applyBreakpoint(w, h);
+      this.logFlushGate('stack');
     })
   }
 
@@ -429,12 +451,11 @@ struct Table {
 
   /**
    * Hug pin: 24% Blank ABOVE the hand, then bottomBand.
-   * ONLY child of Stack(alignContent: Bottom). No .align(), no .height
-   * 100% / HAND_BAND_VP — a fixed gap+78 slot + FlexAlign.Start parked
-   * leftover under the cards when the band hugged shorter than 78
-   * (11 flush: 贴底只留一丢丢缝). FlexAlign.End: if the Bottom Stack
-   * stretches this Column, leftover stays ABOVE the Blank, never under
-   * lb_cmp_hand. Gap is never a spacer under the cards.
+   * Child .align(Alignment.Bottom) on the hug pin stack (joint memo).
+   * No .height 100% / HAND_BAND_VP — a full-height parent without this
+   * align laid out TopStart on device (手下大空带). FlexAlign.End: if a
+   * parent still stretches this Column, leftover stays ABOVE the Blank,
+   * never under lb_cmp_hand. Gap is never a spacer under the cards.
    */
   @Builder
   handPin() {
@@ -447,13 +468,14 @@ struct Table {
     }
     .width('100%')
     .justifyContent(FlexAlign.End)
+    .align(Alignment.Bottom)
     .hitTestBehavior(HitTestMode.Transparent)
   }
 
   /**
    * Hangpoint 1: selfDock is a left independent slot. Matching right inset
    * keeps lb_cmp_hand on the desktop mid-line. No BottomStart overlay on cards.
-   * 11 v0.2.11 flush: pin Stack-Bottom on padB (inset only; 禁加大 padB).
+   * 11 flush / joint memo: 钉层底边 = 底安全区上沿 (padB inset only; 禁加大 padB).
    * HAND_RING_GAP 24% is the sibling above this band — never under lb_cmp_hand.
    * Parent Column hugs content (no HAND_BAND_VP / 100% stretch / Center).
    */
@@ -474,6 +496,9 @@ struct Table {
     }
     .width('100%')
     .alignItems(VerticalAlign.Bottom)
+    .onAreaChange((_old: Area, area: Area) => {
+      this.captureFlushBand(area);
+    })
   }
 
   /** Full mid-band hand: count stretches L/R only. Sits on safe-area top edge. */
@@ -795,6 +820,7 @@ struct Table {
     if (this.padB !== b) {
       this.padB = b;
     }
+    this.logFlushGate('pad');
   }
 
   /** HAND_RING_GAP 24% of the padded playfield. Not % of the hug wrap. */
@@ -1442,6 +1468,47 @@ struct Table {
     if (w > 0) {
       this.handW = w;
     }
+    this.flushHandH = Math.round(Number(area.height));
+    this.flushHandGY = Math.round(Number(area.globalPosition.y));
+    this.logFlushGate('hand');
+  }
+
+  private captureFlushPin(area: Area): void {
+    this.flushPinH = Math.round(Number(area.height));
+    this.flushPinGY = Math.round(Number(area.globalPosition.y));
+    this.logFlushGate('handPin');
+  }
+
+  private captureFlushBand(area: Area): void {
+    this.flushBandH = Math.round(Number(area.height));
+    this.flushBandGY = Math.round(Number(area.globalPosition.y));
+    this.logFlushGate('bottomBand');
+  }
+
+  /**
+   * Temporary flush-gate diagnosis (11 / joint memo). One line when values
+   * change: padB, stackH/W, playH, handPin (h+globalY), HAND / band bottomGY.
+   * slack>0 ⇒ empty under the hand vs 底安全区上沿 (stackGY+stackH-padB).
+   */
+  private logFlushGate(src: string): void {
+    const handBottom: number = this.flushHandGY + this.flushHandH;
+    const pinBottom: number = this.flushPinGY + this.flushPinH;
+    const bandBottom: number = this.flushBandGY + this.flushBandH;
+    const safeTop: number = Math.round(this.stackGY + this.stackH - this.padB);
+    const innerH: number = Math.round(this.stackH - this.padT - this.padB);
+    const slack: number = safeTop - handBottom;
+    const line: string = `padB=${this.padB} padT=${this.padT} ` +
+      `stackW=${Math.round(this.stackW)} stackH=${Math.round(this.stackH)} ` +
+      `stackGY=${Math.round(this.stackGY)} playH=${Math.round(this.playH)} innerH=${innerH} ` +
+      `pinH=${this.flushPinH} pinGY=${this.flushPinGY} pinBottomGY=${pinBottom} ` +
+      `bandH=${this.flushBandH} bandGY=${this.flushBandGY} bandBottomGY=${bandBottom} ` +
+      `hand=${ControlIds.HAND} handH=${this.flushHandH} handGY=${this.flushHandGY} ` +
+      `handBottomGY=${handBottom} safeTopGY=${safeTop} slack=${slack}`;
+    if (this.lastFlushLine === line) {
+      return;
+    }
+    this.lastFlushLine = line;
+    Logger.info(FLUSH_TAG, `src=${src} ${line}`);
   }
 
   private captureSeat(seatId: number, area: Area): void {
