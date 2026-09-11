@@ -1,15 +1,16 @@
 import { common } from '@kit.AbilityKit';
 import { window } from '@kit.ArkUI';
 import { AppRuntime } from '../common/AppRuntime';
-import { ControlIds, ScreenIds } from '../common/Ids';
+import { ControlIds, ScreenIds, SfxIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
+import { LifeCandles } from '../features/table/LifeCandles';
 import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
-import { PeekMaskOverlay, PlaySheetOverlay } from '../features/table/TableOverlays';
+import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
 import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
@@ -89,10 +90,17 @@ struct Table {
   @State seat1: string = '';
   @State seat2: string = '';
   @State seat3: string = '';
-  @State life0: string = '';
-  @State life1: string = '';
-  @State life2: string = '';
-  @State life3: string = '';
+  @State life0: number = 3;
+  @State life1: number = 3;
+  @State life2: number = 3;
+  @State life3: number = 3;
+  @State compactLife: boolean = false;
+  @State confirmBarOn: boolean = false;
+  @State confirmBusy: boolean = false;
+  @State hintKind: number = 0;
+  @State failIdx: number = -1;
+  @State failGen: number = 0;
+  @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
   @State cardBacks: number[] = [];
@@ -148,6 +156,7 @@ struct Table {
   private flushBandGY: number = 0;
   private flushHandH: number = 0;
   private flushHandGY: number = 0;
+  private hintTimer: number = -1;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -175,6 +184,10 @@ struct Table {
       this.pollId = -1;
     }
     this.cancelDealTimers();
+    if (this.hintTimer >= 0) {
+      clearTimeout(this.hintTimer);
+      this.hintTimer = -1;
+    }
     DealAudio.release();
     this.unbindAvoid();
   }
@@ -203,6 +216,9 @@ struct Table {
           .width('100%')
           .height('100%')
           .justifyContent(FlexAlign.Start)
+          .onClick(() => {
+            this.clearHandSelect();
+          })
 
           Stack({ alignContent: Alignment.Center }) {
             this.tableHeart()
@@ -238,6 +254,26 @@ struct Table {
         .onAreaChange((_old: Area, area: Area) => {
           this.captureFlushPin(area);
         })
+
+        // 15 confirm bar: sibling overlay, BottomEnd, tappable only.
+        // Must NOT live in handPin (that would grow the hug and lift cards).
+        // Does not change padB / HAND_RING_GAP.
+        Stack({ alignContent: Alignment.BottomEnd }) {
+          PlayConfirmBar({
+            visible: this.confirmBarOn,
+            enabled: this.confirmEnabled && !this.confirmBusy,
+            onConfirm: () => {
+              this.confirmTablePlay();
+            }
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+
+        if (this.hintKind > 0) {
+          this.playHintToast()
+        }
       }
       .width('100%')
       .height('100%')
@@ -475,7 +511,10 @@ struct Table {
       Blank()
         .width('100%')
         .height(this.handRingGapVp())
-        .hitTestBehavior(HitTestMode.Transparent)
+        .hitTestBehavior(HitTestMode.Default)
+        .onClick(() => {
+          this.clearHandSelect();
+        })
       this.bottomBand()
     }
     .width('100%')
@@ -521,21 +560,29 @@ struct Table {
         ForEach(this.cardBacks, (idx: number) => {
           CardFace({
             rank: this.rankAt(idx),
-            faceUp: this.showPeek,
+            faceUp: this.cardFaceUp(idx),
+            selected: this.cardSelected(idx),
             compact: true,
+            failTick: this.failTickAt(idx),
             instanceId: `lb_cmp_card_${idx}`
           })
             .gesture(
-              LongPressGesture()
-                .onAction(() => {
-                  this.openPeek();
-                })
-                .onActionEnd(() => {
-                  this.closePeek();
-                })
-                .onActionCancel(() => {
-                  this.closePeek();
-                })
+              GestureGroup(GestureMode.Exclusive,
+                TapGesture({ count: 1 })
+                  .onAction(() => {
+                    this.onCardTap(idx);
+                  }),
+                LongPressGesture({ duration: 200, repeat: false })
+                  .onAction(() => {
+                    this.openPeek();
+                  })
+                  .onActionEnd(() => {
+                    this.closePeek();
+                  })
+                  .onActionCancel(() => {
+                    this.closePeek();
+                  })
+              )
             )
         }, (idx: number) => `${idx}`)
       }
@@ -582,9 +629,13 @@ struct Table {
           .fontSize($r('app.float.caption_text_size'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.life0)
-          .fontColor(this.calledSeat === TableCompass.BOTTOM ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
-          .fontSize($r('app.float.caption_text_size'))
+        LifeCandles({
+          lives: this.life0,
+          groupId: ControlIds.LIFE_SELF,
+          compact: false,
+          small: this.compactLife,
+          showDigit: true
+        })
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -600,6 +651,36 @@ struct Table {
     .onAreaChange((_old: Area, area: Area) => {
       this.captureSeat(TableCompass.BOTTOM, area);
     })
+  }
+
+  @Builder
+  playHintToast() {
+    Column() {
+      if (this.hintKind === 1) {
+        Text($r('app.string.lb_str_play_not_your_turn'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+      } else if (this.hintKind === 2) {
+        Text($r('app.string.lb_str_play_over_select'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+      } else if (this.hintKind === 3) {
+        Text($r('app.string.lb_str_play_illegal_count'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+      }
+    }
+    .padding({
+      left: 12,
+      right: 12,
+      top: 6,
+      bottom: 6
+    })
+    .backgroundColor($r('app.color.tavern_panel'))
+    .borderRadius(8)
+    .align(Alignment.Bottom)
+    .margin({ bottom: 72 })
+    .hitTestBehavior(HitTestMode.None)
   }
 
   /** R-LAND-4: lock-name play/challenge stay as caption links, not a dual bottom bar. */
@@ -628,15 +709,10 @@ struct Table {
       } else if (!this.showPlay) {
         Text($r('app.string.lb_str_play'))
           .id(ControlIds.PLAY)
-          .fontColor(this.playEnabled ? $r('app.color.tavern_candle') : $r('app.color.tavern_mute'))
+          .fontColor(this.playEnabled ? $r('app.color.tavern_mute') : $r('app.color.tavern_mute'))
           .fontSize($r('app.float.caption_text_size'))
           .onClick(() => {
-            if (!this.playEnabled) {
-              return;
-            }
-            AppRuntime.engine.intentPlay();
-            this.showPlay = true;
-            this.pull();
+            this.openSecondaryPlaySheet();
           })
       }
     }
@@ -677,7 +753,7 @@ struct Table {
   }
 
   @Builder
-  seatBlock(seatId: number, name: string, life: string, id: string) {
+  seatBlock(seatId: number, name: string, life: number, id: string) {
     if (TableCompass.isTop(seatId)) {
       Row({ space: 6 }) {
         this.seatAvatar(seatId, id)
@@ -687,9 +763,15 @@ struct Table {
             .fontSize($r('app.float.caption_text_size'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(life)
-            .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
-            .fontSize($r('app.float.caption_text_size'))
+          if (name.length > 0) {
+            LifeCandles({
+              lives: life,
+              groupId: this.lifeIdOf(seatId),
+              compact: true,
+              small: this.compactLife,
+              showDigit: false
+            })
+          }
           this.oppBacks(seatId)
         }
         .alignItems(HorizontalAlign.Start)
@@ -712,9 +794,15 @@ struct Table {
           .fontSize($r('app.float.caption_text_size'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(life)
-          .fontColor(this.calledSeat === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
-          .fontSize($r('app.float.caption_text_size'))
+        if (name.length > 0) {
+          LifeCandles({
+            lives: life,
+            groupId: this.lifeIdOf(seatId),
+            compact: true,
+            small: this.compactLife,
+            showDigit: false
+          })
+        }
         this.oppBacks(seatId)
       }
       .padding(4)
@@ -858,11 +946,15 @@ struct Table {
   private applyBreakpoint(w: number, h: number): void {
     const nextBust: number = TableBreakpoints.dealerBustMaxPct(w, h);
     const nextHeart: number = TableBreakpoints.heartPadPct(w, h);
+    const nextSmall: boolean = TableBreakpoints.isLSmall(w, h);
     if (this.dealerBustPct !== nextBust) {
       this.dealerBustPct = nextBust;
     }
     if (this.heartPadPct !== nextHeart) {
       this.heartPadPct = nextHeart;
+    }
+    if (this.compactLife !== nextSmall) {
+      this.compactLife = nextSmall;
     }
     this.applyInsetFloors();
   }
@@ -977,7 +1069,8 @@ struct Table {
     if (this.challengeEnabled !== nextChallenge) {
       this.challengeEnabled = nextChallenge;
     }
-    const nextPlay: boolean = humanTurn && snap.hasCards && snap.phase === Phase.TURN &&
+    const nextPlay: boolean = humanTurn && snap.hasCards &&
+      (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF) &&
       snap.turnWindow !== TurnWindow.CHALLENGE_ONLY;
     if (this.playEnabled !== nextPlay) {
       this.playEnabled = nextPlay;
@@ -987,10 +1080,14 @@ struct Table {
     if (this.skipEnabled !== nextSkip) {
       this.skipEnabled = nextSkip;
     }
-    const nextSheet: boolean = snap.phase === Phase.PLAY_REVEAL_SELF && humanTurn;
-    if (this.showPlay !== nextSheet) {
-      this.showPlay = nextSheet;
+    if (this.silentHud !== snap.silentMode) {
+      this.silentHud = snap.silentMode;
     }
+    const keepSelect: boolean = nextPlay;
+    if (!keepSelect && this.selectedIds.length > 0) {
+      this.selectedIds = [];
+    }
+    // 15: sheet is secondary — do not auto-open on PLAY_REVEAL_SELF.
     this.refreshPlayMeta(snap);
   }
 
@@ -1088,10 +1185,10 @@ struct Table {
     if (this.seat3 !== s3) {
       this.seat3 = s3;
     }
-    const l0: string = this.lifeLabel(seats, 0);
-    const l1: string = this.lifeLabel(seats, 1);
-    const l2: string = this.lifeLabel(seats, 2);
-    const l3: string = this.lifeLabel(seats, 3);
+    const l0: number = this.lifeOf(seats, 0);
+    const l1: number = this.lifeOf(seats, 1);
+    const l2: number = this.lifeOf(seats, 2);
+    const l3: number = this.lifeOf(seats, 3);
     if (this.life0 !== l0) {
       this.life0 = l0;
     }
@@ -1131,13 +1228,26 @@ struct Table {
     return '';
   }
 
-  private lifeLabel(seats: SeatModel[], id: number): string {
+  private lifeOf(seats: SeatModel[], id: number): number {
     for (let i = 0; i < seats.length; i++) {
       if (seats[i].seatId === id) {
-        return `${seats[i].lives}`;
+        return seats[i].lives;
       }
     }
-    return '';
+    return 0;
+  }
+
+  private lifeIdOf(seatId: number): string {
+    if (seatId === TableCompass.RIGHT) {
+      return ControlIds.LIFE_SEAT_P1;
+    }
+    if (seatId === TableCompass.TOP) {
+      return ControlIds.LIFE_SEAT_P2;
+    }
+    if (seatId === TableCompass.LEFT) {
+      return ControlIds.LIFE_SEAT_P3;
+    }
+    return ControlIds.LIFE_SELF;
   }
 
   private nickOf(seats: SeatModel[], id: number): string {
@@ -1202,10 +1312,16 @@ struct Table {
     if (this.playCountText !== count) {
       this.playCountText = count;
     }
-    const ok: boolean = this.selectedIds.length >= snap.config.min_play_cards &&
+    const ok: boolean = this.playEnabled &&
+      this.selectedIds.length >= snap.config.min_play_cards &&
       this.selectedIds.length <= snap.config.max_play_cards;
     if (this.confirmEnabled !== ok) {
       this.confirmEnabled = ok;
+    }
+    const barOn: boolean = ok && !this.showPlay && !this.confirmBusy &&
+      snap.phase === Phase.TURN;
+    if (this.confirmBarOn !== barOn) {
+      this.confirmBarOn = barOn;
     }
   }
 
@@ -1216,11 +1332,161 @@ struct Table {
     } else if (this.styleName === PlayStyle.HESITATE) {
       style = PlayStyle.HESITATE;
     }
+    this.noteSfx(SfxIds.PLAY_CONFIRM);
     AppRuntime.engine.submitPlay(this.selectedIds, style, '', this.namedSeatId);
     this.showPlay = false;
     this.selectedIds = [];
     this.namedSeatId = -1;
+    this.confirmBusy = false;
     this.pull();
+  }
+
+  /** 15 primary submit: table confirm bar. Default SOFT. Does not open sheet. */
+  private confirmTablePlay(): void {
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || this.confirmBusy) {
+      return;
+    }
+    if (!this.playEnabled) {
+      this.flashHint(1);
+      return;
+    }
+    if (this.selectedIds.length < snap.config.min_play_cards ||
+      this.selectedIds.length > snap.config.max_play_cards) {
+      this.flashHint(3);
+      return;
+    }
+    this.confirmBusy = true;
+    this.confirmBarOn = false;
+    this.noteSfx(SfxIds.PLAY_CONFIRM);
+    AppRuntime.engine.submitPlay(this.selectedIds, PlayStyle.SOFT, '', -1);
+    this.selectedIds = [];
+    this.confirmBusy = false;
+    this.pull();
+  }
+
+  private openSecondaryPlaySheet(): void {
+    if (!this.playEnabled) {
+      return;
+    }
+    AppRuntime.engine.intentPlay();
+    this.showPlay = true;
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap !== null) {
+      this.refreshPlayMeta(snap);
+    }
+    this.pull();
+  }
+
+  private cardFaceUp(idx: number): boolean {
+    if (this.showPeek) {
+      return true;
+    }
+    return this.cardSelected(idx);
+  }
+
+  private cardSelected(idx: number): boolean {
+    if (idx < 0 || idx >= this.selfCards.length) {
+      return false;
+    }
+    return this.hasSelected(this.selfCards[idx].cardId);
+  }
+
+  private failTickAt(idx: number): number {
+    if (idx === this.failIdx) {
+      return this.failGen;
+    }
+    return 0;
+  }
+
+  private hasSelected(cardId: string): boolean {
+    for (let i = 0; i < this.selectedIds.length; i++) {
+      if (this.selectedIds[i] === cardId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private onCardTap(idx: number): void {
+    if (this.dealPlaying || this.showPeek || this.confirmBusy) {
+      return;
+    }
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.phase === Phase.DEAL || snap.phase === Phase.CLAIM) {
+      return;
+    }
+    if (!this.playEnabled) {
+      this.flashHint(1);
+      return;
+    }
+    if (idx < 0 || idx >= this.selfCards.length) {
+      return;
+    }
+    const cardId: string = this.selfCards[idx].cardId;
+    if (this.hasSelected(cardId)) {
+      this.removeSelect(cardId);
+      this.refreshPlayMeta(snap);
+      return;
+    }
+    if (this.selectedIds.length >= snap.config.max_play_cards) {
+      this.failIdx = idx;
+      this.failGen = this.failGen + 1;
+      this.flashHint(2);
+      return;
+    }
+    const next: string[] = [];
+    for (let i = 0; i < this.selectedIds.length; i++) {
+      next.push(this.selectedIds[i]);
+    }
+    next.push(cardId);
+    this.selectedIds = next;
+    this.noteSfx(SfxIds.CARD_FLIP);
+    this.noteSfx(SfxIds.CARD_SELECT);
+    this.refreshPlayMeta(snap);
+  }
+
+  private removeSelect(cardId: string): void {
+    const next: string[] = [];
+    for (let i = 0; i < this.selectedIds.length; i++) {
+      if (this.selectedIds[i] !== cardId) {
+        next.push(this.selectedIds[i]);
+      }
+    }
+    this.selectedIds = next;
+  }
+
+  private clearHandSelect(): void {
+    if (this.selectedIds.length === 0) {
+      return;
+    }
+    this.selectedIds = [];
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap !== null) {
+      this.refreshPlayMeta(snap);
+    } else if (this.confirmBarOn) {
+      this.confirmBarOn = false;
+    }
+  }
+
+  /** 1=非己回合 2=超选 3=张数不符 */
+  private flashHint(kind: number): void {
+    this.hintKind = kind;
+    if (this.hintTimer >= 0) {
+      clearTimeout(this.hintTimer);
+    }
+    this.hintTimer = setTimeout((): void => {
+      this.hintTimer = -1;
+      this.hintKind = 0;
+    }, 800);
+  }
+
+  private noteSfx(idName: string): void {
+    if (this.silentHud) {
+      Logger.info(TAG, `${idName} skipped (silent)`);
+      return;
+    }
+    Logger.info(TAG, `${idName} play`);
   }
 
   private applyDealHud(snap: MatchSnapshot): void {
@@ -1244,6 +1510,15 @@ struct Table {
     }
     if (this.showPlay) {
       this.showPlay = false;
+    }
+    if (this.selectedIds.length > 0) {
+      this.selectedIds = [];
+    }
+    if (this.confirmBarOn) {
+      this.confirmBarOn = false;
+    }
+    if (this.confirmEnabled) {
+      this.confirmEnabled = false;
     }
     if (this.showPeek) {
       this.showPeek = false;
