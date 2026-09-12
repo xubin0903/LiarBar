@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""14b layered life-candle slots: body + flame_* + extinguish_0/1/2.
+"""14b layered life-candle slots: body + flame_* + extinguish_0..3 (≤4).
 
 Old art_life_candle_full/_hurt/_dying stay as fallback.
 Column (body) must read taller than the flame crown (R-LIFE-2).
@@ -94,7 +94,7 @@ def paint_flame_only(kind: str, s: int = CANDLE_SIZE) -> Image.Image:
         d.ellipse((ex - 7, ey - 5, ex + 7, ey + 5), fill=rgba(mix(EMBER, CANDLE, 0.15), 220))
         d.ellipse((ex - 3, ey - 2, ex + 3, ey + 2), fill=rgba(CANDLE, 210))
     elif kind == "ext0":
-        # 焰收 / 摇 — leaned, shorter than full.
+        # #108: 焰 — leaned, still a crown.
         d.polygon(
             [(cx - 6, int(s * 0.54)), (cx + 10, int(s * 0.50)), (cx + 4, int(s * 0.36)), (cx - 4, int(s * 0.42))],
             fill=rgba(mix(CANDLE, MUTE, 0.10), 230),
@@ -102,11 +102,16 @@ def paint_flame_only(kind: str, s: int = CANDLE_SIZE) -> Image.Image:
         d.ellipse((cx - 7, int(s * 0.46), cx + 8, int(s * 0.56)), fill=rgba(mix(CANDLE, ACCENT, 0.12), 220))
         d.ellipse((cx - 3, int(s * 0.48), cx + 3, int(s * 0.54)), fill=rgba(CORE, 210))
     elif kind == "ext1":
+        # #108: stub — short leftover flame, no teardrop height.
+        d.ellipse((cx - 8, int(s * 0.46), cx + 8, int(s * 0.56)), fill=rgba(mix(CANDLE, MUTE, 0.22), 210))
+        d.ellipse((cx - 4, int(s * 0.48), cx + 4, int(s * 0.54)), fill=rgba(mix(CORE, CANDLE, 0.30), 220))
+    elif kind == "ext2":
+        # #108: ember
         ex, ey = cx, int(s * 0.52)
         d.ellipse((ex - 6, ey - 4, ex + 6, ey + 4), fill=rgba(mix(EMBER, CANDLE, 0.20), 230))
         d.ellipse((ex - 2, ey - 2, ex + 2, ey + 2), fill=rgba(CORE, 200))
     else:
-        # ext2: smoke / empty wick — no teardrop.
+        # ext3: smoke / empty wick — no teardrop.
         paint_smoke(d, s)
     canvas = canvas.filter(ImageFilter.GaussianBlur(0.45))
     arr = np.array(canvas.convert("RGBA"))
@@ -160,6 +165,7 @@ def main() -> None:
         "art_life_candle_extinguish_0.png": paint_flame_only("ext0"),
         "art_life_candle_extinguish_1.png": paint_flame_only("ext1"),
         "art_life_candle_extinguish_2.png": paint_flame_only("ext2"),
+        "art_life_candle_extinguish_3.png": paint_flame_only("ext3"),
     }
     paths: dict[str, Path] = {}
     for name, im in jobs.items():

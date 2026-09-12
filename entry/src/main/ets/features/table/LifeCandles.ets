@@ -4,7 +4,7 @@ import { SoundPlayer } from './SoundPlayer';
 
 /**
  * 14b R-LIFE: candle pips. No showDigit / no lb_txt_life_self on the face.
- * Prefers art_life_candle_body + looping flame_* + extinguish_0/1/2.
+ * Prefers art_life_candle_body + looping flame_* + extinguish_0..3 (≤4).
  * Falls back to art_life_candle_full/_hurt/_dying when layered media is off.
  * Does not change lives_default (still 3). Not a button. No padB / GAP / flush.
  */
@@ -120,8 +120,13 @@ export struct LifeCandles {
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
-    } else {
+    } else if (this.extFrame === 2) {
       Image($r('app.media.art_life_candle_extinguish_2'))
+        .width(this.pipVp())
+        .height(this.pipVp())
+        .objectFit(ImageFit.Contain)
+    } else {
+      Image($r('app.media.art_life_candle_extinguish_3'))
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
@@ -168,22 +173,29 @@ export struct LifeCandles {
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
-        .opacity(0.85)
-        .scale({ x: 0.92, y: 0.88 })
+        .opacity(0.90)
+        .scale({ x: 0.94, y: 0.90 })
     } else if (this.extFrame === 1) {
       Image($r('app.media.art_life_candle_hurt'))
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
-        .opacity(0.70)
-        .scale({ x: 0.86, y: 0.80 })
+        .opacity(0.78)
+        .scale({ x: 0.88, y: 0.84 })
+    } else if (this.extFrame === 2) {
+      Image($r('app.media.art_life_candle_dying'))
+        .width(this.pipVp())
+        .height(this.pipVp())
+        .objectFit(ImageFit.Contain)
+        .opacity(0.58)
+        .scale({ x: 0.82, y: 0.78 })
     } else {
       Image($r('app.media.art_life_candle_dying'))
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
-        .opacity(0.45)
-        .scale({ x: 0.80, y: 0.74 })
+        .opacity(0.32)
+        .scale({ x: 0.76, y: 0.70 })
     }
   }
 
@@ -252,7 +264,7 @@ export struct LifeCandles {
     return `生命 ${this.lives}`;
   }
 
-  /** 14b R-LIFE-4: extinguish_0/1/2, 180～320ms, no hard cut. */
+  /** 14b R-LIFE-4 + #108: extinguish_0..3 (≤4), 180～320ms, no hard cut. */
   private playExtinguish(pip: number): void {
     this.clearExtTimers();
     let target: number = pip;
@@ -266,19 +278,29 @@ export struct LifeCandles {
     this.extFrame = 0;
     SoundPlayer.playCardFlip();
     const step: number = LifeFx.EXTINGUISH_FRAME_MS;
-    this.extTimers.push(setTimeout((): void => {
-      this.extFrame = 1;
-    }, step));
-    this.extTimers.push(setTimeout((): void => {
-      this.extFrame = 2;
-      SoundPlayer.playLifeExtinguish();
-    }, step * 2));
+    let frames: number = LifeFx.EXTINGUISH_FRAMES;
+    if (frames < 2) {
+      frames = 2;
+    }
+    if (frames > LifeFx.EXTINGUISH_MAX_FRAMES) {
+      frames = LifeFx.EXTINGUISH_MAX_FRAMES;
+    }
+    const last: number = frames - 1;
+    for (let i = 1; i < frames; i++) {
+      const frame: number = i;
+      this.extTimers.push(setTimeout((): void => {
+        this.extFrame = frame;
+        if (frame === last) {
+          SoundPlayer.playLifeExtinguish();
+        }
+      }, step * i));
+    }
     this.extTimers.push(setTimeout((): void => {
       this.extFrame = -1;
       this.extPip = -1;
       this.lastLives = this.lives;
       this.extTimers = [];
-    }, step * LifeFx.EXTINGUISH_FRAMES));
+    }, step * frames));
   }
 
   private armFlameLoop(): void {

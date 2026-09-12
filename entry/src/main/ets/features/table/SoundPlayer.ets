@@ -12,7 +12,8 @@ const PATH_EXTINGUISH: string = 'audio/sfx/sfx_life_extinguish.wav';
 
 /**
  * Table one-shots that must actually hit SoundPool — not log-only.
- * lb_sfx_card_flip (15 flip + 14b drop windup) / lb_sfx_life_extinguish (灭尽).
+ * Disk: sfx_card_flip.wav / sfx_life_extinguish.wav.
+ * Call slots stay lb_sfx_card_flip / lb_sfx_life_extinguish (no parallel names).
  * Missing file = fail-soft; visuals still run. Silent skips the player.
  */
 export class SoundPlayer {

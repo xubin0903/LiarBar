@@ -113,11 +113,11 @@ export class SfxIds {
   static readonly NAMED_STARE: string = 'lb_sfx_named_stare';
   static readonly RESULT_WIN: string = 'lb_sfx_result_win';
   static readonly RESULT_LOSE: string = 'lb_sfx_result_lose';
-  /** 15 flip + 14b drop windup. SoundPlayer plays audio/sfx/sfx_card_flip.wav */
+  /** Call slot. Disk file may be sfx_card_flip.wav — do not rename this id. */
   static readonly CARD_FLIP: string = 'lb_sfx_card_flip';
   static readonly CARD_SELECT: string = 'lb_sfx_card_select';
   static readonly PLAY_CONFIRM: string = 'lb_sfx_play_confirm';
-  /** 14b · deducted pip 灭尽. SoundPlayer plays audio/sfx/sfx_life_extinguish.wav */
+  /** Call slot. Disk file may be sfx_life_extinguish.wav — do not rename this id. */
   static readonly LIFE_EXTINGUISH: string = 'lb_sfx_life_extinguish';
 }
 

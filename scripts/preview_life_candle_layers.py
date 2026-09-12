@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Composite strip: body + flame states + extinguish_0/1/2 on one plate."""
+"""Composite strip: body + flame states + extinguish_0..3 on one plate."""
 
 from __future__ import annotations
 
@@ -35,14 +35,15 @@ def main() -> None:
         cell(body, load("art_life_candle_flame_full.png"), "full  body>flame"),
         cell(body, load("art_life_candle_flame_hurt.png"), "hurt  loop slot"),
         cell(body, load("art_life_candle_flame_dying.png"), "dying  ember"),
-        cell(body, load("art_life_candle_extinguish_0.png"), "ext_0  80ms"),
-        cell(body, load("art_life_candle_extinguish_1.png"), "ext_1  80ms"),
-        cell(body, load("art_life_candle_extinguish_2.png"), "ext_2  80ms"),
+        cell(body, load("art_life_candle_extinguish_0.png"), "ext_0 flame"),
+        cell(body, load("art_life_candle_extinguish_1.png"), "ext_1 stub"),
+        cell(body, load("art_life_candle_extinguish_2.png"), "ext_2 ember"),
+        cell(body, load("art_life_candle_extinguish_3.png"), "ext_3 smoke"),
     ]
     strip = Image.new("RGBA", (160 * len(cols), 180), (18, 14, 12, 255))
     for i, c in enumerate(cols):
         strip.paste(c, (i * 160, 0))
-    dest = OUT / "r_life_layered_candle_strip.png"
+    dest = OUT / "r_life_extinguish_0_to_3_strip.png"
     strip.save(dest)
     print(f"wrote {dest}")
 

@@ -18,6 +18,7 @@ LAYERED = (
     "art_life_candle_extinguish_0.png",
     "art_life_candle_extinguish_1.png",
     "art_life_candle_extinguish_2.png",
+    "art_life_candle_extinguish_3.png",
 )
 FALLBACK = (
     "art_life_candle_full.png",
@@ -59,14 +60,20 @@ def main() -> None:
     if "armFlameLoop" not in life or "flamePulse" not in life:
         raise SystemExit("R-LIFE-3: no flame loop intent")
 
-    if "EXTINGUISH_TOTAL_MS: number = 240" not in fx:
-        raise SystemExit("R-LIFE-4: total window not 240ms")
-    if "EXTINGUISH_FRAME_MS: number = 80" not in fx:
-        raise SystemExit("R-LIFE-4: frame window not 80ms")
-    if "art_life_candle_extinguish_0" not in life:
-        raise SystemExit("R-LIFE-4: extinguish_0/1/2 not bound")
+    if "EXTINGUISH_TOTAL_MS: number = 280" not in fx:
+        raise SystemExit("R-LIFE-4: total window not 280ms")
+    if "EXTINGUISH_FRAME_MS: number = 70" not in fx:
+        raise SystemExit("R-LIFE-4: frame window not 70ms")
+    if "EXTINGUISH_FRAMES: number = 4" not in fx or "EXTINGUISH_MAX_FRAMES: number = 4" not in fx:
+        raise SystemExit("R-LIFE-4: extinguish must be 0..3 (≤4)")
+    if "art_life_candle_extinguish_3" not in life:
+        raise SystemExit("R-LIFE-4: extinguish_0..3 not bound")
     if "playCardFlip" not in life or "playLifeExtinguish" not in life:
         raise SystemExit("R-LIFE-4: SFX call-sites missing on drop")
+    if 'static readonly CARD_FLIP: string = \'lb_sfx_card_flip\'' not in ids:
+        raise SystemExit("call slot must stay lb_sfx_card_flip")
+    if 'static readonly LIFE_EXTINGUISH: string = \'lb_sfx_life_extinguish\'' not in ids:
+        raise SystemExit("call slot must stay lb_sfx_life_extinguish")
 
     if "DEBUG_LIFE_DEC" not in ids or "lb_btn_debug_life_dec" not in ids:
         raise SystemExit("R-LIFE-5: locked button id missing")
