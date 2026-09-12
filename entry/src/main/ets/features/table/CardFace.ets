@@ -1,4 +1,5 @@
 import { CardFaceIds } from '../../common/Ids';
+import { SoundPlayer } from './SoundPlayer';
 
 /** 15 §3 Selected-raise 8～16vp. Visual only — not a padB / HAND_RING_GAP change. */
 const CARD_RAISE_VP: number = 12;
@@ -9,8 +10,9 @@ const CARD_RAISE_MS: number = 140;
  * Reusable baked card face (docs/04-设计/09 §4 + 15 flip/raise).
  * Identity lives in art_card_* PNG (盾徽 bake ≥22%). Do not overlay rank Text.
  * Tap-select: vertical-axis squash flip 180～240ms + raise 8～16vp.
- * Flip audio is SoundPlayer.playCardFlip (lb_sfx_card_flip) from Table tap —
- * not log-only. Peek face-up does not play flip.
+ * Flip audio is SoundPlayer.playCardFlip (lb_sfx_card_flip) at playFlip
+ * kickoff (same animateTo) — not after the squash completes. Peek face-up
+ * does not play flip (selected stays false). Table noteSfx still routes the slot.
  */
 @Component
 export struct CardFace {
@@ -27,6 +29,7 @@ export struct CardFace {
   @State failX: number = 0;
   private flipTimer: number = -1;
   private failTimer: number = -1;
+  private flipSfxArmed: boolean = false;
 
   aboutToAppear(): void {
     this.showFront = this.faceUp;
@@ -46,10 +49,19 @@ export struct CardFace {
   }
 
   onFaceUp(): void {
+    if (!this.faceUp) {
+      this.flipSfxArmed = false;
+    }
     this.playFlip();
   }
 
   onSelected(): void {
+    if (!this.selected) {
+      this.flipSfxArmed = false;
+    }
+    if (this.flipTimer >= 0) {
+      this.kickFlipSfx();
+    }
     this.playRaise();
   }
 
@@ -120,6 +132,7 @@ export struct CardFace {
       clearTimeout(this.flipTimer);
       this.flipTimer = -1;
     }
+    this.kickFlipSfx();
     const half: number = Math.round(CARD_FLIP_MS / 2);
     const inward: AnimateParam = {
       duration: half,
@@ -139,6 +152,15 @@ export struct CardFace {
         this.flipScale = 1;
       });
     }, half);
+  }
+
+  /** Tap-select only: face-up + selected. Peek / sheet already-up skip. */
+  private kickFlipSfx(): void {
+    if (this.flipSfxArmed || !this.faceUp || !this.selected) {
+      return;
+    }
+    this.flipSfxArmed = true;
+    SoundPlayer.playCardFlip();
   }
 
   private playRaise(): void {

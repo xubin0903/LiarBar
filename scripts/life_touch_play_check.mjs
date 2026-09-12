@@ -226,6 +226,31 @@ if (face.includes('playFlip') && face.includes('playRaise') && face.includes('pl
   fail('CardFace missing flip/raise/fail');
 }
 
+if (face.includes('kickFlipSfx') && face.includes('SoundPlayer.playCardFlip') &&
+    face.includes('this.kickFlipSfx()')) {
+  pass('flip SFX kicks off with CardFace.playFlip');
+} else {
+  fail('flip SFX not tied to playFlip kickoff');
+}
+
+const extFn = life.split('private playExtinguish(pip: number): void {')[1] || '';
+const extKick = extFn.indexOf('this.extFrame = 0');
+const extSfx = extFn.indexOf('SoundPlayer.playLifeExtinguish()');
+const extLoop = extFn.indexOf('for (let i = 1');
+const lastBlock = extFn.indexOf('if (frame === last)');
+if (extKick >= 0 && extSfx >= 0 && extLoop >= 0 && extKick < extSfx && extSfx < extLoop &&
+    (lastBlock < 0 || !extFn.slice(lastBlock).includes('playLifeExtinguish'))) {
+  pass('extinguish SFX on first frame (not last)');
+} else {
+  fail('extinguish SFX not on first extinguish frame');
+}
+
+if (life.includes('SoundPlayer.playCardFlip') || life.includes('SfxIds.CARD_FLIP')) {
+  fail('extinguish path must not play card flip');
+} else {
+  pass('extinguish path has no card-flip slot');
+}
+
 if (table.includes('max_play_cards') && table.includes('failGen') &&
     table.includes('lb_str_play_over_select')) {
   pass('over-select fail path present');

@@ -1551,7 +1551,7 @@ struct Table {
     }
     next.push(cardId);
     this.selectedIds = next;
-    this.noteSfx(SfxIds.CARD_FLIP);
+    // lb_sfx_card_flip kicks off in CardFace.playFlip (same animateTo), not here.
     this.noteSfx(SfxIds.CARD_SELECT);
     this.refreshPlayMeta(snap);
   }
