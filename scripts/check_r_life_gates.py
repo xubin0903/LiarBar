@@ -76,10 +76,25 @@ def main() -> None:
         raise SystemExit("R-LIFE-4: extinguish must be 0..3 (≤4)")
     if "art_life_candle_extinguish_3" not in life:
         raise SystemExit("R-LIFE-4: extinguish_0..3 not bound")
-    if "playCardFlip" in life:
+    if "SoundPlayer.playCardFlip" in life or "SfxIds.CARD_FLIP" in life:
         raise SystemExit("R-LIFE-4: extinguish must not play card flip")
     if "playLifeExtinguish" not in life:
         raise SystemExit("R-LIFE-4: SFX call-sites missing on drop")
+    ext = life.split("private playExtinguish(pip: number): void {", 1)
+    if len(ext) < 2:
+        raise SystemExit("R-LIFE-4: playExtinguish missing")
+    ext_body = ext[1].split("\n  private ", 1)[0]
+    kick = ext_body.find("this.extFrame = 0")
+    sfx = ext_body.find("SoundPlayer.playLifeExtinguish()")
+    loop = ext_body.find("for (let i = 1")
+    if kick < 0 or sfx < 0 or loop < 0 or not (kick < sfx < loop):
+        raise SystemExit("R-LIFE-4: playLifeExtinguish must start with first extinguish frame")
+    last_if = ext_body.find("if (frame === last)")
+    if last_if >= 0 and "playLifeExtinguish" in ext_body[last_if:]:
+        raise SystemExit("R-LIFE-4: last-frame extinguish SFX was reintroduced")
+    face = read("entry/src/main/ets/features/table/CardFace.ets")
+    if "SoundPlayer.playCardFlip" not in face or "kickFlipSfx" not in face:
+        raise SystemExit("S15-4: flip SFX must kick off from CardFace.playFlip")
     if 'static readonly CARD_FLIP: string = \'lb_sfx_card_flip\'' not in ids:
         raise SystemExit("call slot must stay lb_sfx_card_flip")
     if 'static readonly LIFE_EXTINGUISH: string = \'lb_sfx_life_extinguish\'' not in ids:

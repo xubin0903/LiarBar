@@ -289,7 +289,11 @@ export struct LifeCandles {
     return `生命 ${this.lives}`;
   }
 
-  /** 14b R-LIFE-4 + #108: extinguish_0..3 (≤4), 180～320ms, no hard cut. */
+  /**
+   * 14b R-LIFE-4 + #108: extinguish_0..3 (≤4), 180～320ms, no hard cut.
+   * PM listen-feel override: lb_sfx_life_extinguish on first frame (extFrame=0),
+   * not last. Extinguish stays that slot only — never lb_sfx_card_flip.
+   */
   private playExtinguish(pip: number): void {
     this.clearExtTimers();
     let target: number = pip;
@@ -301,6 +305,7 @@ export struct LifeCandles {
     }
     this.extPip = target;
     this.extFrame = 0;
+    SoundPlayer.playLifeExtinguish();
     const step: number = LifeFx.EXTINGUISH_FRAME_MS;
     let frames: number = LifeFx.EXTINGUISH_FRAMES;
     if (frames < 2) {
@@ -309,14 +314,10 @@ export struct LifeCandles {
     if (frames > LifeFx.EXTINGUISH_MAX_FRAMES) {
       frames = LifeFx.EXTINGUISH_MAX_FRAMES;
     }
-    const last: number = frames - 1;
     for (let i = 1; i < frames; i++) {
       const frame: number = i;
       this.extTimers.push(setTimeout((): void => {
         this.extFrame = frame;
-        if (frame === last) {
-          SoundPlayer.playLifeExtinguish();
-        }
       }, step * i));
     }
     this.extTimers.push(setTimeout((): void => {
