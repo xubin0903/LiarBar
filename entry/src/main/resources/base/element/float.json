@@ -16,10 +16,11 @@
     { "name": "card_face_h", "value": "112vp" },
     { "name": "card_radius", "value": "10vp" },
     { "name": "card_raise", "value": "12vp" },
-    { "name": "life_pip_self", "value": "22vp" },
-    { "name": "life_pip_self_small", "value": "16vp" },
-    { "name": "life_pip_seat", "value": "14vp" },
-    { "name": "life_pip_seat_small", "value": "12vp" },
+    { "name": "life_pip_self", "value": "32vp" },
+    { "name": "life_pip_self_small", "value": "22vp" },
+    { "name": "life_pip_seat", "value": "21vp" },
+    { "name": "life_pip_seat_small", "value": "17vp" },
+    { "name": "debug_open_size", "value": "30vp" },
     { "name": "play_confirm_w", "value": "140vp" },
     { "name": "play_confirm_h", "value": "56vp" }
   ]

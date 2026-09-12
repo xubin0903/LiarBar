@@ -85,7 +85,9 @@ export class ControlIds {
   static readonly LIFE_PIP_2: string = 'lb_cmp_life_pip_2';
   /** 14b · 废主路径。当面不得挂可见 Text。 */
   static readonly TXT_LIFE_SELF: string = 'lb_txt_life_self';
-  /** 14b R-LIFE-5 · debug/dev only. Release hides. */
+  /** 14b R-LIFE-5 · debug/dev only. Release hides via DebugBuild. */
+  static readonly DEBUG_OPEN: string = 'lb_btn_debug_open';
+  static readonly DEBUG_LIFE: string = 'lb_cmp_debug_life';
   static readonly DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec';
   /** 15 · 桌上确认条（合法选中才出；主提交） */
   static readonly PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar';
