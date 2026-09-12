@@ -166,12 +166,12 @@ struct Table {
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+    SoundPlayer.bind(ctx);
+    this.warmupTableSfx();
     DealAudio.bind(ctx);
     DealAudio.prepare();
     TableAudio.bind(ctx);
     TableAudio.prepare();
-    SoundPlayer.bind(ctx);
-    SoundPlayer.prepare();
     const boot: MatchSnapshot | null = AppRuntime.engine.current();
     if (boot !== null) {
       DealAudio.setSilent(boot.silentMode);
@@ -185,6 +185,13 @@ struct Table {
       this.pull();
     }, SNAP_POLL_MS);
     Logger.info(TAG, 'table listening to engine snapshot');
+  }
+
+  /** Enter-table: finish SoundPool loadComplete + silent warmup before first tap. */
+  private async warmupTableSfx(): Promise<void> {
+    await SoundPlayer.prepare();
+    Logger.info(TAG,
+      `SfxReady enter-table warm=${SoundPlayer.isWarm()} pending=false deferred=false`);
   }
 
   aboutToDisappear(): void {

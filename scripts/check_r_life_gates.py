@@ -148,6 +148,14 @@ def main() -> None:
         raise SystemExit("flip is still log-only / no SoundPlayer path")
     if "SoundPlayer.playCardFlip" not in table:
         raise SystemExit("Table noteSfx does not play card flip")
+    if "SfxReady" not in player or "flipReady" not in player or "warmupSlot" not in player:
+        raise SystemExit("SfxReady warmup / loadComplete ready-gate missing")
+    if "firstPlay" not in player or "deferred=" not in player:
+        raise SystemExit("SfxReady firstPlay ready/pending/deferred log missing")
+    if "warmupTableSfx" not in table or "await SoundPlayer.prepare()" not in table:
+        raise SystemExit("enter-table must await SoundPlayer.prepare warmup")
+    if "\n    SoundPlayer.prepare();" in table:
+        raise SystemExit("enter-table still fire-and-forgets SoundPlayer.prepare")
     for name in WAVS:
         path = AUDIO / name
         if not path.is_file() or path.stat().st_size < 200:
