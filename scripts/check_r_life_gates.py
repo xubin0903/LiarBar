@@ -19,6 +19,10 @@ LAYERED = (
     "art_life_candle_extinguish_1.png",
     "art_life_candle_extinguish_2.png",
     "art_life_candle_extinguish_3.png",
+    "art_life_candle_flame_full_0.png",
+    "art_life_candle_flame_full_1.png",
+    "art_life_candle_flame_full_2.png",
+    "art_life_candle_flame_full_3.png",
 )
 FALLBACK = (
     "art_life_candle_full.png",
@@ -53,12 +57,15 @@ def main() -> None:
         path = MEDIA / name
         if not path.is_file() or path.stat().st_size < 400:
             raise SystemExit(f"media missing/tiny: {name}")
-    if "art_life_candle_body" not in life or "art_life_candle_flame_full" not in life:
-        raise SystemExit("R-LIFE-2/3: layered $r not bound")
+    body = MEDIA / "art_life_candle_body.png"
+    if body.stat().st_size < 10000:
+        raise SystemExit("R-LIFE-2: body is still a placeholder, not #108 real art")
+    if "art_life_candle_body" not in life or "art_life_candle_flame_full_0" not in life:
+        raise SystemExit("R-LIFE-2/3: layered $r / full loop not bound")
     if "art_life_candle_full" not in life:
         raise SystemExit("fallback old full/hurt/dying path missing")
-    if "armFlameLoop" not in life or "flamePulse" not in life:
-        raise SystemExit("R-LIFE-3: no flame loop intent")
+    if "armFullLoop" not in life or "flame_full_3" not in life:
+        raise SystemExit("R-LIFE-3: no real flame_full_0..3 loop")
 
     if "EXTINGUISH_TOTAL_MS: number = 280" not in fx:
         raise SystemExit("R-LIFE-4: total window not 280ms")

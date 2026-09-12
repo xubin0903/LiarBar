@@ -157,6 +157,13 @@ def assert_body_taller(body: Path, flame: Path) -> None:
 
 def main() -> None:
     MEDIA.mkdir(parents=True, exist_ok=True)
+    polish = MEDIA / "art_life_candle_body.png"
+    if polish.is_file():
+        from PIL import Image as _Im
+        im = _Im.open(polish)
+        if im.size[1] >= 160 and polish.stat().st_size > 8000:
+            print("skip: #108 polish body already on disk (will not overwrite real media)")
+            return
     jobs = {
         "art_life_candle_body.png": paint_body(),
         "art_life_candle_flame_full.png": paint_flame_only("full"),

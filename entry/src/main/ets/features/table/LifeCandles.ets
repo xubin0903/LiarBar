@@ -4,8 +4,9 @@ import { SoundPlayer } from './SoundPlayer';
 
 /**
  * 14b R-LIFE: candle pips. No showDigit / no lb_txt_life_self on the face.
- * Prefers art_life_candle_body + looping flame_* + extinguish_0..3 (≤4).
- * Falls back to art_life_candle_full/_hurt/_dying when layered media is off.
+ * Binds #108 real media: body + flame_{full,hurt,dying} + extinguish_0..3.
+ * Full pip loops flame_full_0..3 when those files exist (they do on develop).
+ * Falls back to art_life_candle_full/_hurt/_dying only if LifeFx.LAYERED is false.
  * Does not change lives_default (still 3). Not a button. No padB / GAP / flush.
  */
 @Component
@@ -17,19 +18,23 @@ export struct LifeCandles {
   /** L-small short side: shrink, never unmount. */
   @Prop small: boolean = false;
   @State flamePulse: number = 1;
+  @State fullLoop: number = 0;
   @State extPip: number = -1;
   @State extFrame: number = -1;
   private lastLives: number = 3;
   private flameTimer: number = -1;
+  private fullLoopTimer: number = -1;
   private extTimers: number[] = [];
 
   aboutToAppear(): void {
     this.lastLives = this.lives;
     this.armFlameLoop();
+    this.armFullLoop();
   }
 
   aboutToDisappear(): void {
     this.clearFlameTimer();
+    this.clearFullLoopTimer();
     this.clearExtTimers();
   }
 
@@ -85,26 +90,44 @@ export struct LifeCandles {
   @Builder
   flameLayer(kind: number) {
     if (kind === 0) {
-      Image($r('app.media.art_life_candle_flame_full'))
-        .width(this.pipVp())
-        .height(this.pipVp())
-        .objectFit(ImageFit.Contain)
-        .scale({ x: this.flamePulse, y: this.flamePulse })
-        .opacity(0.72 + this.flamePulse * 0.28)
+      this.fullFlameLoop()
     } else if (kind === 1) {
       Image($r('app.media.art_life_candle_flame_hurt'))
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
-        .scale({ x: this.flamePulse, y: this.flamePulse })
-        .opacity(0.70 + this.flamePulse * 0.26)
+        .opacity(0.82 + this.flamePulse * 0.18)
     } else {
       Image($r('app.media.art_life_candle_flame_dying'))
         .width(this.pipVp())
         .height(this.pipVp())
         .objectFit(ImageFit.Contain)
-        .scale({ x: this.flamePulse, y: this.flamePulse })
-        .opacity(0.62 + this.flamePulse * 0.30)
+        .opacity(0.70 + this.flamePulse * 0.30)
+    }
+  }
+
+  @Builder
+  fullFlameLoop() {
+    if (this.fullLoop === 0) {
+      Image($r('app.media.art_life_candle_flame_full_0'))
+        .width(this.pipVp())
+        .height(this.pipVp())
+        .objectFit(ImageFit.Contain)
+    } else if (this.fullLoop === 1) {
+      Image($r('app.media.art_life_candle_flame_full_1'))
+        .width(this.pipVp())
+        .height(this.pipVp())
+        .objectFit(ImageFit.Contain)
+    } else if (this.fullLoop === 2) {
+      Image($r('app.media.art_life_candle_flame_full_2'))
+        .width(this.pipVp())
+        .height(this.pipVp())
+        .objectFit(ImageFit.Contain)
+    } else {
+      Image($r('app.media.art_life_candle_flame_full_3'))
+        .width(this.pipVp())
+        .height(this.pipVp())
+        .objectFit(ImageFit.Contain)
     }
   }
 
@@ -303,6 +326,18 @@ export struct LifeCandles {
     }, step * frames));
   }
 
+  private armFullLoop(): void {
+    this.clearFullLoopTimer();
+    this.tickFullLoop();
+  }
+
+  private tickFullLoop(): void {
+    this.fullLoopTimer = setTimeout((): void => {
+      this.fullLoop = (this.fullLoop + 1) % LifeFx.FLAME_FULL_LOOP;
+      this.tickFullLoop();
+    }, LifeFx.FLAME_FULL_FRAME_MS);
+  }
+
   private armFlameLoop(): void {
     this.clearFlameTimer();
     this.tickFlame();
@@ -347,6 +382,13 @@ export struct LifeCandles {
     if (this.flameTimer >= 0) {
       clearTimeout(this.flameTimer);
       this.flameTimer = -1;
+    }
+  }
+
+  private clearFullLoopTimer(): void {
+    if (this.fullLoopTimer >= 0) {
+      clearTimeout(this.fullLoopTimer);
+      this.fullLoopTimer = -1;
     }
   }
 
