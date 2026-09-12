@@ -109,13 +109,22 @@ if (life.includes('HitTestMode.None')) {
 }
 
 const candles = [
-  ['art_life_candle_full', 128, 128],
-  ['art_life_candle_hurt', 128, 128],
-  ['art_life_candle_dying', 128, 128],
-  ['art_btn_play_confirm', 720, 144],
-  ['art_btn_play_confirm_on', 720, 144]
+  ['art_life_candle_full', 128, 128, 2000],
+  ['art_life_candle_hurt', 128, 128, 2000],
+  ['art_life_candle_dying', 128, 128, 2000],
+  ['art_life_candle_body', 128, 160, 2000],
+  ['art_life_candle_flame_0', 128, 160, 400],
+  ['art_life_candle_flame_1', 128, 160, 400],
+  ['art_life_candle_flame_2', 128, 160, 400],
+  ['art_life_candle_flame_3', 128, 160, 400],
+  ['art_life_candle_extinguish_0', 128, 160, 400],
+  ['art_life_candle_extinguish_1', 128, 160, 400],
+  ['art_life_candle_extinguish_2', 128, 160, 400],
+  ['art_life_candle_extinguish_3', 128, 160, 400],
+  ['art_btn_play_confirm', 720, 144, 2000],
+  ['art_btn_play_confirm_on', 720, 144, 2000]
 ];
-for (const [stem, w, h] of candles) {
+for (const [stem, w, h, minBytes] of candles) {
   const rel = `${MEDIA}/${stem}.png`;
   if (!existsSync(join(root, rel))) {
     fail(`missing ${rel}`);
@@ -123,10 +132,10 @@ for (const [stem, w, h] of candles) {
   }
   const size = pngSize(rel);
   const bytes = readFileSync(join(root, rel)).length;
-  if (size.w === w && size.h === h && bytes >= 2000) {
+  if (size.w === w && size.h === h && bytes >= minBytes) {
     pass(`${stem} ${w}×${h} (${bytes}B, not stub)`);
   } else {
-    fail(`${stem} ${size.w}×${size.h} ${bytes}B, want ${w}×${h} ≥2KB`);
+    fail(`${stem} ${size.w}×${size.h} ${bytes}B, want ${w}×${h} ≥${minBytes}B`);
   }
 }
 
@@ -208,6 +217,21 @@ if (floats.includes('"56vp"') && floats.includes('"78vp"') &&
   pass('hand 56×78 kept; confirm/raise floats added');
 } else {
   fail('float.json card size or confirm floats');
+}
+
+const sfxDir = 'entry/src/main/resources/rawfile/audio/sfx';
+for (const wav of ['sfx_card_flip.wav', 'sfx_life_extinguish.wav']) {
+  const rel = `${sfxDir}/${wav}`;
+  if (!existsSync(join(root, rel))) {
+    fail(`missing ${rel}`);
+    continue;
+  }
+  const bytes = readFileSync(join(root, rel)).length;
+  if (bytes >= 4000) {
+    pass(`${wav} present (${bytes}B)`);
+  } else {
+    fail(`${wav} too small (${bytes}B)`);
+  }
 }
 
 const scanned = [table, face, life, overlays, engine].join('\n');
