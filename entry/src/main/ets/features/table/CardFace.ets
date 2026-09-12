@@ -13,12 +13,12 @@ const CARD_RAISE_MS: number = 140;
 @Component
 export struct CardFace {
   @Prop rank: string = '';
-  @Prop faceUp: boolean = false;
-  @Prop selected: boolean = false;
+  @Prop @Watch('onFaceUp') faceUp: boolean = false;
+  @Prop @Watch('onSelected') selected: boolean = false;
   @Prop instanceId: string = '';
   @Prop compact: boolean = false;
   /** Parent bumps this to play a 150ms over-select fail shake. */
-  @Prop failTick: number = 0;
+  @Prop @Watch('onFailTick') failTick: number = 0;
   @State showFront: boolean = false;
   @State flipScale: number = 1;
   @State raiseY: number = 0;
@@ -43,17 +43,14 @@ export struct CardFace {
     }
   }
 
-  @Watch('faceUp')
   onFaceUp(): void {
     this.playFlip();
   }
 
-  @Watch('selected')
   onSelected(): void {
     this.playRaise();
   }
 
-  @Watch('failTick')
   onFailTick(): void {
     if (this.failTick > 0) {
       this.playFailShake();

@@ -187,7 +187,8 @@ export struct PlaySheetOverlay {
 @Component
 export struct PlayConfirmBar {
   @Prop visible: boolean = false;
-  @Prop enabled: boolean = false;
+  /** Not `enabled` — that name collides with CustomComponent.enabled. */
+  @Prop confirmEnabled: boolean = false;
   onConfirm: () => void = () => {};
   @State pressed: boolean = false;
 
@@ -216,7 +217,7 @@ export struct PlayConfirmBar {
           .backgroundColor(Color.Transparent)
           .fontColor($r('app.color.tavern_paper'))
           .stateEffect(false)
-          .enabled(this.enabled)
+          .enabled(this.confirmEnabled)
           .onTouch((event: TouchEvent) => {
             if (event.type === TouchType.Down) {
               this.pressed = true;
@@ -225,7 +226,7 @@ export struct PlayConfirmBar {
             }
           })
           .onClick(() => {
-            if (!this.enabled) {
+            if (!this.confirmEnabled) {
               return;
             }
             this.onConfirm();

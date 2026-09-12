@@ -261,7 +261,7 @@ struct Table {
         Stack({ alignContent: Alignment.BottomEnd }) {
           PlayConfirmBar({
             visible: this.confirmBarOn,
-            enabled: this.confirmEnabled && !this.confirmBusy,
+            confirmEnabled: this.confirmEnabled && !this.confirmBusy,
             onConfirm: () => {
               this.confirmTablePlay();
             }
