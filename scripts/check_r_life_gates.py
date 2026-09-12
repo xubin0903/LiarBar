@@ -75,7 +75,9 @@ def main() -> None:
         raise SystemExit("R-LIFE-4: extinguish must be 0..3 (≤4)")
     if "art_life_candle_extinguish_3" not in life:
         raise SystemExit("R-LIFE-4: extinguish_0..3 not bound")
-    if "playCardFlip" not in life or "playLifeExtinguish" not in life:
+    if "playCardFlip" in life:
+        raise SystemExit("R-LIFE-4: extinguish must not play card flip")
+    if "playLifeExtinguish" not in life:
         raise SystemExit("R-LIFE-4: SFX call-sites missing on drop")
     if 'static readonly CARD_FLIP: string = \'lb_sfx_card_flip\'' not in ids:
         raise SystemExit("call slot must stay lb_sfx_card_flip")
