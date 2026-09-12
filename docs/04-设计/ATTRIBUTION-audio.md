@@ -41,7 +41,7 @@
 | 许可 / 来源 | **原作程序化**（同脚本 · 气声 hush + 短芯熄；非惨叫） |
 | 实测 | 48 kHz mono PCM16 · 0.420s · peak −11.00 dBFS |
 
-视觉分层（`art_life_candle_body` / `flame_*` / `extinguish_*`）同为 Pillow 程序化，色值只来自 [夜半酒馆-风格板](./夜半酒馆-风格板.md)；焰场复用 #104 脚本函数，**不**另引第三方插画。交件见 [生命烛精致化-资产交件.md](./生命烛精致化-资产交件.md)。
+视觉分层（`art_life_candle_body` / `flame_{full,hurt,dying}` / 可选 `flame_full_0…n` / `extinguish_*`）同为 Pillow 程序化，色值只来自 [夜半酒馆-风格板](./夜半酒馆-风格板.md)；焰场复用 #104 脚本函数，**不**另引第三方插画。交件见 [生命烛精致化-资产交件.md](./生命烛精致化-资产交件.md)。
 
 **未** 使用 numpy BGM 路径；**未** 生成 `sfx_challenge_*`。
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Life-candle polish: body-dominant still + flame loop + extinguish + two SFX.
+"""Life-candle polish: body + per-state flame + optional full loop + extinguish + two SFX.
 
 Supersedes still-only candles (#104) for the animation path.
 Keeps art_life_candle_{full,hurt,dying} as 128×128 fallback composites.
@@ -253,13 +253,22 @@ def paint_flame_overlay(
 
 
 def flame_loop_params() -> list[dict[str, float]]:
-    """Four frames: lean L → tall → lean R → squat. Adjacent related, 3→0 not a clone."""
+    """Optional full-state extras: lean L → tall → lean R → squat. 3→0 not a clone."""
     return [
         {"lean": -8.5, "rx": 10.8, "ry": 19.0, "intensity": 0.98, "tip_pull": 1.06, "cy_off": 0.4},
         {"lean": 0.6, "rx": 9.6, "ry": 23.5, "intensity": 1.06, "tip_pull": 1.32, "cy_off": -3.2},
         {"lean": 8.8, "rx": 11.2, "ry": 18.2, "intensity": 0.94, "tip_pull": 0.96, "cy_off": 0.8},
         {"lean": -2.2, "rx": 12.6, "ry": 15.4, "intensity": 0.90, "tip_pull": 0.80, "cy_off": 2.8},
     ]
+
+
+def flame_state_params() -> dict[str, dict[str, float]]:
+    """Primary bind targets (14b): full / hurt / dying — shape, not hue."""
+    return {
+        "full": {"lean": 0.6, "rx": 9.6, "ry": 23.5, "intensity": 1.06, "tip_pull": 1.32, "cy_off": -3.2},
+        "hurt": {"lean": 3.4, "rx": 7.2, "ry": 11.2, "intensity": 0.74, "tip_pull": 0.76, "cy_off": 4.2},
+        "dying": {"lean": 1.2, "rx": 4.8, "ry": 5.4, "intensity": 0.48, "tip_pull": 0.48, "cy_off": 10.0},
+    }
 
 
 def paint_extinguish_frame(index: int, size: tuple[int, int] = PLATE) -> Image.Image:
@@ -303,11 +312,9 @@ def composite_still(kind: str) -> Image.Image:
     """128×128 fallback: body + one overlay, letterboxed from the tall plate."""
     body = paint_body(PLATE)
     if kind == "full":
-        overlay = paint_flame_overlay(PLATE, **flame_loop_params()[1])
+        overlay = paint_flame_overlay(PLATE, **flame_state_params()["full"])
     elif kind == "hurt":
-        overlay = paint_flame_overlay(
-            PLATE, lean=2.2, rx=6.8, ry=10.5, intensity=0.72, tip_pull=0.78, cy_off=4.0
-        )
+        overlay = paint_flame_overlay(PLATE, **flame_state_params()["hurt"])
     else:
         overlay = paint_extinguish_frame(2, PLATE)
         smoke = paint_extinguish_frame(3, PLATE)
@@ -519,6 +526,18 @@ def assert_extinguish_sequence(frames: list[Image.Image]) -> None:
     print(f"  extinguish areas {areas}  heights {heights}  pairwise IoU ok")
 
 
+def assert_state_flames(full: Image.Image, hurt: Image.Image, dying: Image.Image) -> None:
+    boxes = {k: opaque_bbox(im, alpha_min=48) for k, im in (("full", full), ("hurt", hurt), ("dying", dying))}
+    heights = {k: max(0, b[3] - b[1]) for k, b in boxes.items()}
+    if heights["full"] < 20:
+        raise SystemExit(f"flame_full too short ({heights})")
+    if heights["hurt"] >= heights["full"] * 0.78:
+        raise SystemExit(f"flame_hurt not shorter than full ({heights})")
+    if heights["dying"] >= heights["hurt"] * 0.78:
+        raise SystemExit(f"flame_dying not shorter than hurt ({heights})")
+    print(f"  state flames heights full>hurt>dying {heights}")
+
+
 def assert_loop_alive(frames: list[Image.Image]) -> None:
     masks = [alpha_mask(im) for im in frames]
     # Adjacent frames must move; first and last must not be clones (loop still breathes).
@@ -556,14 +575,30 @@ def main() -> None:
     body_path = MEDIA / "art_life_candle_body.png"
     save_png(body, body_path)
 
-    flame_ims: list[Image.Image] = []
-    flame_paths: list[Path] = []
+    # Drop the interrupted 14b-pre names so the tree only has locked slots.
+    for stale in (
+        "art_life_candle_flame_0.png",
+        "art_life_candle_flame_1.png",
+        "art_life_candle_flame_2.png",
+        "art_life_candle_flame_3.png",
+    ):
+        old = MEDIA / stale
+        if old.exists():
+            old.unlink()
+
+    state_paths: dict[str, Path] = {}
+    for kind, params in flame_state_params().items():
+        im = paint_flame_overlay(PLATE, **params)
+        path = MEDIA / f"art_life_candle_flame_{kind}.png"
+        save_png(im, path)
+        state_paths[kind] = path
+
+    loop_paths: list[Path] = []
     for i, params in enumerate(flame_loop_params()):
         im = paint_flame_overlay(PLATE, **params)
-        path = MEDIA / f"art_life_candle_flame_{i}.png"
+        path = MEDIA / f"art_life_candle_flame_full_{i}.png"
         save_png(im, path)
-        flame_ims.append(im)
-        flame_paths.append(path)
+        loop_paths.append(path)
 
     ext_ims: list[Image.Image] = []
     ext_paths: list[Path] = []
@@ -584,14 +619,16 @@ def main() -> None:
 
     print("— png —")
     assert_png(body_path, PLATE, 80, 2_000)
-    for path in flame_paths + ext_paths:
+    for path in list(state_paths.values()) + loop_paths + ext_paths:
         assert_png(path, PLATE, 40, 400)
     for path in stills.values():
         assert_png(path, (STILL, STILL), 80, 2_000)
 
     print("— shape —")
-    assert_body_owns_mass(Image.open(body_path).convert("RGBA"), [Image.open(p).convert("RGBA") for p in flame_paths])
-    assert_loop_alive([Image.open(p).convert("RGBA") for p in flame_paths])
+    state_ims = {k: Image.open(p).convert("RGBA") for k, p in state_paths.items()}
+    assert_body_owns_mass(Image.open(body_path).convert("RGBA"), list(state_ims.values()) + [Image.open(p).convert("RGBA") for p in loop_paths])
+    assert_state_flames(state_ims["full"], state_ims["hurt"], state_ims["dying"])
+    assert_loop_alive([Image.open(p).convert("RGBA") for p in loop_paths])
     assert_extinguish_sequence([Image.open(p).convert("RGBA") for p in ext_paths])
 
     print("— sfx —")
@@ -608,7 +645,7 @@ def main() -> None:
         if not (peak_win[0] <= pk <= peak_win[1]):
             raise SystemExit(f"{path.name} peak {pk:.2f} outside {peak_win}")
 
-    print("life-candle polish written (body > flame; extinguish is a sequence; two Foley wavs)")
+    print("life-candle polish written (body > flame; flame_full/hurt/dying bind; optional full_0..3; extinguish; two Foley wavs)")
 
 
 if __name__ == "__main__":
