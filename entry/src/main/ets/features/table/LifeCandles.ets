@@ -295,6 +295,7 @@ export struct LifeCandles {
    * not last. Extinguish stays that slot only — never lb_sfx_card_flip.
    */
   private playExtinguish(pip: number): void {
+    SoundPlayer.diagT0('extinguish', Date.now());
     this.clearExtTimers();
     let target: number = pip;
     if (target < 0) {
@@ -325,6 +326,7 @@ export struct LifeCandles {
       this.extPip = -1;
       this.lastLives = this.lives;
       this.extTimers = [];
+      SoundPlayer.diagT2('extinguish');
     }, step * frames));
   }
 
