@@ -7,7 +7,9 @@ import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
 import { DealBeat, DealFx } from '../features/table/DealFx';
+import { DebugBuild } from '../common/DebugBuild';
 import { LifeCandles } from '../features/table/LifeCandles';
+import { SoundPlayer } from '../features/table/SoundPlayer';
 import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
@@ -100,6 +102,8 @@ struct Table {
   @State hintKind: number = 0;
   @State failIdx: number = -1;
   @State failGen: number = 0;
+  /** 14b R-LIFE-5: which seat the debug −1 hits. Default self. */
+  @State debugSeatId: number = 0;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -164,10 +168,13 @@ struct Table {
     DealAudio.prepare();
     TableAudio.bind(ctx);
     TableAudio.prepare();
+    SoundPlayer.bind(ctx);
+    SoundPlayer.prepare();
     const boot: MatchSnapshot | null = AppRuntime.engine.current();
     if (boot !== null) {
       DealAudio.setSilent(boot.silentMode);
       TableAudio.setSilent(boot.silentMode);
+      SoundPlayer.setSilent(boot.silentMode);
     }
     TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
     this.lockTableWindow();
@@ -189,6 +196,7 @@ struct Table {
       this.hintTimer = -1;
     }
     DealAudio.release();
+    SoundPlayer.release();
     this.unbindAvoid();
   }
 
@@ -273,6 +281,10 @@ struct Table {
 
         if (this.hintKind > 0) {
           this.playHintToast()
+        }
+
+        if (DebugBuild.lifeDecShown()) {
+          this.debugLifeDec()
         }
       }
       .width('100%')
@@ -633,8 +645,7 @@ struct Table {
           lives: this.life0,
           groupId: ControlIds.LIFE_SELF,
           compact: false,
-          small: this.compactLife,
-          showDigit: true
+          small: this.compactLife
         })
       }
       .layoutWeight(1)
@@ -681,6 +692,50 @@ struct Table {
     .align(Alignment.Bottom)
     .margin({ bottom: 72 })
     .hitTestBehavior(HitTestMode.None)
+  }
+
+  /**
+   * 14b R-LIFE-5. Debug/dev only (caller gates on DebugBuild.lifeDecShown).
+   * Seat chip selects target; lb_btn_debug_life_dec does −1 + extinguish.
+   * Does not change padB / HAND_RING_GAP / challenge / lives_default.
+   */
+  @Builder
+  debugLifeDec() {
+    Row({ space: 6 }) {
+      this.debugSeatChip(0, 'self')
+      this.debugSeatChip(1, 'p1')
+      this.debugSeatChip(2, 'p2')
+      this.debugSeatChip(3, 'p3')
+      Text('−1')
+        .id(ControlIds.DEBUG_LIFE_DEC)
+        .fontColor($r('app.color.tavern_paper'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 8,
+          right: 8,
+          top: 2,
+          bottom: 2
+        })
+        .backgroundColor($r('app.color.tavern_panel'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugLifeDec();
+        })
+    }
+    .align(Alignment.TopEnd)
+    .margin({ top: 2, right: 4 })
+    .zIndex(20)
+  }
+
+  @Builder
+  debugSeatChip(seatId: number, label: string) {
+    Text(label)
+      .fontColor(this.debugSeatId === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
+      .fontSize($r('app.float.caption_text_size'))
+      .onClick(() => {
+        this.debugSeatId = seatId;
+        this.onDebugLifeDec();
+      })
   }
 
   /** R-LAND-4: lock-name play/challenge stay as caption links, not a dual bottom bar. */
@@ -768,8 +823,7 @@ struct Table {
               lives: life,
               groupId: this.lifeIdOf(seatId),
               compact: true,
-              small: this.compactLife,
-              showDigit: false
+              small: this.compactLife
             })
           }
           this.oppBacks(seatId)
@@ -799,8 +853,7 @@ struct Table {
             lives: life,
             groupId: this.lifeIdOf(seatId),
             compact: true,
-            small: this.compactLife,
-            showDigit: false
+            small: this.compactLife
           })
         }
         this.oppBacks(seatId)
@@ -959,6 +1012,19 @@ struct Table {
     this.applyInsetFloors();
   }
 
+  private onDebugLifeDec(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    const ok: boolean = AppRuntime.engine.debugDecLife(this.debugSeatId);
+    if (!ok) {
+      Logger.info(TAG, `debug life dec skipped seat=${this.debugSeatId}`);
+      return;
+    }
+    this.lastHudStamp = '';
+    this.pull();
+  }
+
   private goHome(): void {
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
@@ -999,6 +1065,7 @@ struct Table {
     const stamp: string = this.hudStamp(snap);
     DealAudio.setSilent(snap.silentMode);
     TableAudio.setSilent(snap.silentMode);
+    SoundPlayer.setSilent(snap.silentMode);
     if (snap.phase === Phase.DEAL) {
       if (stamp !== this.lastHudStamp) {
         this.lastHudStamp = stamp;
@@ -1482,6 +1549,14 @@ struct Table {
   }
 
   private noteSfx(idName: string): void {
+    if (idName === SfxIds.CARD_FLIP) {
+      SoundPlayer.playCardFlip();
+      return;
+    }
+    if (idName === SfxIds.LIFE_EXTINGUISH) {
+      SoundPlayer.playLifeExtinguish();
+      return;
+    }
     if (this.silentHud) {
       Logger.info(TAG, `${idName} skipped (silent)`);
       return;

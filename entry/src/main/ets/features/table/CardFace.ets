@@ -9,6 +9,8 @@ const CARD_RAISE_MS: number = 140;
  * Reusable baked card face (docs/04-设计/09 §4 + 15 flip/raise).
  * Identity lives in art_card_* PNG (盾徽 bake ≥22%). Do not overlay rank Text.
  * Tap-select: vertical-axis squash flip 180～240ms + raise 8～16vp.
+ * Flip audio is SoundPlayer.playCardFlip (lb_sfx_card_flip) from Table tap —
+ * not log-only. Peek face-up does not play flip.
  */
 @Component
 export struct CardFace {

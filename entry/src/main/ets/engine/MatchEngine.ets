@@ -472,6 +472,31 @@ export class MatchEngine {
     return true;
   }
 
+  /**
+   * 14b R-LIFE-5 debug −1. Same life drop as penalty, no rule rewrite:
+   * lives_default stays 3, max_play frozen, challenge not unfrozen, no recap.
+   */
+  debugDecLife(seatId: number): boolean {
+    if (this.cfg === null || this.seats.length === 0) {
+      return false;
+    }
+    const seat = seatById(this.seats, seatId);
+    if (seat === null || seat.lives <= 0) {
+      return false;
+    }
+    seat.lives = seat.lives - 1;
+    seat.lastDelta = -1;
+    seat.lastReason = LifeReason.NONE;
+    this.pushEvent(EventKind.LIFE_CHANGE, seatId, 'DEBUG_DEC');
+    if (seat.lives === 0) {
+      seat.status = SeatStatus.GHOST;
+      this.hands[seatId] = [];
+      this.pushEvent(EventKind.OUT, seatId, 'GHOST');
+    }
+    Logger.info(TAG, `debugDecLife seat=${seatId} lives=${seat.lives}`);
+    return true;
+  }
+
   penaltyDone(): boolean {
     if (this.phase !== Phase.PENALTY) {
       return false;
