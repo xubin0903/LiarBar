@@ -299,7 +299,6 @@ export struct LifeCandles {
     }
     this.extPip = target;
     this.extFrame = 0;
-    SoundPlayer.playCardFlip();
     const step: number = LifeFx.EXTINGUISH_FRAME_MS;
     let frames: number = LifeFx.EXTINGUISH_FRAMES;
     if (frames < 2) {
