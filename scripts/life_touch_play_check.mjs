@@ -30,6 +30,7 @@ function pngSize(rel) {
 const table = src('entry/src/main/ets/pages/Table.ets');
 const face = src('entry/src/main/ets/features/table/CardFace.ets');
 const life = src('entry/src/main/ets/features/table/LifeCandles.ets');
+const player = src('entry/src/main/ets/features/table/SoundPlayer.ets');
 const overlays = src('entry/src/main/ets/features/table/TableOverlays.ets');
 const layout = src('entry/src/main/ets/features/table/TableLayout.ets');
 const ids = src('entry/src/main/ets/common/Ids.ets');
@@ -251,6 +252,15 @@ if (life.includes('SoundPlayer.playCardFlip') || life.includes('SfxIds.CARD_FLIP
   pass('extinguish path has no card-flip slot');
 }
 
+if (player.includes('SfxReady') && player.includes('flipReady') && player.includes('warmupSlot') &&
+    player.includes('firstPlay') && player.includes('deferred=') &&
+    table.includes('warmupTableSfx') && table.includes('await SoundPlayer.prepare()') &&
+    !table.includes('\n    SoundPlayer.prepare();')) {
+  pass('enter-table SFX warmup waits loadComplete; firstPlay logs ready/pending');
+} else {
+  fail('SoundPlayer warmup / SfxReady firstPlay path missing');
+}
+
 if (table.includes('max_play_cards') && table.includes('failGen') &&
     table.includes('lb_str_play_over_select')) {
   pass('over-select fail path present');
@@ -293,7 +303,7 @@ for (const wav of ['sfx_card_flip.wav', 'sfx_life_extinguish.wav']) {
   }
 }
 
-const scanned = [table, face, life, overlays, engine].join('\n');
+const scanned = [table, face, life, overlays, engine, player].join('\n');
 if (/\bany\b/.test(scanned) || /ESObject/.test(scanned)) {
   fail('ESObject/any in 14/15 path');
 } else {
