@@ -8,7 +8,7 @@ import { ControlIds } from '../../common/Ids';
  */
 @Component
 export struct LifeCandles {
-  @Prop lives: number = 3;
+  @Prop @Watch('onLivesChanged') lives: number = 3;
   @Prop groupId: string = '';
   /** Opponent seats: smaller pips. */
   @Prop compact: boolean = false;
@@ -31,7 +31,6 @@ export struct LifeCandles {
     }
   }
 
-  @Watch('lives')
   onLivesChanged(): void {
     if (this.lives < this.lastLives) {
       this.playDropShake();
