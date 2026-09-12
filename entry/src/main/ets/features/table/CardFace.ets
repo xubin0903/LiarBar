@@ -30,6 +30,9 @@ export struct CardFace {
   private flipTimer: number = -1;
   private failTimer: number = -1;
   private flipSfxArmed: boolean = false;
+  /** DIAG ONLY: T0 captured at playFlip entry (state/anim in). */
+  private diagFlipT0: number = 0;
+  private diagT2Timer: number = -1;
 
   aboutToAppear(): void {
     this.showFront = this.faceUp;
@@ -45,6 +48,10 @@ export struct CardFace {
     if (this.failTimer >= 0) {
       clearTimeout(this.failTimer);
       this.failTimer = -1;
+    }
+    if (this.diagT2Timer >= 0) {
+      clearTimeout(this.diagT2Timer);
+      this.diagT2Timer = -1;
     }
   }
 
@@ -128,6 +135,7 @@ export struct CardFace {
 
   /** 15 §3: squash through 0 = short 3D flip (not a texture pop). */
   private playFlip(): void {
+    this.diagFlipT0 = Date.now();
     if (this.flipTimer >= 0) {
       clearTimeout(this.flipTimer);
       this.flipTimer = -1;
@@ -160,7 +168,21 @@ export struct CardFace {
       return;
     }
     this.flipSfxArmed = true;
+    const t0: number = this.diagFlipT0 > 0 ? this.diagFlipT0 : Date.now();
+    SoundPlayer.diagT0('flip', t0);
     SoundPlayer.playCardFlip();
+    if (this.diagT2Timer >= 0) {
+      clearTimeout(this.diagT2Timer);
+    }
+    const elapsed: number = Date.now() - t0;
+    let wait: number = CARD_FLIP_MS - elapsed;
+    if (wait < 0) {
+      wait = 0;
+    }
+    this.diagT2Timer = setTimeout((): void => {
+      this.diagT2Timer = -1;
+      SoundPlayer.diagT2('flip');
+    }, wait);
   }
 
   private playRaise(): void {

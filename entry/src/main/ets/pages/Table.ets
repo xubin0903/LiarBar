@@ -190,8 +190,8 @@ struct Table {
   /** Enter-table: finish SoundPool loadComplete + silent warmup before first tap. */
   private async warmupTableSfx(): Promise<void> {
     await SoundPlayer.prepare();
-    Logger.info(TAG,
-      `SfxReady enter-table warm=${SoundPlayer.isWarm()} pending=false deferred=false`);
+    Logger.info('SfxReady',
+      `SfxReady enter-table warm=${SoundPlayer.isWarm()} pending=false deferred=false t=${Date.now()}`);
   }
 
   aboutToDisappear(): void {
