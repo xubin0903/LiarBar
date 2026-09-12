@@ -72,6 +72,8 @@
     { "name": "lb_str_beat_reveal", "value": "翻牌" },
     { "name": "lb_str_beat_result", "value": "定格" },
     { "name": "lb_str_tutorial_stub", "value": "教学蒙层占位，不另开路由" },
-    { "name": "lb_str_spectator_stub", "value": "旁观互动占位，不改阶段" }
+    { "name": "lb_str_spectator_stub", "value": "旁观互动占位，不改阶段" },
+    { "name": "lb_str_debug_open", "value": "调" },
+    { "name": "lb_str_debug_life_dec", "value": "−1" }
   ]
 }

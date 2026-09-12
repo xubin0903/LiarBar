@@ -104,6 +104,8 @@ struct Table {
   @State failGen: number = 0;
   /** 14b R-LIFE-5: which seat the debug −1 hits. Default self. */
   @State debugSeatId: number = 0;
+  /** 14b R-LIFE-5: panel closed = only lb_btn_debug_open. */
+  @State debugLifeOpen: boolean = false;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -284,7 +286,7 @@ struct Table {
         }
 
         if (DebugBuild.lifeDecShown()) {
-          this.debugLifeDec()
+          this.debugLifeChrome()
         }
       }
       .width('100%')
@@ -696,35 +698,77 @@ struct Table {
 
   /**
    * 14b R-LIFE-5. Debug/dev only (caller gates on DebugBuild.lifeDecShown).
-   * Seat chip selects target; lb_btn_debug_life_dec does −1 + extinguish.
+   * Steady state: one 28～32vp lb_btn_debug_open. −1 lives only in the panel.
+   * Click entry again or the dim to close. Release: nothing mounted.
    * Does not change padB / HAND_RING_GAP / challenge / lives_default.
    */
   @Builder
-  debugLifeDec() {
-    Row({ space: 6 }) {
-      this.debugSeatChip(0, 'self')
-      this.debugSeatChip(1, 'p1')
-      this.debugSeatChip(2, 'p2')
-      this.debugSeatChip(3, 'p3')
-      Text('−1')
+  debugLifeChrome() {
+    Stack({ alignContent: Alignment.TopEnd }) {
+      if (this.debugLifeOpen) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .onClick(() => {
+            this.debugLifeOpen = false;
+          })
+      }
+      Column({ space: 6 }) {
+        Stack({ alignContent: Alignment.Center }) {
+          Text($r('app.string.lb_str_debug_open'))
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+        }
+        .id(ControlIds.DEBUG_OPEN)
+        .width($r('app.float.debug_open_size'))
+        .height($r('app.float.debug_open_size'))
+        .backgroundColor($r('app.color.tavern_panel'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.debugLifeOpen = !this.debugLifeOpen;
+        })
+        if (this.debugLifeOpen) {
+          this.debugLifePanel()
+        }
+      }
+      .alignItems(HorizontalAlign.End)
+      .margin({ top: 2, right: 4 })
+    }
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(this.debugLifeOpen ? HitTestMode.Default : HitTestMode.Transparent)
+    .zIndex(20)
+  }
+
+  @Builder
+  debugLifePanel() {
+    Column({ space: 6 }) {
+      Row({ space: 6 }) {
+        this.debugSeatChip(0, 'self')
+        this.debugSeatChip(1, 'p1')
+        this.debugSeatChip(2, 'p2')
+        this.debugSeatChip(3, 'p3')
+      }
+      Text($r('app.string.lb_str_debug_life_dec'))
         .id(ControlIds.DEBUG_LIFE_DEC)
-        .fontColor($r('app.color.tavern_paper'))
+        .fontColor($r('app.color.tavern_shadow'))
         .fontSize($r('app.float.caption_text_size'))
         .padding({
-          left: 8,
-          right: 8,
-          top: 2,
-          bottom: 2
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
         })
-        .backgroundColor($r('app.color.tavern_panel'))
+        .backgroundColor($r('app.color.tavern_accent'))
         .borderRadius(6)
         .onClick(() => {
           this.onDebugLifeDec();
         })
     }
-    .align(Alignment.TopEnd)
-    .margin({ top: 2, right: 4 })
-    .zIndex(20)
+    .id(ControlIds.DEBUG_LIFE)
+    .padding(8)
+    .backgroundColor($r('app.color.tavern_panel'))
+    .borderRadius(8)
   }
 
   @Builder
@@ -734,7 +778,6 @@ struct Table {
       .fontSize($r('app.float.caption_text_size'))
       .onClick(() => {
         this.debugSeatId = seatId;
-        this.onDebugLifeDec();
       })
   }
 

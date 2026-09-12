@@ -7,6 +7,8 @@ import { SoundPlayer } from './SoundPlayer';
  * Binds #108 real media: body + flame_{full,hurt,dying} + extinguish_0..3.
  * Full pip loops flame_full_0..3 when those files exist (they do on develop).
  * Falls back to art_life_candle_full/_hurt/_dying only if LifeFx.LAYERED is false.
+ * R-LIFE-6: body + flame share pipVp() (float.json). Self 30～32 / seat 20～22;
+ * L-small ×1.4. Do not scale flame alone. R-LIFE-2 stays body > flame in the art.
  * Does not change lives_default (still 3). Not a button. No padB / GAP / flush.
  */
 @Component

@@ -69,6 +69,9 @@ const idLocks = [
   "LIFE_SEAT_P3: string = 'lb_cmp_life_seat_p3'",
   "LIFE_PIP_0: string = 'lb_cmp_life_pip_0'",
   "TXT_LIFE_SELF: string = 'lb_txt_life_self'",
+  "DEBUG_OPEN: string = 'lb_btn_debug_open'",
+  "DEBUG_LIFE: string = 'lb_cmp_debug_life'",
+  "DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec'",
   "PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar'",
   "PLAY_CONFIRM: string = 'lb_btn_play_confirm'",
   "CARD_FLIP: string = 'lb_sfx_card_flip'",
@@ -86,14 +89,42 @@ for (const line of idLocks) {
 if (table.includes('ControlIds.LIFE_SELF') &&
     table.includes('ControlIds.LIFE_SEAT_P1') &&
     table.includes('LifeCandles') &&
+    life.includes("app.media.art_life_candle_body") &&
+    life.includes("app.media.art_life_candle_flame_full") &&
     life.includes("app.media.art_life_candle_full") &&
-    life.includes("app.media.art_life_candle_hurt") &&
-    life.includes("app.media.art_life_candle_dying") &&
-    life.includes('ControlIds.TXT_LIFE_SELF') &&
-    life.includes('PLACEHOLDER')) {
-  pass('14 life group + candle art_* + self digit + PLACEHOLDER');
+    !life.includes('ControlIds.TXT_LIFE_SELF') &&
+    !table.includes('ControlIds.TXT_LIFE_SELF')) {
+  pass('14/14b life group + layered candle; no face digit');
 } else {
   fail('14 life wiring incomplete');
+}
+
+if (table.includes('ControlIds.DEBUG_OPEN') &&
+    table.includes('ControlIds.DEBUG_LIFE') &&
+    table.includes('ControlIds.DEBUG_LIFE_DEC') &&
+    table.includes('debugLifeOpen') &&
+    table.includes('debugLifePanel') &&
+    table.includes('DebugBuild.lifeDecShown')) {
+  pass('R-LIFE-5 debug open → panel → −1, DebugBuild gated');
+} else {
+  fail('R-LIFE-5 debug panel missing');
+}
+
+const floatDoc = JSON.parse(floats);
+const floatByName = Object.fromEntries(floatDoc.float.map((item) => [item.name, item.value]));
+const wantFloat = {
+  life_pip_self: '32vp',
+  life_pip_self_small: '22vp',
+  life_pip_seat: '21vp',
+  life_pip_seat_small: '17vp',
+  debug_open_size: '30vp'
+};
+for (const [name, value] of Object.entries(wantFloat)) {
+  if (floatByName[name] === value) {
+    pass(`float ${name}=${value}`);
+  } else {
+    fail(`float ${name}=${floatByName[name]} want ${value}`);
+  }
 }
 
 if (table.includes('Text(this.life0)') || table.includes('Text(this.life1)')) {
