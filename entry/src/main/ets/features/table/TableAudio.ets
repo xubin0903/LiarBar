@@ -27,6 +27,10 @@ const PATH_LOSE: string = 'audio/sfx/sfx_result_lose.wav';
  * BGM stays on this AVPlayer (MUSIC). Flip/extinguish short SFX live on
  * SoundPlayer's GAME SoundPool — not this MUSIC pool — so path-B latency
  * experiments do not share the table bed mixer.
+ *
+ * EXP 1 (post-#126, post-playRet): BGM mute/pause only. Does not touch
+ * SoundPlayer / CardFace / LifeCandles hang points. DealAudio is deal-SFX
+ * SoundPool (no AVPlayer bed) — not muted here.
  */
 export class TableAudio {
   static readonly BGM: string = SfxIds.BGM_TABLE_BLUFF;
@@ -41,6 +45,14 @@ export class TableAudio {
 
   static readonly BGM_FADE_IN_MS: number = 600;
   static readonly BGM_FADE_OUT_MS: number = 400;
+  /**
+   * EXP 1 rebuild flag (PRIMARY / latency A/B). true = table AVPlayer BGM
+   * never starts; flip/extinguish SFX stay on. Default false so normal play
+   * still has the bed. Aron: set true + Rebuild for BGM-off from enter-table
+   * without opening the debug panel. Runtime toggle (lb_btn_debug_bgm_mute)
+   * can still restore. NOT a volume change — see SoundPlayer VOL_FLIP.
+   */
+  static readonly EXP_MUTE_BGM: boolean = false;
   static readonly VOL_BGM: number = 0.20;
   static readonly VOL_CLAIM: number = 0.40;
   static readonly VOL_SOFT: number = 0.38;
@@ -73,6 +85,8 @@ export class TableAudio {
   private static winId: number = -1;
   private static loseId: number = -1;
   private static silent: boolean = false;
+  /** Runtime BGM mute (debug toggle / EXP_MUTE_BGM). SFX pools stay live. */
+  private static bgmMuted: boolean = false;
   private static bedsWanted: boolean = false;
   private static pendingBgm: boolean = false;
   private static pendingClaim: boolean = false;
@@ -93,6 +107,33 @@ export class TableAudio {
 
   static bind(context: common.UIAbilityContext): void {
     TableAudio.context = context;
+    TableAudio.bgmMuted = TableAudio.EXP_MUTE_BGM;
+    Logger.info('SfxDiag',
+      `SfxDiag bgmMute bind exp=${TableAudio.EXP_MUTE_BGM} runtime=${TableAudio.bgmMuted}`);
+  }
+
+  static isBgmMuted(): boolean {
+    return TableAudio.bgmMuted;
+  }
+
+  /**
+   * EXP 1: pause/resume table AVPlayer BGM only. Does not setSilent —
+   * claim/slam/flip/extinguish keep playing. Immediate pause (no fade)
+   * so A/B listen is clean.
+   */
+  static setBgmMuted(on: boolean): void {
+    TableAudio.bgmMuted = on;
+    Logger.info('SfxDiag',
+      `SfxDiag bgmMute on=${on} exp=${TableAudio.EXP_MUTE_BGM} ` +
+        `bedsWanted=${TableAudio.bedsWanted} silent=${TableAudio.silent}`);
+    if (on) {
+      TableAudio.pendingBgm = false;
+      TableAudio.stopBedsNow();
+      return;
+    }
+    if (TableAudio.bedsWanted && !TableAudio.silent) {
+      TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
+    }
   }
 
   static setSilent(on: boolean): void {
@@ -106,7 +147,7 @@ export class TableAudio {
       TableAudio.stopBedsNow();
       return;
     }
-    if (TableAudio.bedsWanted) {
+    if (TableAudio.bedsWanted && !TableAudio.bgmMuted) {
       TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
     }
   }
@@ -150,6 +191,12 @@ export class TableAudio {
     TableAudio.bedsWanted = true;
     if (TableAudio.silent) {
       Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} skipped (silent)`);
+      return;
+    }
+    if (TableAudio.bgmMuted) {
+      Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} skipped (exp BGM mute)`);
+      TableAudio.pendingBgm = false;
+      TableAudio.stopBedsNow();
       return;
     }
     if (!TableAudio.bgmReady || TableAudio.bgmPlayer === null) {
@@ -245,6 +292,7 @@ export class TableAudio {
 
   static release(): void {
     TableAudio.bedsWanted = false;
+    TableAudio.bgmMuted = TableAudio.EXP_MUTE_BGM;
     TableAudio.clearPendings();
     TableAudio.resultPlayed = false;
     TableAudio.bgmFadeId = TableAudio.clearIntervalId(TableAudio.bgmFadeId);
@@ -409,7 +457,8 @@ export class TableAudio {
   }
 
   private static duckForSlam(): void {
-    if (TableAudio.silent || TableAudio.bgmPlayer === null || !TableAudio.bedsWanted) {
+    if (TableAudio.silent || TableAudio.bgmMuted || TableAudio.bgmPlayer === null ||
+      !TableAudio.bedsWanted) {
       return;
     }
     const ducked: number = TableAudio.VOL_BGM * TableAudio.SLAM_DUCK_FACTOR;

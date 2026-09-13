@@ -73,6 +73,7 @@ const idLocks = [
   "DEBUG_OPEN: string = 'lb_btn_debug_open'",
   "DEBUG_LIFE: string = 'lb_cmp_debug_life'",
   "DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec'",
+  "DEBUG_BGM_MUTE: string = 'lb_btn_debug_bgm_mute'",
   "PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar'",
   "PLAY_CONFIRM: string = 'lb_btn_play_confirm'",
   "CARD_FLIP: string = 'lb_sfx_card_flip'",
@@ -109,6 +110,17 @@ if (table.includes('ControlIds.DEBUG_OPEN') &&
   pass('R-LIFE-5 debug open → panel → −1, DebugBuild gated');
 } else {
   fail('R-LIFE-5 debug panel missing');
+}
+
+if (table.includes('ControlIds.DEBUG_BGM_MUTE') &&
+    table.includes('onDebugBgmMute') &&
+    table.includes('debugBgmMuted') &&
+    table.includes('TableAudio.setBgmMuted') &&
+    strings.includes('lb_str_debug_bgm_mute') &&
+    strings.includes('lb_str_debug_bgm_on')) {
+  pass('EXP 1: debug BGM mute toggle (lb_btn_debug_bgm_mute)');
+} else {
+  fail('EXP 1 debug BGM mute toggle missing');
 }
 
 const floatDoc = JSON.parse(floats);
@@ -259,6 +271,20 @@ if (player.includes('SfxReady') && player.includes('flipReady') && player.includ
   pass('enter-table SFX warmup waits loadComplete; firstPlay logs ready/pending');
 } else {
   fail('SoundPlayer warmup / SfxReady firstPlay path missing');
+}
+
+if (player.includes('SfxDiag playRet') && player.includes('SfxDiag playFin') &&
+    player.includes('dPlayFin-T1') && player.includes('dPlayRet-T1')) {
+  pass('SfxDiag T0/T1/T2 + playRet + playFin kept (INFO)');
+} else {
+  fail('SfxDiag playRet / playFin missing');
+}
+
+if (player.includes('VOL_FLIP: number = 0.70') &&
+    player.includes('VOL_EXTINGUISH: number = 0.55')) {
+  pass('volume (SEPARATE): VOL_FLIP 0.70 VOL_EXTINGUISH 0.55');
+} else {
+  fail('VOL_FLIP / VOL_EXTINGUISH not the labeled volume bump');
 }
 
 if (table.includes('max_play_cards') && table.includes('failGen') &&
