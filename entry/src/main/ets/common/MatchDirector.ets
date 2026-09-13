@@ -17,6 +17,11 @@ const TAG = 'MatchDirector';
  */
 export class MatchDirector {
   private timerId: number = -1;
+  /**
+   * 16 PlayLaunch window. Table sets this; tick must not runAi / submit
+   * a second hand while the fly is on screen (F16-4).
+   */
+  playBusy: boolean = false;
   private thinkUntilMs: number = 0;
   private armedSeat: number = -1;
   private armedRound: number = -1;
@@ -54,6 +59,7 @@ export class MatchDirector {
     }
     this.thinkUntilMs = 0;
     this.armedSeat = -1;
+    this.playBusy = false;
   }
 
   tick(): void {
@@ -67,6 +73,9 @@ export class MatchDirector {
     }
     this.pushLive(snap);
     if (snap.phase === Phase.RECAP || snap.phase === Phase.END || snap.phase === Phase.LOBBY) {
+      return;
+    }
+    if (this.playBusy) {
       return;
     }
     if (this.engine.humanMustWait()) {

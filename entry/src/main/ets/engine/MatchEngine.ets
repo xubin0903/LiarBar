@@ -105,6 +105,10 @@ export class MatchEngine {
   private challengeHits: number[] = [];
   private tableMode: TableMode = TableMode.SOCIAL;
   private skipDepth: number = 0;
+  /** Aron L7 · first empty = 1st. UI RankSettle after PlayLanded. */
+  private emptyOrder: number[] = [];
+  /** Cards of the last committed play — rollbackLastPlay puts them back. */
+  private lastPicked: CardModel[] = [];
 
   current(): MatchSnapshot | null {
     if (this.snapshot === null && this.cfg === null) {
@@ -195,6 +199,8 @@ export class MatchEngine {
     this.currentClaim = null;
     this.lastPlay = null;
     this.lastPlayRanks = [];
+    this.emptyOrder = [];
+    this.lastPicked = [];
     this.discard = [];
     this.challenge = null;
     this.revealOpen = false;
@@ -251,6 +257,8 @@ export class MatchEngine {
     this.stallSkipCount = 0;
     this.currentClaim = null;
     this.lastPlay = null;
+    this.emptyOrder = [];
+    this.lastPicked = [];
     this.challenge = null;
     this.winnerSeatId = -1;
     this.dealerKey = 'lb_str_dlr_lobby_full';
@@ -326,6 +334,42 @@ export class MatchEngine {
       }
     }
     this.commitPicked(picked, usedStyle, speech, namedSeatId, false);
+    return true;
+  }
+
+  /**
+   * Authority reject after an optimistic submit (16 onPlayRollback).
+   * Restores lastPicked to the actor, pops emptyOrder if this play emptied,
+   * returns the seat to TURN. No AwaitChallenge / RankSettle.
+   */
+  rollbackLastPlay(): boolean {
+    if (this.lastPlay === null || this.lastPicked.length === 0) {
+      return false;
+    }
+    const actor: number = this.lastPlay.actorSeatId;
+    this.returnCards(actor, this.lastPicked);
+    this.lastPicked = [];
+    if (this.emptyOrder.length > 0 && this.emptyOrder[this.emptyOrder.length - 1] === actor) {
+      const kept: number[] = [];
+      for (let i = 0; i < this.emptyOrder.length - 1; i++) {
+        kept.push(this.emptyOrder[i]);
+      }
+      this.emptyOrder = kept;
+    }
+    this.playIndexInRound = this.playIndexInRound - 1;
+    if (this.playIndexInRound < 0) {
+      this.playIndexInRound = 0;
+    }
+    this.playCounts[actor] = this.playCounts[actor] - 1;
+    if (this.playCounts[actor] < 0) {
+      this.playCounts[actor] = 0;
+    }
+    this.lastPlay = null;
+    this.lastPlayRanks = [];
+    this.currentSeatId = actor;
+    this.phase = Phase.TURN;
+    this.enterTurn();
+    Logger.info(TAG, `rollbackLastPlay actor=${actor} → TURN`);
     return true;
   }
 
@@ -883,6 +927,13 @@ export class MatchEngine {
       committedAt: Date.now()
     };
     this.lastPlayRanks = ranks;
+    this.lastPicked = [];
+    for (let i = 0; i < picked.length; i++) {
+      this.lastPicked.push({ cardId: picked[i].cardId, rank: picked[i].rank });
+    }
+    if (this.handOf(actor).length === 0) {
+      this.emptyOrder.push(actor);
+    }
     this.playIndexInRound = this.playIndexInRound + 1;
     this.stallSkipCount = 0;
     this.playCounts[actor] = this.playCounts[actor] + 1;
@@ -1168,7 +1219,15 @@ export class MatchEngine {
     if (this.lastPlay === null) {
       return false;
     }
-    return this.playIndexInRound >= 1;
+    if (this.playIndexInRound < 1) {
+      return false;
+    }
+    for (let i = 0; i < this.emptyOrder.length; i++) {
+      if (this.emptyOrder[i] === this.lastPlay.actorSeatId) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private currentIsGhost(): boolean {
@@ -1290,6 +1349,7 @@ export class MatchEngine {
       currentSeatId: this.currentSeatId,
       currentClaim: this.currentClaim,
       lastPlay: this.lastPlay,
+      emptyOrder: this.copyIds(this.emptyOrder),
       lastPenalizedSeatId: this.lastPenalizedSeatId,
       roundIndex: this.roundIndex,
       playIndexInRound: this.playIndexInRound,
@@ -1314,6 +1374,14 @@ export class MatchEngine {
     };
     this.snapshot = snap;
     return snap;
+  }
+
+  private copyIds(src: number[]): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < src.length; i++) {
+      out.push(src[i]);
+    }
+    return out;
   }
 
   private copyRanks(src: string[]): string[] {
