@@ -17,6 +17,7 @@
     { "name": "lb_str_debug_play_reject", "value": "拒" },
     { "name": "lb_str_challenge", "value": "质疑" },
     { "name": "lb_str_challenge_disabled_first", "value": "第一手还没人出过牌" },
+    { "name": "lb_str_challenge_reject", "value": "质疑未生效" },
     { "name": "lb_str_skip", "value": "跳过" },
     { "name": "lb_str_skip_line", "value": "不带话" },
     { "name": "lb_str_again", "value": "再来一局" },

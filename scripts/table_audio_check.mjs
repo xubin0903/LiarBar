@@ -159,27 +159,46 @@ if (audio.includes('skipped (silent)') &&
 }
 
 const challengeBlob = `${challenge}\n${beats}`;
-const wiredChallengeSfx = ids.includes("'lb_sfx_challenge") ||
-  audio.includes('audio/sfx/sfx_challenge') ||
-  table.includes('playChallenge') ||
+const fourBeatWired = ids.includes("'lb_sfx_challenge_windup'") ||
+  ids.includes("'lb_sfx_challenge_standoff'") ||
+  audio.includes('audio/sfx/sfx_challenge_windup') ||
+  audio.includes('audio/sfx/sfx_challenge_standoff') ||
+  audio.includes('audio/sfx/sfx_challenge_reveal') ||
+  audio.includes('audio/sfx/sfx_challenge_result') ||
+  audio.includes('audio/sfx/sfx_challenge_pass') ||
   challengeBlob.includes('TableAudio') ||
-  challengeBlob.includes('sfx_challenge_');
-if (!wiredChallengeSfx) {
-  pass('challenge SFX absent (play frozen; no sfx_challenge_* ids/files wired)');
+  challengeBlob.includes('sfx_challenge_enter') ||
+  challengeBlob.includes('sfx_challenge_commit');
+if (!fourBeatWired) {
+  pass('old four-beat / pass challenge SFX still unwired (Section 2 uses enter/commit only)');
 } else {
-  fail('challenge SFX leaked into rebind');
+  fail('old four-beat or pass challenge SFX leaked');
+}
+
+if (ids.includes("'lb_sfx_challenge_enter'") &&
+    ids.includes("'lb_sfx_challenge_commit'") &&
+    audio.includes('sfx_challenge_enter.wav') &&
+    audio.includes('sfx_challenge_commit.wav') &&
+    audio.includes('playChallengeEnter') &&
+    audio.includes('playChallengeCommit') &&
+    table.includes('playChallengeEnter') &&
+    table.includes('playChallengeCommit')) {
+  pass('Section 2 enter/commit slots wired on table (not flip/launch/land)');
+} else {
+  fail('Section 2 enter/commit wiring missing');
 }
 
 const challengeFiles = [
   'entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_windup.wav',
   'entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_standoff.wav',
   'entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_reveal.wav',
-  'entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_result.wav'
+  'entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_result.wav',
+  'entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_pass.wav'
 ];
 if (challengeFiles.every((rel) => !existsSync(join(root, rel)))) {
-  pass('no sfx_challenge_* rawfiles');
+  pass('no four-beat / pass sfx_challenge_* rawfiles');
 } else {
-  fail('sfx_challenge_* file present');
+  fail('banned sfx_challenge_* file present');
 }
 
 if (audio.includes('bgm_table_bluff') && !audio.includes('bgm_lobby_night') &&

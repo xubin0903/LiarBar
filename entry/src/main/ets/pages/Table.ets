@@ -12,8 +12,10 @@ import { LifeCandles } from '../features/table/LifeCandles';
 import { SoundPlayer } from '../features/table/SoundPlayer';
 import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
+import { ChallengeEntry } from '../features/table/components/ChallengeEntry';
 import { PlayFly } from '../features/table/components/PlayFly';
 import { PlayFrontPile } from '../features/table/components/PlayFrontPile';
+import { ChallengeFx } from '../features/table/ChallengeFx';
 import { PlayFlyFx } from '../features/table/PlayFlyFx';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
@@ -102,6 +104,11 @@ struct Table {
   @State compactLife: boolean = false;
   @State confirmBarOn: boolean = false;
   @State confirmBusy: boolean = false;
+  /** 17 · in-table AwaitChallenge. Not a new engine phase. */
+  @State challengeEntryOn: boolean = false;
+  @State challengeCommitBusy: boolean = false;
+  @State challengeRemainSec: number = 10;
+  @State challengeTargetPlayId: string = '';
   /** 16 · PlayLaunch overlay. Independent of DealFx.flyOn. */
   @State playFlyOn: boolean = false;
   @State playFlyX: number = 0;
@@ -187,6 +194,11 @@ struct Table {
   private heardPlayId: string = '';
   private playFlyPlayId: string = '';
   private playFlyTimer: number = -1;
+  private challengeTickId: number = -1;
+  private challengeDeadlineMs: number = 0;
+  private challengeEnterPlayId: string = '';
+  private challengeResolvedPlayId: string = '';
+  private challengeDebugReject: boolean = false;
   private rollbackHand: CardModel[] = [];
   private rollbackSelected: string[] = [];
   private queuedPlayId: string = '';
@@ -253,6 +265,7 @@ struct Table {
     }
     this.cancelDealTimers();
     this.cancelPlayFlyTimer();
+    this.cancelChallengeTimer();
     AppRuntime.director.playBusy = false;
     if (this.hintTimer >= 0) {
       clearTimeout(this.hintTimer);
@@ -335,7 +348,7 @@ struct Table {
         // Does not change padB / HAND_RING_GAP.
         Stack({ alignContent: Alignment.BottomEnd }) {
           PlayConfirmBar({
-            visible: this.confirmBarOn,
+            visible: this.confirmBarOn && !this.challengeEntryOn,
             confirmEnabled: this.confirmEnabled && !this.confirmBusy,
             onConfirm: () => {
               this.confirmTablePlay();
@@ -345,6 +358,30 @@ struct Table {
         .width('100%')
         .height('100%')
         .hitTestBehavior(HitTestMode.Transparent)
+
+        // 17 AwaitChallenge: same BottomEnd overlay family as confirm bar.
+        // Must NOT live in handPin (would grow hug / lift cards / raise padB).
+        Stack({ alignContent: Alignment.BottomEnd }) {
+          ChallengeEntry({
+            visible: this.challengeEntryOn && !this.challengeCommitBusy,
+            remainSec: this.challengeRemainSec,
+            onTrue: () => {
+              this.onChallengeTrue();
+            },
+            onFalse: () => {
+              this.onChallengeFalse();
+            },
+            onPass: () => {
+              this.onChallengePass(false);
+            }
+          })
+        }
+        .id(ControlIds.CHALLENGE_AWAIT)
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+        .visibility(this.challengeEntryOn && !this.challengeCommitBusy ?
+          Visibility.Visible : Visibility.None)
 
         if (this.hintKind > 0) {
           this.playHintToast()
@@ -763,6 +800,10 @@ struct Table {
         Text($r('app.string.lb_str_play_rollback'))
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.caption_text_size'))
+      } else if (this.hintKind === 5) {
+        Text($r('app.string.lb_str_challenge_reject'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
       }
     }
     .padding({
@@ -912,6 +953,21 @@ struct Table {
         .onClick(() => {
           this.onDebugPlayReject();
         })
+      Text($r('app.string.lb_str_challenge_reject'))
+        .id(ControlIds.DEBUG_CHALLENGE_REJECT)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor($r('app.color.tavern_danger'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugChallengeReject();
+        })
     }
     .id(ControlIds.DEBUG_LIFE)
     .padding(8)
@@ -929,19 +985,10 @@ struct Table {
       })
   }
 
-  /** R-LAND-4: lock-name play/challenge stay as caption links, not a dual bottom bar. */
+  /** R-LAND-4: no dual bottom bar. Old lb_btn_challenge weak CTA deleted (C2-6). */
   @Builder
   weakCta() {
     Row({ space: 8 }) {
-      Text($r('app.string.lb_str_challenge'))
-        .id(ControlIds.CHALLENGE)
-        .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
-        .fontSize($r('app.float.caption_text_size'))
-        .onClick(() => {
-          // 16 §0 / F16-10: old four-beat frozen (no dual track).
-          // AwaitChallenge is Section 2. Do not push lb_scr_challenge.
-          return;
-        })
       if (this.skipEnabled) {
         Text($r('app.string.lb_str_skip'))
           .fontColor($r('app.color.tavern_paper'))
@@ -950,10 +997,10 @@ struct Table {
             AppRuntime.engine.skip();
             this.pull();
           })
-      } else if (!this.showPlay) {
+      } else if (!this.showPlay && !this.challengeEntryOn) {
         Text($r('app.string.lb_str_play'))
           .id(ControlIds.PLAY)
-          .fontColor(this.playEnabled ? $r('app.color.tavern_mute') : $r('app.color.tavern_mute'))
+          .fontColor($r('app.color.tavern_mute'))
           .fontSize($r('app.float.caption_text_size'))
           .onClick(() => {
             this.openSecondaryPlaySheet();
@@ -1270,7 +1317,8 @@ struct Table {
       return;
     }
     if (snap.phase === Phase.CHALLENGE_RITUAL || snap.phase === Phase.JUDGE) {
-      // 16 §0 / F16-10: freeze old four-beat. No dual-track AwaitChallenge.
+      // C2-6 / C2-7: stay on table. No lb_scr_challenge. No local pile flip.
+      this.closeChallengeEntry(false);
       this.pushedChallenge = false;
       return;
     }
@@ -1292,6 +1340,10 @@ struct Table {
       return;
     }
     this.applyTimer(snap);
+    // Land may share the in-flight stamp; still (re)gate AwaitChallenge.
+    if (snap.phase === Phase.TURN) {
+      this.syncChallengeEntry(snap);
+    }
     if (stamp === this.lastHudStamp) {
       return;
     }
@@ -1313,6 +1365,8 @@ struct Table {
     }
     if (snap.playIndexInRound === 0 && !this.playFlyOn) {
       this.clearAllPiles();
+      this.challengeResolvedPlayId = '';
+      this.challengeEnterPlayId = '';
       if (this.hiddenCardIds.length > 0) {
         this.hiddenCardIds = [];
       }
@@ -1357,13 +1411,14 @@ struct Table {
     this.syncOppStacks(snap.seats);
     this.maybeOtherPlayFly(snap);
     const humanTurn: boolean = this.isHumanTurn(snap);
-    // 16 Section 1: old challenge CTA stays frozen (stub). hand==0 never AwaitChallenge.
+    // Old weak CTA stays dead. New entry is syncChallengeEntry (C2-6).
     if (this.challengeEnabled) {
       this.challengeEnabled = false;
     }
     const nextPlay: boolean = humanTurn && snap.hasCards &&
       (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF) &&
-      snap.turnWindow !== TurnWindow.CHALLENGE_ONLY;
+      snap.turnWindow !== TurnWindow.CHALLENGE_ONLY &&
+      !this.challengeEntryOn && !this.challengeCommitBusy;
     if (this.playEnabled !== nextPlay) {
       this.playEnabled = nextPlay;
     }
@@ -1611,6 +1666,7 @@ struct Table {
       this.confirmEnabled = ok;
     }
     const barOn: boolean = ok && !this.showPlay && !this.confirmBusy &&
+      !this.challengeEntryOn && !this.challengeCommitBusy &&
       snap.phase === Phase.TURN;
     if (this.confirmBarOn !== barOn) {
       this.confirmBarOn = barOn;
@@ -1639,7 +1695,7 @@ struct Table {
    */
   private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
-    if (snap === null || this.confirmBusy) {
+    if (snap === null || this.confirmBusy || this.challengeEntryOn || this.challengeCommitBusy) {
       return;
     }
     if (!this.playEnabled) {
@@ -1677,7 +1733,7 @@ struct Table {
   }
 
   private openSecondaryPlaySheet(): void {
-    if (!this.playEnabled) {
+    if (!this.playEnabled || this.challengeEntryOn || this.challengeCommitBusy) {
       return;
     }
     AppRuntime.engine.intentPlay();
@@ -1720,7 +1776,8 @@ struct Table {
   }
 
   private onCardTap(idx: number): void {
-    if (this.dealPlaying || this.showPeek || this.confirmBusy) {
+    if (this.dealPlaying || this.showPeek || this.confirmBusy ||
+      this.challengeEntryOn || this.challengeCommitBusy) {
       return;
     }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
@@ -1778,7 +1835,8 @@ struct Table {
     if (!SoundPlayer.isArmFlipTouchDown()) {
       return false;
     }
-    if (this.dealPlaying || this.showPeek || this.confirmBusy) {
+    if (this.dealPlaying || this.showPeek || this.confirmBusy ||
+      this.challengeEntryOn || this.challengeCommitBusy) {
       return false;
     }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
@@ -1824,7 +1882,7 @@ struct Table {
     }
   }
 
-  /** 1=非己回合 2=超选 3=张数不符 4=出牌未生效 / 张数已纠正 */
+  /** 1=非己回合 2=超选 3=张数不符 4=出牌未生效 / 张数已纠正 5=质疑未生效 */
   private flashHint(kind: number): void {
     this.hintKind = kind;
     if (this.hintTimer >= 0) {
@@ -1865,6 +1923,7 @@ struct Table {
     if (this.challengeEnabled) {
       this.challengeEnabled = false;
     }
+    this.closeChallengeEntry(false);
     if (this.playEnabled) {
       this.playEnabled = false;
     }
@@ -2198,6 +2257,7 @@ struct Table {
     this.queuedPlayId = '';
     this.confirmBusy = false;
     AppRuntime.director.playBusy = false;
+    this.closeChallengeEntry(false);
   }
 
   private cancelPlayFlyTimer(): void {
@@ -2257,6 +2317,241 @@ struct Table {
       return;
     }
     this.onPlayRollback();
+  }
+
+  /** C2-7: next 假 is authority NACK — toast 质疑未生效, restore entry, no flip. */
+  private onDebugChallengeReject(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    this.challengeDebugReject = true;
+    Logger.info(TAG, 'debug challenge reject armed');
+  }
+
+  /**
+   * Q03: PlayLanded ∧ hand>0 ∧ not first hand ∧ canChallenge ∧ human.
+   * Zero entry during PlayLaunch / confirmBusy / RankSettle / first hand.
+   */
+  private shouldShowChallengeEntry(snap: MatchSnapshot): boolean {
+    if (this.playFlyOn || this.confirmBusy || this.rankSettleOn || this.challengeCommitBusy) {
+      return false;
+    }
+    if (snap.phase !== Phase.TURN) {
+      return false;
+    }
+    if (!this.isHumanTurn(snap) || !snap.hasCards) {
+      return false;
+    }
+    if (snap.lastPlay === null || snap.lastPlay.isFirstOfRound) {
+      return false;
+    }
+    if (!snap.canChallenge) {
+      return false;
+    }
+    if (this.actorEmptied(snap)) {
+      return false;
+    }
+    if (snap.lastPlay.playId === this.challengeResolvedPlayId) {
+      return false;
+    }
+    return true;
+  }
+
+  private actorEmptied(snap: MatchSnapshot): boolean {
+    if (snap.lastPlay === null) {
+      return true;
+    }
+    const actor: number = snap.lastPlay.actorSeatId;
+    for (let i = 0; i < snap.emptyOrder.length; i++) {
+      if (snap.emptyOrder[i] === actor) {
+        return true;
+      }
+    }
+    return this.handCountOf(snap.seats, actor) === 0;
+  }
+
+  private syncChallengeEntry(snap: MatchSnapshot): void {
+    const want: boolean = this.shouldShowChallengeEntry(snap);
+    if (!want) {
+      if (this.challengeEntryOn && !this.challengeCommitBusy) {
+        this.closeChallengeEntry(false);
+      }
+      return;
+    }
+    const playId: string = snap.lastPlay === null ? '' : snap.lastPlay.playId;
+    if (this.challengeEntryOn && this.challengeTargetPlayId === playId) {
+      return;
+    }
+    this.openChallengeEntry(snap);
+  }
+
+  private openChallengeEntry(snap: MatchSnapshot): void {
+    if (snap.lastPlay === null) {
+      return;
+    }
+    this.challengeTargetPlayId = snap.lastPlay.playId;
+    this.challengeEntryOn = true;
+    this.challengeCommitBusy = false;
+    this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
+    this.confirmBarOn = false;
+    if (this.playEnabled) {
+      this.playEnabled = false;
+    }
+    if (this.selectedIds.length > 0) {
+      this.selectedIds = [];
+    }
+    if (this.challengeEnterPlayId !== this.challengeTargetPlayId) {
+      this.challengeEnterPlayId = this.challengeTargetPlayId;
+      TableAudio.playChallengeEnter();
+      Logger.info(TAG, `${SfxIds.CHALLENGE_ENTER} AwaitChallenge target=${this.challengeTargetPlayId}`);
+    }
+    this.armChallengeTimer();
+  }
+
+  private closeChallengeEntry(allowPlay: boolean): void {
+    this.cancelChallengeTimer();
+    if (this.challengeEntryOn) {
+      this.challengeEntryOn = false;
+    }
+    if (this.challengeCommitBusy) {
+      this.challengeCommitBusy = false;
+    }
+    if (!allowPlay) {
+      return;
+    }
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null) {
+      return;
+    }
+    const humanTurn: boolean = this.isHumanTurn(snap);
+    const nextPlay: boolean = humanTurn && snap.hasCards &&
+      (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF) &&
+      snap.turnWindow !== TurnWindow.CHALLENGE_ONLY;
+    if (this.playEnabled !== nextPlay) {
+      this.playEnabled = nextPlay;
+    }
+    this.refreshPlayMeta(snap);
+  }
+
+  private armChallengeTimer(): void {
+    this.cancelChallengeTimer();
+    this.challengeDeadlineMs = Date.now() + ChallengeFx.AWAIT_MS;
+    this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
+    this.challengeTickId = setInterval((): void => {
+      const left: number = this.challengeDeadlineMs - Date.now();
+      let sec: number = Math.ceil(left / 1000);
+      if (sec < 0) {
+        sec = 0;
+      }
+      if (this.challengeRemainSec !== sec) {
+        this.challengeRemainSec = sec;
+      }
+      if (left <= 0) {
+        this.onChallengePass(true);
+      }
+    }, ChallengeFx.TICK_MS);
+  }
+
+  private cancelChallengeTimer(): void {
+    if (this.challengeTickId >= 0) {
+      clearInterval(this.challengeTickId);
+      this.challengeTickId = -1;
+    }
+  }
+
+  /** 真 = ChallengeCommit. Same ACK path as 假. Not a disguised Pass. */
+  private onChallengeTrue(): void {
+    this.commitChallenge(true);
+  }
+
+  /** 假 = ChallengeCommit. Same ACK path as 真. */
+  private onChallengeFalse(): void {
+    this.commitChallenge(false);
+  }
+
+  /**
+   * Q04: 真 / 假 both ChallengeCommit + lb_sfx_challenge_commit.
+   * Wait authority ACK before pile reveal (C2-7 / #141).
+   * Guess right/wrong + life deduct = Section 3. This PR stubs RevealAfterAck.
+   */
+  private commitChallenge(guessTrue: boolean): void {
+    if (!this.challengeEntryOn || this.challengeCommitBusy) {
+      return;
+    }
+    TableAudio.playChallengeCommit();
+    this.challengeCommitBusy = true;
+    this.cancelChallengeTimer();
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    let target: string = this.challengeTargetPlayId;
+    if (snap !== null && snap.lastPlay !== null) {
+      target = snap.lastPlay.playId;
+      this.challengeTargetPlayId = target;
+    }
+    const guess: string = guessTrue ? 'true' : 'false';
+    Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} ${guess} target=${target}`);
+    if (this.challengeDebugReject) {
+      this.challengeDebugReject = false;
+      this.rejectChallengeRestore();
+      return;
+    }
+    if (snap === null || snap.lastPlay === null || snap.lastPlay.playId !== target) {
+      this.rejectChallengeRestore();
+      return;
+    }
+    const ok: boolean = AppRuntime.engine.intentChallenge();
+    if (!ok) {
+      this.rejectChallengeRestore();
+      return;
+    }
+    // ACK accepted. Pile stays backs. Section 3 owns flip / judge / lives.
+    Logger.info(TAG, `RevealAfterAck stub guess=${guess} target=${target}`);
+    this.closeChallengeEntry(false);
+    this.pull();
+  }
+
+  private rejectChallengeRestore(): void {
+    this.flashHint(5);
+    this.challengeCommitBusy = false;
+    const left: number = this.challengeDeadlineMs - Date.now();
+    if (left <= 0) {
+      this.closeChallengeEntry(true);
+      return;
+    }
+    this.challengeEntryOn = true;
+    this.armChallengeTimerFromRemain(left);
+    Logger.info(TAG, `lb_str_challenge_reject restore entry target=${this.challengeTargetPlayId}`);
+  }
+
+  private armChallengeTimerFromRemain(leftMs: number): void {
+    this.cancelChallengeTimer();
+    this.challengeDeadlineMs = Date.now() + leftMs;
+    this.challengeRemainSec = Math.ceil(leftMs / 1000);
+    this.challengeTickId = setInterval((): void => {
+      const left: number = this.challengeDeadlineMs - Date.now();
+      let sec: number = Math.ceil(left / 1000);
+      if (sec < 0) {
+        sec = 0;
+      }
+      if (this.challengeRemainSec !== sec) {
+        this.challengeRemainSec = sec;
+      }
+      if (left <= 0) {
+        this.onChallengePass(true);
+      }
+    }, ChallengeFx.TICK_MS);
+  }
+
+  /** 过 / timeout: silent. No enter / commit / flip / launch / land. */
+  private onChallengePass(fromTimeout: boolean): void {
+    if (!this.challengeEntryOn && !fromTimeout) {
+      return;
+    }
+    if (this.challengeCommitBusy) {
+      return;
+    }
+    Logger.info(TAG, fromTimeout ? 'AwaitChallenge timeout Pass' : 'AwaitChallenge Pass');
+    this.challengeResolvedPlayId = this.challengeTargetPlayId;
+    this.closeChallengeEntry(true);
   }
 
   private ensureDealShow(snap: MatchSnapshot): void {

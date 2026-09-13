@@ -7,8 +7,9 @@ export class LbRouter {
     LbRouter.push(PageUrls.TABLE);
   }
 
+  /** Frozen: Section 2 AwaitChallenge is in-table. Do not push lb_scr_challenge. */
   static toChallenge(): void {
-    LbRouter.push(PageUrls.CHALLENGE);
+    Logger.warn('LbRouter', 'toChallenge frozen — AwaitChallenge is in-table (Section 2)');
   }
 
   static toReport(): void {
@@ -27,8 +28,9 @@ export class LbRouter {
     LbRouter.replace(PageUrls.REPORT);
   }
 
+  /** Frozen: Section 2 does not replace into the old four-beat page. */
   static replaceChallenge(): void {
-    LbRouter.replace(PageUrls.CHALLENGE);
+    Logger.warn('LbRouter', 'replaceChallenge frozen — AwaitChallenge is in-table (Section 2)');
   }
 
   private static replace(url: string): void {
