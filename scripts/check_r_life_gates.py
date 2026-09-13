@@ -166,6 +166,12 @@ def main() -> None:
         raise SystemExit("EXP 3: EXP_USE_RENDERER default must be true (renderer PRIMARY)")
     if "writeData" not in player or "resampleTo" not in player:
         raise SystemExit("EXP 2/3: writeData / resample missing")
+    if "SfxDiag write0" not in player or "writeDone" not in player or "playFin≠onset" not in player:
+        raise SystemExit("EXP 4: write0 / playFin writeDone stamps missing")
+    if "renderer.flush()" not in player or "AudioDataCallbackResult.INVALID" not in player:
+        raise SystemExit("EXP 4: flush / INVALID-idle buffer path missing")
+    if "SfxDiag buf" not in player or "getBufferSizeSync" not in player:
+        raise SystemExit("EXP 4: buffer size probe missing")
     audio = read("entry/src/main/ets/features/table/TableAudio.ets")
     if "EXP_MUTE_BGM: boolean = false" not in audio or "setBgmMuted" not in audio:
         raise SystemExit("EXP 1: TableAudio BGM mute flag/toggle missing")

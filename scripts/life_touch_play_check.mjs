@@ -275,10 +275,12 @@ if (player.includes('SfxReady') && player.includes('flipReady') && player.includ
 }
 
 if (player.includes('SfxDiag playRet') && player.includes('SfxDiag playFin') &&
-    player.includes('dPlayFin-T1') && player.includes('dPlayRet-T1')) {
-  pass('SfxDiag T0/T1/T2 + playRet + playFin kept (INFO)');
+    player.includes('dPlayFin-T1') && player.includes('dPlayRet-T1') &&
+    player.includes('SfxDiag write0') && player.includes('writeDone') &&
+    player.includes('note=playFin≠onset')) {
+  pass('SfxDiag T0/T1/T2 + playRet + write0 + playFin(writeDone) kept (INFO)');
 } else {
-  fail('SfxDiag playRet / playFin missing');
+  fail('SfxDiag playRet / playFin / write0 missing');
 }
 
 if (player.includes('VOL_FLIP: number = 0.70') &&
@@ -296,14 +298,17 @@ if (player.includes('SfxDiag rate') &&
     player.includes('writeData') &&
     player.includes('EXP_USE_RENDERER: boolean = true') &&
     player.includes('path=renderer') &&
+    player.includes('renderer.flush()') &&
+    player.includes('AudioDataCallbackResult.INVALID') &&
+    player.includes('SfxDiag buf') &&
     table.includes('ControlIds.DEBUG_SFX_PATH') &&
     table.includes('onDebugSfxPath') &&
     table.includes('SoundPlayer.setUseRenderer') &&
     strings.includes('lb_str_debug_sfx_pool') &&
     strings.includes('lb_str_debug_sfx_renderer')) {
-  pass('EXP 2 rate probe/resample + EXP 3 AudioRenderer path + debug A/B');
+  pass('EXP 2 rate + EXP 3 renderer + EXP 4 INVALID-idle/flush buffer + debug A/B');
 } else {
-  fail('EXP 2/3 renderer path, rate logs, or debug A/B missing');
+  fail('EXP 2/3/4 renderer path, rate logs, buffer flush, or debug A/B missing');
 }
 
 if (table.includes('max_play_cards') && table.includes('failGen') &&
