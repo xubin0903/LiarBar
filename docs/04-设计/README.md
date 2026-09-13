@@ -65,9 +65,10 @@
 | [玩家框idle-资产交件.md](./玩家框idle-资产交件.md) | **玩家 idle 真铜框**（256×256 RGBA，外圈+中空透明）覆盖 `art_frame_player_idle` 黑块/减号占位；不挡 R-LAND；不做 named/turn/ghost |
 | [玩家self头像-资产交件.md](./玩家self头像-资产交件.md) | **玩家 self 真头像** `art_player_idle`（256×256 RGBA，外圈透明可圆裁）；叠在铜框 `art_frame_player_idle` 下；不另起第五套 AI id；零 ets |
 | [生命烛与出牌确认铬-资产交件.md](./生命烛与出牌确认铬-资产交件.md) | **线 A 生命烛 + 线 B 出牌确认铬**（128×128 三态烛 / 720×144 毡铜钮）：同名覆盖 #103 PLACEHOLDER；零 ets；**合入≠终验**。动画路径已被 [生命烛精致化](./生命烛精致化-资产交件.md) 覆盖静帧-only |
-| [生命烛精致化-资产交件.md](./生命烛精致化-资产交件.md) | **生命烛精致化 v1.1**（2026-09-12 · 14b+PM 锁名）：`art_life_candle_body` + **主绑** `flame_full` / `_hurt` / `_dying` + `extinguish_0…3`；可选 `flame_full_0…n`；body>flame；`sfx_card_flip` / `sfx_life_extinguish`；旧三态暂留；零 ets；**合入≠终验** |
+| [生命烛精致化-资产交件.md](./生命烛精致化-资产交件.md) | **生命烛精致化 v1.1**（2026-09-12 · 14b+PM 锁名）：`art_life_candle_body` + **主绑** `flame_full` / `_hurt` / `_dying` + `extinguish_0…3`；可选 `flame_full_0…n`；body>flame；`sfx_card_flip` / `sfx_life_extinguish`；旧三态暂留；零 ets；**合入≠终验**。翻牌槽现源见 [短促起势交件](./翻牌SFX-短促起势-资产交件.md) |
+| [翻牌SFX-短促起势-资产交件.md](./翻牌SFX-短促起势-资产交件.md) | **翻牌同槽短促起势**（2026-09-13）：只覆盖 `sfx_card_flip.wav`（`lb_sfx_card_flip`）；92ms · 48k mono · peak −10.0 dBFS · 头静音 0ms；熄灭不裁；零 ets；**合入≠终验** |
 | [局内声场-资产交件.md](./局内声场-资产交件.md) | **局内伴奏 + §5.2 SFX**（v1.1）：`bgm_table_bluff` 已换 **Moil / Ruskerdax / CC0**（立体声 48k Vorbis · **32.00s** · **−12.9 dBFS** · 530600 字节）；numpy 拼曲 **作废**；八槽 `sfx_*` **本批冻结**；**无** `sfx_challenge_*`；零 ets。署名 [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) |
-| [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) | **音频署名**：局内 BGM = Moil · Ruskerdax · CC0 · OpenGameArt URL；源 mp3 不进仓。生命烛 Foley（`sfx_card_flip` / `sfx_life_extinguish`）= **原作程序化** |
+| [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) | **音频署名**：局内 BGM = Moil · Ruskerdax · CC0 · OpenGameArt URL；源 mp3 不进仓。生命烛 Foley 两槽 = **原作程序化**；翻牌现源为短促起势同槽覆盖 |
 
 ---
 
@@ -136,6 +137,7 @@
 | `玩家self头像-资产交件.md` | 美术 | 玩家 `art_player_idle` 真头像 256×256 外圈透明；框下叠层，铜框 `art_frame_player_idle` 在上；不另起第五套 AI id | `玩家self头像-资产交件.md` |
 | `生命烛与出牌确认铬-资产交件.md` | 美术 | 线 A `art_life_candle_{full,hurt,dying}` + 线 B `art_btn_play_confirm*`；同名覆盖 #103 占位；禁系统灰钮；零 ets。动画路径见精致化交件 | `生命烛与出牌确认铬-资产交件.md` |
 | `生命烛精致化-资产交件.md` | 美术 / 音频 | body + **主绑** `flame_{full,hurt,dying}` + extinguish；可选 `flame_full_0…n`；`sfx_card_flip` / `sfx_life_extinguish`；旧三态暂留 | `生命烛精致化-资产交件.md` |
+| `翻牌SFX-短促起势-资产交件.md` | 美术 / 音频 | 同槽覆盖 `sfx_card_flip.wav`（80–100ms、头静音≈0）；熄灭不裁；零 ets | `翻牌SFX-短促起势-资产交件.md` |
 
 ---
 
