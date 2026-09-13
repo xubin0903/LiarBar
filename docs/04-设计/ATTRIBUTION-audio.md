@@ -70,4 +70,29 @@
 
 ---
 
-*维护人：美术 / 音频岗 · 2026-09-10 · 2026-09-12 增补生命烛 Foley 程序化署名 · 2026-09-13 翻牌同槽短促起势覆盖 · 2026-09-13 增补出牌飞出 launch/land 两槽*
+## 质疑第2节 · enter / commit（程序化 Foley · 无第三方源）
+
+本批 **未** 嵌入 CC0 / 商用库采样。两槽均为仓内脚本合成，**原作 · 程序化** · **CC0-equivalent**。**Pass 静音**：不交 `sfx_challenge_pass.wav`。
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_enter.wav` |
+| 媒体 id / 调用 | `sfx_challenge_enter` · `lb_sfx_challenge_enter` |
+| 许可 / 来源 | **原作程序化**（`scripts/gen_challenge_sfx.py` · 紧张低毡 + 金属一敲；非 beep / 非正弦 tip / 非系统 click） |
+| 实测 | 48 kHz mono PCM16 · **0.100s** · peak **−9.50 dBFS** · 头静音 **0.000 ms** · 9644 字节 |
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_challenge_commit.wav` |
+| 媒体 id / 调用 | `sfx_challenge_commit` · `lb_sfx_challenge_commit` |
+| 许可 / 来源 | **原作程序化**（同脚本 · 短促压力拍 / 指腹压毡；非 keypad、非纸刮） |
+| 实测 | 48 kHz mono PCM16 · **0.064s** · peak **−10.00 dBFS** · 头静音 **0.000 ms** · 6188 字节 |
+
+**未** 改 `sfx_card_flip.wav` / `sfx_life_extinguish.wav` / `sfx_play_launch.wav` / `sfx_play_land.wav`。  
+**禁止** 用 flip / launch / land 冒充本两槽。  
+**未** 生成旧四拍 `sfx_challenge_windup` / `_standoff` / `_reveal` / `_result`，也 **未** 生成 `sfx_challenge_pass`。  
+交件见 [质疑SFX-enter-commit-资产交件.md](./质疑SFX-enter-commit-资产交件.md)。
+
+---
+
+*维护人：美术 / 音频岗 · 2026-09-10 · 2026-09-12 增补生命烛 Foley 程序化署名 · 2026-09-13 翻牌同槽短促起势覆盖 · 2026-09-13 增补出牌飞出 launch/land 两槽 · 2026-09-13 增补质疑 enter/commit 两槽*

@@ -70,8 +70,9 @@
 | [生命烛精致化-资产交件.md](./生命烛精致化-资产交件.md) | **生命烛精致化 v1.1**（2026-09-12 · 14b+PM 锁名）：`art_life_candle_body` + **主绑** `flame_full` / `_hurt` / `_dying` + `extinguish_0…3`；可选 `flame_full_0…n`；body>flame；`sfx_card_flip` / `sfx_life_extinguish`；旧三态暂留；零 ets；**合入≠终验**。翻牌槽现源见 [短促起势交件](./翻牌SFX-短促起势-资产交件.md) |
 | [翻牌SFX-短促起势-资产交件.md](./翻牌SFX-短促起势-资产交件.md) | **翻牌同槽短促起势**（2026-09-13）：只覆盖 `sfx_card_flip.wav`（`lb_sfx_card_flip`）；92ms · 48k mono · peak −10.0 dBFS · 头静音 0ms；熄灭不裁；零 ets；**合入≠终验** |
 | [出牌飞出SFX-launch-land-资产交件.md](./出牌飞出SFX-launch-land-资产交件.md) | **出牌飞出两槽**（2026-09-13）：`sfx_play_launch.wav` → `lb_sfx_play_launch`（76ms · −10.0 dBFS）；`sfx_play_land.wav` → `lb_sfx_play_land`（104ms · −9.5 dBFS）；48k mono PCM16 · 头静音 0ms；禁复用翻牌槽；零 ets；**合入≠终验** |
-| [局内声场-资产交件.md](./局内声场-资产交件.md) | **局内伴奏 + §5.2 SFX**（v1.1）：`bgm_table_bluff` 已换 **Moil / Ruskerdax / CC0**（立体声 48k Vorbis · **32.00s** · **−12.9 dBFS** · 530600 字节）；numpy 拼曲 **作废**；八槽 `sfx_*` **本批冻结**；**无** `sfx_challenge_*`；零 ets。署名 [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) |
-| [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) | **音频署名**：局内 BGM = Moil · Ruskerdax · CC0 · OpenGameArt URL；源 mp3 不进仓。生命烛 Foley 两槽 = **原作程序化**；翻牌现源为短促起势同槽覆盖；出牌飞出 launch/land = **原作程序化** |
+| [质疑SFX-enter-commit-资产交件.md](./质疑SFX-enter-commit-资产交件.md) | **质疑第2节两槽**（2026-09-13）：`sfx_challenge_enter.wav` → `lb_sfx_challenge_enter`（100ms · −9.5 dBFS，AwaitChallenge onEnter）；`sfx_challenge_commit.wav` → `lb_sfx_challenge_commit`（64ms · −10.0 dBFS，质疑按下）；**无** pass 文件；禁复用 flip / launch / land；零 ets；**合入≠终验** |
+| [局内声场-资产交件.md](./局内声场-资产交件.md) | **局内伴奏 + §5.2 SFX**（v1.1）：`bgm_table_bluff` 已换 **Moil / Ruskerdax / CC0**（立体声 48k Vorbis · **32.00s** · **−12.9 dBFS** · 530600 字节）；numpy 拼曲 **作废**；八槽 `sfx_*` **本批冻结**；**旧四拍** `sfx_challenge_windup` 等仍无；enter/commit 见 [质疑SFX-enter-commit-资产交件](./质疑SFX-enter-commit-资产交件.md)；零 ets。署名 [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) |
+| [ATTRIBUTION-audio.md](./ATTRIBUTION-audio.md) | **音频署名**：局内 BGM = Moil · Ruskerdax · CC0 · OpenGameArt URL；源 mp3 不进仓。生命烛 Foley 两槽 = **原作程序化**；翻牌现源为短促起势同槽覆盖；出牌飞出 launch/land = **原作程序化**；质疑 enter/commit = **原作程序化**（Pass 静音） |
 
 ---
 
