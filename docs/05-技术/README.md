@@ -98,6 +98,7 @@ GDD §14 原先指向「`05-技术/状态机与规则引擎.md`」。本批文�
 | 质疑只验上家本手 | GDD §6.2 | `02` `Challenge.targetPlayId` |
 | 受罚者下家先出 | GDD §2.3、G-Q1 | `02` `nextFirstActor()` |
 | 手牌耗尽 / 打光名次 | GDD §10.1 索引 + [出牌扣牌-状态机](../02-游戏设计/出牌扣牌-状态机.md) Aron 锁 | 打光入名次（先空更好）；刚打光者禁 AwaitChallenge；3 命不改 |
+| 第2节质疑入口 | [质疑入口-状态机](../02-游戏设计/质疑入口-状态机.md) | AwaitChallenge → ChallengeCommit / Pass；ack 后再翻；超时 **10s**；真·假同层二键；「质疑未生效」。UI 拍不加新 phase |
 | `challenge_only_seconds = 8` | 数值表 §1 | `01` JSON；`02` 仅质疑窗 |
 | TURN 超时 AUTO_PLAY；仅质疑窗超时=跳过 | GDD §10、数值表 §6 | `02` §5 |
 | MVP 只人机 + 本地；无账号本地战绩 | PRD Q1、§9 | `01` 假设 |
