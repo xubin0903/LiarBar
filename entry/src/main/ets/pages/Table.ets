@@ -1964,7 +1964,7 @@ struct Table {
       count: this.playFlyCount,
       x: this.playFlyX,
       y: this.playFlyY,
-      scale: this.playFlyScale
+      flyScale: this.playFlyScale
     })
     }
     .width('100%')

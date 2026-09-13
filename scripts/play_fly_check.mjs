@@ -75,6 +75,17 @@ if (existsSync(join(root, 'entry/src/main/ets/features/table/components/PlayFly.
   fail('play fly / front pile components');
 }
 
+const shadowProp = /@(Prop|State)\s+(scale|opacity|rotate|translate|enabled)\b/;
+if (playFly.includes('@Prop flyScale') &&
+    table.includes('flyScale: this.playFlyScale') &&
+    playFly.includes('.scale({ x: this.flyScale, y: this.flyScale })') &&
+    !shadowProp.test(playFly) &&
+    !shadowProp.test(pile)) {
+  pass('PlayFly.flyScale (not CustomComponent.scale); no ArkUI shadow props');
+} else {
+  fail('PlayFly/PlayFrontPile shadows CustomComponent (scale/opacity/rotate/translate/enabled)');
+}
+
 if (ids.includes("PLAY_FLY: string = 'lb_cmp_play_fly'") &&
     ids.includes("PLAY_FRONT_PILE: string = 'lb_cmp_play_front_pile'") &&
     ids.includes("PLAY_LAUNCH: string = 'lb_sfx_play_launch'") &&
