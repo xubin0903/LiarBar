@@ -68,20 +68,50 @@ if (existsSync(join(root, 'entry/src/main/ets/features/table/components/Challeng
   fail('ChallengeEntry missing same-layer 真/假/过');
 }
 
-if (table.includes('ChallengeEntry({') &&
-    table.includes("Alignment.BottomEnd") &&
-    table.includes('ControlIds.CHALLENGE_AWAIT') &&
-    !table.includes('this.handPin()')?.valueOf()) {
-  // handPin still exists for cards; entry must not be constructed inside handPin()
+/**
+ * Brace-match one `{ ... }` starting at `from` (must point at `{`).
+ * Do not split on 'handPin()' — that call in build() sits before ChallengeEntry
+ * and a naive split falsely treats the sibling overlay as inside handPin.
+ */
+function braceBlock(src, from) {
+  if (from < 0 || src[from] !== '{') {
+    return '';
+  }
+  let depth = 0;
+  for (let i = from; i < src.length; i++) {
+    const ch = src[i];
+    if (ch === '{') {
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0) {
+        return src.slice(from, i + 1);
+      }
+    }
+  }
+  return '';
 }
 
-const handPinFn = table.split('@Builder\n  handPin()')[1] || table.split('handPin()')[1] || '';
-const handPinBody = handPinFn.slice(0, 2500);
-if (table.includes('ChallengeEntry({') &&
-    table.includes('ControlIds.CHALLENGE_AWAIT') &&
-    !handPinBody.includes('ChallengeEntry') &&
-    !handPinBody.includes('CHALLENGE_ENTRY')) {
-  pass('C2 overlay: BottomEnd AwaitChallenge, not inside handPin');
+function builderBody(src, name) {
+  const re = new RegExp(`@Builder\\s+${name}\\(\\)\\s*`);
+  const m = re.exec(src);
+  if (m === null) {
+    return '';
+  }
+  const braceAt = src.indexOf('{', m.index + m[0].length - 1);
+  return braceBlock(src, braceAt);
+}
+
+const handPinBody = builderBody(table, 'handPin');
+const pinNested = /ChallengeEntry|CHALLENGE_AWAIT|CHALLENGE_ENTRY/.test(handPinBody);
+const pinCallAt = table.indexOf('this.handPin()');
+const entryAt = table.indexOf('ChallengeEntry({');
+const awaitAt = table.indexOf('ControlIds.CHALLENGE_AWAIT');
+const bottomEndAt = table.indexOf('Alignment.BottomEnd');
+const siblingOverlay = pinCallAt >= 0 && entryAt > pinCallAt && awaitAt > entryAt &&
+  bottomEndAt >= 0 && bottomEndAt < entryAt;
+if (handPinBody.length > 0 && !pinNested && siblingOverlay) {
+  pass('C2 overlay: BottomEnd AwaitChallenge sibling of handPin (not inside @Builder handPin)');
 } else {
   fail('entry missing or mounted in handPin');
 }
