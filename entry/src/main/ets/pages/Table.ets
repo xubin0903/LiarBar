@@ -106,6 +106,8 @@ struct Table {
   @State debugSeatId: number = 0;
   /** 14b R-LIFE-5: panel closed = only lb_btn_debug_open. */
   @State debugLifeOpen: boolean = false;
+  /** EXP 1: debug panel BGM mute (table AVPlayer only; SFX stay). */
+  @State debugBgmMuted: boolean = false;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -172,6 +174,7 @@ struct Table {
     DealAudio.prepare();
     TableAudio.bind(ctx);
     TableAudio.prepare();
+    this.debugBgmMuted = TableAudio.isBgmMuted();
     const boot: MatchSnapshot | null = AppRuntime.engine.current();
     if (boot !== null) {
       DealAudio.setSilent(boot.silentMode);
@@ -179,6 +182,9 @@ struct Table {
       SoundPlayer.setSilent(boot.silentMode);
     }
     TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
+    Logger.info('SfxDiag',
+      `SfxDiag bgmMute enter-table runtime=${TableAudio.isBgmMuted()} ` +
+        `exp=${TableAudio.EXP_MUTE_BGM}`);
     this.lockTableWindow();
     this.pull();
     this.pollId = setInterval((): void => {
@@ -771,6 +777,23 @@ struct Table {
         .onClick(() => {
           this.onDebugLifeDec();
         })
+      Text(this.debugBgmMuted ? $r('app.string.lb_str_debug_bgm_on') :
+        $r('app.string.lb_str_debug_bgm_mute'))
+        .id(ControlIds.DEBUG_BGM_MUTE)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor(this.debugBgmMuted ? $r('app.color.tavern_accent') :
+          $r('app.color.tavern_mute'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugBgmMute();
+        })
     }
     .id(ControlIds.DEBUG_LIFE)
     .padding(8)
@@ -1060,6 +1083,15 @@ struct Table {
       this.compactLife = nextSmall;
     }
     this.applyInsetFloors();
+  }
+
+  private onDebugBgmMute(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    const next: boolean = !TableAudio.isBgmMuted();
+    TableAudio.setBgmMuted(next);
+    this.debugBgmMuted = next;
   }
 
   private onDebugLifeDec(): void {

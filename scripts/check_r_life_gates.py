@@ -106,10 +106,14 @@ def main() -> None:
         raise SystemExit("R-LIFE-5: lb_cmp_debug_life missing")
     if "DEBUG_LIFE_DEC" not in ids or "lb_btn_debug_life_dec" not in ids:
         raise SystemExit("R-LIFE-5: locked button id missing")
+    if "DEBUG_BGM_MUTE" not in ids or "lb_btn_debug_bgm_mute" not in ids:
+        raise SystemExit("EXP 1: lb_btn_debug_bgm_mute missing")
     if "debugLifeChrome" not in table or "debugLifePanel" not in table:
         raise SystemExit("R-LIFE-5: debug open/panel missing")
     if "debugLifeOpen" not in table or "onDebugLifeDec" not in table:
         raise SystemExit("R-LIFE-5: panel toggle / −1 missing")
+    if "onDebugBgmMute" not in table or "DEBUG_BGM_MUTE" not in table:
+        raise SystemExit("EXP 1: debug BGM mute toggle not on panel")
     if "lifeDecShown" not in table or "lifeDecShown" not in debug:
         raise SystemExit("R-LIFE-5: release hide gate missing")
     if "debugDecLife" not in engine:
@@ -146,6 +150,17 @@ def main() -> None:
 
     if "pool.play" not in player or "sfx_card_flip.wav" not in player:
         raise SystemExit("flip is still log-only / no SoundPlayer path")
+    if "VOL_FLIP: number = 0.70" not in player:
+        raise SystemExit("VOL_FLIP must stay the labeled 0.70 bump (separate from EXP 1)")
+    if "VOL_EXTINGUISH: number = 0.55" not in player:
+        raise SystemExit("VOL_EXTINGUISH must stay the labeled 0.55 bump")
+    if "SfxDiag playRet" not in player or "SfxDiag playFin" not in player:
+        raise SystemExit("SfxDiag playRet / playFin INFO logs missing")
+    audio = read("entry/src/main/ets/features/table/TableAudio.ets")
+    if "EXP_MUTE_BGM: boolean = false" not in audio or "setBgmMuted" not in audio:
+        raise SystemExit("EXP 1: TableAudio BGM mute flag/toggle missing")
+    if "STREAM_USAGE_GAME" in audio:
+        raise SystemExit("EXP 1 must not rewrite TableAudio StreamUsage")
     if "SoundPlayer.playCardFlip" not in table:
         raise SystemExit("Table noteSfx does not play card flip")
     if "SfxReady" not in player or "flipReady" not in player or "warmupSlot" not in player:

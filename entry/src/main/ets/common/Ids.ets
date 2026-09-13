@@ -89,6 +89,8 @@ export class ControlIds {
   static readonly DEBUG_OPEN: string = 'lb_btn_debug_open';
   static readonly DEBUG_LIFE: string = 'lb_cmp_debug_life';
   static readonly DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec';
+  /** EXP 1 · debug/dev only. Mute/restore table AVPlayer BGM (SFX stay). */
+  static readonly DEBUG_BGM_MUTE: string = 'lb_btn_debug_bgm_mute';
   /** 15 · 桌上确认条（合法选中才出；主提交） */
   static readonly PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar';
   static readonly PLAY_CONFIRM: string = 'lb_btn_play_confirm';

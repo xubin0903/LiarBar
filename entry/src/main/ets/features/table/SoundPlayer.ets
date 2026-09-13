@@ -34,10 +34,15 @@ const READY_TIMEOUT_MS: number = 1500;
  *
  * DIAG (#listen): T0/T1/T2 + playRet streamId so Rebuild can compare dT1-T0
  * (must stay small) against listen-feel. Does not change when play() is called.
+ * playFin = playFinished vs T1 (mixer/output duration; cannot replace ear).
+ *
+ * Volume below is a SEPARATE item from EXP 1 (TableAudio BGM mute).
  */
 export class SoundPlayer {
-  static readonly VOL_FLIP: number = 0.40;
-  static readonly VOL_EXTINGUISH: number = 0.42;
+  /** SEPARATE from latency EXP 1. #126 ear: flip too quiet. 0.40 → 0.70. */
+  static readonly VOL_FLIP: number = 0.70;
+  /** SEPARATE from latency EXP 1. Slight bump 0.42 → 0.55. */
+  static readonly VOL_EXTINGUISH: number = 0.55;
   static readonly MAX_STREAMS: number = 4;
   /**
    * Production short-SFX path. #125 DIAG_STREAM_USAGE_GAME is now the default:
@@ -376,12 +381,27 @@ export class SoundPlayer {
   }
 
   private static onPlayFinished(streamId: number): void {
+    const tFin: number = Date.now();
+    let kind: string = '';
     if (SoundPlayer.lastFlipStream === streamId) {
+      kind = 'flip';
       SoundPlayer.lastFlipStream = 0;
-    }
-    if (SoundPlayer.lastExtStream === streamId) {
+    } else if (SoundPlayer.lastExtStream === streamId) {
+      kind = 'extinguish';
       SoundPlayer.lastExtStream = 0;
     }
+    if (kind.length === 0) {
+      return;
+    }
+    const isFlip: boolean = kind === 'flip';
+    const playN: number = SoundPlayer.diagPlayN(isFlip);
+    const t0: number = isFlip ? SoundPlayer.diagFlipT0 : SoundPlayer.diagExtT0;
+    const t1: number = isFlip ? SoundPlayer.diagFlipT1 : SoundPlayer.diagExtT1;
+    const dFin1: number = t1 > 0 ? tFin - t1 : -1;
+    const dFin0: number = t0 > 0 ? tFin - t0 : -1;
+    Logger.info(TAG_DIAG,
+      `SfxDiag playFin kind=${kind} playN=${playN} t=${tFin} stream=${streamId} ` +
+        `dPlayFin-T1=${dFin1} dPlayFin-T0=${dFin0}`);
   }
 
   private static applyCompleted(soundId: number): void {

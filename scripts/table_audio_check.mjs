@@ -212,6 +212,32 @@ if (audio.includes('RawFileDescriptor') && audio.includes('AVFileDescriptor')) {
   fail('fd descriptors');
 }
 
+if (audio.includes('EXP_MUTE_BGM: boolean = false') &&
+    audio.includes('setBgmMuted') &&
+    audio.includes('isBgmMuted') &&
+    audio.includes('skipped (exp BGM mute)') &&
+    table.includes('TableAudio.setBgmMuted') &&
+    table.includes('ControlIds.DEBUG_BGM_MUTE') &&
+    table.includes('TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS)')) {
+  pass('EXP 1: BGM mute rebuild flag default off + debug toggle; startBgm still called');
+} else {
+  fail('EXP 1 BGM mute path missing or startBgm dropped');
+}
+
+const muteFn = audio.split('static setBgmMuted(on: boolean): void {')[1] || '';
+const muteBody = muteFn.split('\n  static ', 1)[0];
+if (muteBody.includes('stopBedsNow') && !muteBody.includes('setSilent')) {
+  pass('EXP 1 setBgmMuted pauses bed only (does not setSilent)');
+} else {
+  fail('EXP 1 setBgmMuted must pause BGM without setSilent');
+}
+
+if (!audio.includes('STREAM_USAGE_GAME')) {
+  pass('TableAudio bed stays MUSIC (no StreamUsage-only SFX rewrite)');
+} else {
+  fail('TableAudio StreamUsage was rewritten');
+}
+
 console.log('');
 console.log(`fades: lobbyOut=${leaveLobby} tableIn=${fadeIn} tableOut=${fadeOut}`);
 console.log(`peaks: soft=${peakSoft} slam=${peakSlam} hesitate=${peakHesitate} duck=${slamDuck}`);

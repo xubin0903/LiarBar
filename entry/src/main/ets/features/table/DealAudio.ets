@@ -13,6 +13,7 @@ const PATH_DEAL: string = 'audio/sfx/sfx_deal_card.wav';
  * Layered paper/table deal Foley (#39 sfx_deal_card).
  * One shot per takeoff. SoundPool so adjacent cards can overlap — not a single beep.
  * Silent: do not call the player (no duck).
+ * EXP 1 BGM mute lives on TableAudio's AVPlayer bed — this class has no BGM.
  */
 export class DealAudio {
   static readonly DEAL_CARD: string = SfxIds.DEAL_CARD;
