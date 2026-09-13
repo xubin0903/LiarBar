@@ -24,6 +24,9 @@ const PATH_LOSE: string = 'audio/sfx/sfx_result_lose.wav';
  * Enter: lobby BGM already 400ms fade-out → this bed 600ms fade-in.
  * Leave / silent: 400ms fade-out. Silent = BGM + SFX fully off (same as LobbyAudio).
  * Do not load or play sfx_challenge_*.
+ * BGM stays on this AVPlayer (MUSIC). Flip/extinguish short SFX live on
+ * SoundPlayer's GAME SoundPool — not this MUSIC pool — so path-B latency
+ * experiments do not share the table bed mixer.
  */
 export class TableAudio {
   static readonly BGM: string = SfxIds.BGM_TABLE_BLUFF;

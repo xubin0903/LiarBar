@@ -25,23 +25,34 @@ const READY_TIMEOUT_MS: number = 1500;
  * so the first user play after enter-table is already ready (not pending).
  * Call-site timing stays #118: flip with playFlip kickoff; extinguish at extFrame=0.
  *
- * DIAG ONLY (#listen): T0/T1/T2 + playN so device logs can compare enter-table
- * playN=1 vs playN=5. Does not change when/how play() is called.
+ * Path B (Aron log): dT1-T0 already 0–4ms, path=play, ready, not pending —
+ * ear still late every play. Production pool uses STREAM_USAGE_GAME +
+ * rendererFlags:1 (not the MUSIC createSoundPool sample). Warmup loads a
+ * separate soundId and stop()s that stream: OH docs say the same sound ID
+ * play()ed multiple times may only play once. Table BGM stays on TableAudio
+ * AVPlayer (MUSIC); this pool is short-SFX only.
+ *
+ * DIAG (#listen): T0/T1/T2 + playRet streamId so Rebuild can compare dT1-T0
+ * (must stay small) against listen-feel. Does not change when play() is called.
  */
 export class SoundPlayer {
   static readonly VOL_FLIP: number = 0.40;
   static readonly VOL_EXTINGUISH: number = 0.42;
   static readonly MAX_STREAMS: number = 4;
   /**
-   * DIAG ONLY. false = STREAM_USAGE_MUSIC (OpenHarmony createSoundPool sample).
-   * Set true for one Rebuild A/B of STREAM_USAGE_GAME. Not a fix — do not merge as default.
+   * Production short-SFX path. #125 DIAG_STREAM_USAGE_GAME is now the default:
+   * GAME + rendererFlags:1. MUSIC sample is not used for flip/extinguish.
    */
-  static readonly DIAG_STREAM_USAGE_GAME: boolean = false;
+  static readonly DIAG_STREAM_USAGE_GAME: boolean = true;
 
   private static context: common.UIAbilityContext | null = null;
   private static pool: media.SoundPool | null = null;
   private static flipId: number = -1;
   private static extId: number = -1;
+  private static flipWarmId: number = -1;
+  private static extWarmId: number = -1;
+  private static lastFlipStream: number = 0;
+  private static lastExtStream: number = 0;
   private static flipReady: boolean = false;
   private static extReady: boolean = false;
   private static silent: boolean = false;
@@ -51,6 +62,9 @@ export class SoundPlayer {
   private static warmResolve: (() => void) | null = null;
   private static warmTimer: number = -1;
   private static completedIds: number[] = [];
+  private static completeWaitId: number = -1;
+  private static completeWaitResolve: (() => void) | null = null;
+  private static completeWaitTimer: number = -1;
   private static firstPlayDone: boolean = false;
   private static diagFlipN: number = 0;
   private static diagExtN: number = 0;
@@ -82,7 +96,7 @@ export class SoundPlayer {
       Logger.info(TAG_READY,
         `SfxReady already warm slot=${SfxIds.CARD_FLIP} id=${SoundPlayer.flipId} ` +
           `slot=${SfxIds.LIFE_EXTINGUISH} id=${SoundPlayer.extId} ready=true pending=false ` +
-          `t=${Date.now()} playN=0`);
+          `t=${Date.now()} usage=${SoundPlayer.usageLabel()} playN=0`);
       return;
     }
     if (SoundPlayer.inFlight !== null) {
@@ -142,10 +156,15 @@ export class SoundPlayer {
 
   static release(): void {
     SoundPlayer.clearWarmWait();
+    SoundPlayer.clearCompleteWait();
     SoundPlayer.pendingFlip = 0;
     SoundPlayer.pendingExt = 0;
     SoundPlayer.flipId = -1;
     SoundPlayer.extId = -1;
+    SoundPlayer.flipWarmId = -1;
+    SoundPlayer.extWarmId = -1;
+    SoundPlayer.lastFlipStream = 0;
+    SoundPlayer.lastExtStream = 0;
     SoundPlayer.flipReady = false;
     SoundPlayer.extReady = false;
     SoundPlayer.completedIds = [];
@@ -169,18 +188,17 @@ export class SoundPlayer {
     try {
       SoundPlayer.resetDiag();
       if (SoundPlayer.pool === null) {
-        let usage: audio.StreamUsage = audio.StreamUsage.STREAM_USAGE_MUSIC;
-        if (SoundPlayer.DIAG_STREAM_USAGE_GAME) {
-          usage = audio.StreamUsage.STREAM_USAGE_GAME;
-        }
         const info: audio.AudioRendererInfo = {
-          usage: usage,
+          usage: audio.StreamUsage.STREAM_USAGE_GAME,
           rendererFlags: 1
         };
         const pool: media.SoundPool = await media.createSoundPool(SoundPlayer.MAX_STREAMS, info);
         SoundPlayer.pool = pool;
         pool.on('loadComplete', (soundId: number): void => {
           SoundPlayer.onLoadComplete(soundId);
+        });
+        pool.on('playFinishedWithStreamId', (streamId: number): void => {
+          SoundPlayer.onPlayFinished(streamId);
         });
       }
       if (SoundPlayer.flipId < 0) {
@@ -197,12 +215,14 @@ export class SoundPlayer {
       }
       SoundPlayer.armReadyTimeout();
       await SoundPlayer.waitSlotsReady();
-      await SoundPlayer.warmupSlot(SoundPlayer.flipId, SfxIds.CARD_FLIP);
-      await SoundPlayer.warmupSlot(SoundPlayer.extId, SfxIds.LIFE_EXTINGUISH);
+      await SoundPlayer.warmupIsolated(PATH_FLIP, SfxIds.CARD_FLIP, true);
+      await SoundPlayer.warmupIsolated(PATH_EXTINGUISH, SfxIds.LIFE_EXTINGUISH, false);
       Logger.info(TAG_READY,
         `SfxReady warmup done slot=${SfxIds.CARD_FLIP} id=${SoundPlayer.flipId} ` +
-          `ready=${SoundPlayer.flipReady} pending=${SoundPlayer.pendingFlip} ` +
+          `warmId=${SoundPlayer.flipWarmId} ready=${SoundPlayer.flipReady} ` +
+          `pending=${SoundPlayer.pendingFlip} ` +
           `slot=${SfxIds.LIFE_EXTINGUISH} id=${SoundPlayer.extId} ` +
+          `warmId=${SoundPlayer.extWarmId} ` +
           `ready=${SoundPlayer.extReady} pending=${SoundPlayer.pendingExt} ` +
           `t=${Date.now()} usage=${SoundPlayer.usageLabel()} playN=0`);
     } catch (err) {
@@ -263,16 +283,55 @@ export class SoundPlayer {
     }
     const kind: string = soundId === SoundPlayer.flipId ? 'flip' : 'extinguish';
     SoundPlayer.diagT1(kind, path, soundId);
+    const prev: number = kind === 'flip' ? SoundPlayer.lastFlipStream : SoundPlayer.lastExtStream;
+    if (prev > 0) {
+      pool.stop(prev).catch((err: BusinessError): void => {
+        Logger.info(TAG, `stop prev fail-soft: ${err.message}`);
+      });
+    }
     const params: media.PlayParameters = {
       loop: 0,
       rate: audio.AudioRendererRate.RENDER_RATE_NORMAL,
       leftVolume: volume,
       rightVolume: volume,
-      priority: 0
+      priority: 1
     };
-    pool.play(soundId, params).catch((err: BusinessError): void => {
+    const tCall: number = Date.now();
+    pool.play(soundId, params).then((stream: number): void => {
+      const tRet: number = Date.now();
+      if (kind === 'flip') {
+        SoundPlayer.lastFlipStream = stream;
+      } else {
+        SoundPlayer.lastExtStream = stream;
+      }
+      const playN: number = SoundPlayer.diagPlayN(kind === 'flip');
+      const dRet: number = tRet - tCall;
+      Logger.info(TAG_DIAG,
+        `SfxDiag playRet kind=${kind} playN=${playN} t=${tRet} stream=${stream} ` +
+          `dPlayRet-T1=${dRet} usage=${SoundPlayer.usageLabel()} id=${soundId}`);
+    }).catch((err: BusinessError): void => {
       Logger.warn(TAG, `play fail-soft: ${err.message}`);
     });
+  }
+
+  /**
+   * Prime the GAME renderer on a *copy* of the wav, then stop that stream.
+   * User play keeps flipId/extId so silent warmup cannot steal the audible id
+   * (OH: same sound ID play() multiple times may only play once).
+   */
+  private static async warmupIsolated(path: string, idName: string, isFlip: boolean): Promise<void> {
+    const warmId: number = await SoundPlayer.loadPath(path);
+    if (isFlip) {
+      SoundPlayer.flipWarmId = warmId;
+    } else {
+      SoundPlayer.extWarmId = warmId;
+    }
+    if (warmId < 0) {
+      Logger.info(TAG_READY, `SfxReady warmup slot=${idName} skipped (missing copy)`);
+      return;
+    }
+    await SoundPlayer.waitOneComplete(warmId);
+    await SoundPlayer.warmupSlot(warmId, idName);
   }
 
   private static async warmupSlot(soundId: number, idName: string): Promise<void> {
@@ -289,7 +348,13 @@ export class SoundPlayer {
     };
     try {
       const stream: number = await pool.play(soundId, params);
-      Logger.info(TAG_READY, `SfxReady warmup slot=${idName} id=${soundId} stream=${stream} ready=true`);
+      Logger.info(TAG_READY,
+        `SfxReady warmup slot=${idName} id=${soundId} stream=${stream} ready=true isolated=true`);
+      if (stream > 0) {
+        await pool.stop(stream);
+        Logger.info(TAG_READY,
+          `SfxReady warmup slot=${idName} id=${soundId} stream=${stream} stopped=true`);
+      }
     } catch (err) {
       Logger.info(TAG_READY, `SfxReady warmup slot=${idName} fail-soft: ${err}`);
     }
@@ -298,13 +363,25 @@ export class SoundPlayer {
   private static onLoadComplete(soundId: number): void {
     if (soundId === SoundPlayer.flipId) {
       SoundPlayer.markReady(true, soundId);
+      SoundPlayer.finishCompleteWait(soundId);
       return;
     }
     if (soundId === SoundPlayer.extId) {
       SoundPlayer.markReady(false, soundId);
+      SoundPlayer.finishCompleteWait(soundId);
       return;
     }
     SoundPlayer.completedIds.push(soundId);
+    SoundPlayer.finishCompleteWait(soundId);
+  }
+
+  private static onPlayFinished(streamId: number): void {
+    if (SoundPlayer.lastFlipStream === streamId) {
+      SoundPlayer.lastFlipStream = 0;
+    }
+    if (SoundPlayer.lastExtStream === streamId) {
+      SoundPlayer.lastExtStream = 0;
+    }
   }
 
   private static applyCompleted(soundId: number): void {
@@ -314,12 +391,68 @@ export class SoundPlayer {
     const kept: number[] = [];
     for (let i = 0; i < SoundPlayer.completedIds.length; i++) {
       if (SoundPlayer.completedIds[i] === soundId) {
-        SoundPlayer.markReady(soundId === SoundPlayer.flipId, soundId);
+        if (soundId === SoundPlayer.flipId) {
+          SoundPlayer.markReady(true, soundId);
+        } else if (soundId === SoundPlayer.extId) {
+          SoundPlayer.markReady(false, soundId);
+        }
       } else {
         kept.push(SoundPlayer.completedIds[i]);
       }
     }
     SoundPlayer.completedIds = kept;
+  }
+
+  private static hasCompleted(soundId: number): boolean {
+    for (let i = 0; i < SoundPlayer.completedIds.length; i++) {
+      if (SoundPlayer.completedIds[i] === soundId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static waitOneComplete(soundId: number): Promise<void> {
+    if (soundId < 0 || SoundPlayer.hasCompleted(soundId)) {
+      return Promise.resolve();
+    }
+    if (soundId === SoundPlayer.flipId && SoundPlayer.flipReady) {
+      return Promise.resolve();
+    }
+    if (soundId === SoundPlayer.extId && SoundPlayer.extReady) {
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve: () => void) => {
+      SoundPlayer.clearCompleteWait();
+      SoundPlayer.completeWaitId = soundId;
+      SoundPlayer.completeWaitResolve = resolve;
+      SoundPlayer.completeWaitTimer = setTimeout((): void => {
+        SoundPlayer.completeWaitTimer = -1;
+        if (SoundPlayer.completeWaitId === soundId) {
+          SoundPlayer.completeWaitId = -1;
+          SoundPlayer.completeWaitResolve = null;
+          resolve();
+        }
+      }, READY_TIMEOUT_MS);
+    });
+  }
+
+  private static finishCompleteWait(soundId: number): void {
+    if (SoundPlayer.completeWaitId !== soundId || SoundPlayer.completeWaitResolve === null) {
+      return;
+    }
+    const done: () => void = SoundPlayer.completeWaitResolve;
+    SoundPlayer.clearCompleteWait();
+    done();
+  }
+
+  private static clearCompleteWait(): void {
+    if (SoundPlayer.completeWaitTimer >= 0) {
+      clearTimeout(SoundPlayer.completeWaitTimer);
+      SoundPlayer.completeWaitTimer = -1;
+    }
+    SoundPlayer.completeWaitId = -1;
+    SoundPlayer.completeWaitResolve = null;
   }
 
   private static markReady(isFlip: boolean, soundId: number): void {
@@ -467,7 +600,8 @@ export class SoundPlayer {
     const playN: number = kind === 'flip' ? SoundPlayer.diagFlipN : SoundPlayer.diagExtN;
     const d10: number = t0 > 0 ? t1 - t0 : -1;
     Logger.info(TAG_DIAG,
-      `SfxDiag T1 kind=${kind} playN=${playN} t=${t1} dT1-T0=${d10} path=${path} id=${soundId}`);
+      `SfxDiag T1 kind=${kind} playN=${playN} t=${t1} dT1-T0=${d10} path=${path} ` +
+        `id=${soundId} usage=${SoundPlayer.usageLabel()}`);
   }
 
   private static diagPlayN(isFlip: boolean): number {
@@ -487,9 +621,6 @@ export class SoundPlayer {
   }
 
   private static usageLabel(): string {
-    if (SoundPlayer.DIAG_STREAM_USAGE_GAME) {
-      return 'GAME';
-    }
-    return 'MUSIC';
+    return 'GAME';
   }
 }
