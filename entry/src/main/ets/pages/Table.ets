@@ -110,6 +110,8 @@ struct Table {
   @State debugBgmMuted: boolean = false;
   /** EXP 3: debug panel renderer vs SoundPool A/B. */
   @State debugSfxRenderer: boolean = true;
+  /** EXP 5: debug panel touch-down earlier arm vs playFlip-only. */
+  @State debugSfxArm: boolean = true;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -178,6 +180,7 @@ struct Table {
     TableAudio.prepare();
     this.debugBgmMuted = TableAudio.isBgmMuted();
     this.debugSfxRenderer = SoundPlayer.usesRenderer() || SoundPlayer.EXP_USE_RENDERER;
+    this.debugSfxArm = SoundPlayer.isArmFlipTouchDown();
     const boot: MatchSnapshot | null = AppRuntime.engine.current();
     if (boot !== null) {
       DealAudio.setSilent(boot.silentMode);
@@ -191,6 +194,9 @@ struct Table {
     Logger.info('SfxDiag',
       `SfxDiag path enter-table renderer=${SoundPlayer.EXP_USE_RENDERER} ` +
         `runtime=${this.debugSfxRenderer}`);
+    Logger.info('SfxDiag',
+      `SfxDiag floor enter-table bufMs=93 nativeFast=${SoundPlayer.EXP_USE_NATIVE_OHAUDIO} ` +
+        `armFlip=${SoundPlayer.isArmFlipTouchDown()} volFlip=${SoundPlayer.VOL_FLIP}`);
     this.lockTableWindow();
     this.pull();
     this.pollId = setInterval((): void => {
@@ -203,6 +209,7 @@ struct Table {
   private async warmupTableSfx(): Promise<void> {
     await SoundPlayer.prepare();
     this.debugSfxRenderer = SoundPlayer.usesRenderer();
+    this.debugSfxArm = SoundPlayer.isArmFlipTouchDown();
     Logger.info('SfxReady',
       `SfxReady enter-table warm=${SoundPlayer.isWarm()} pending=false deferred=false t=${Date.now()}`);
   }
@@ -618,6 +625,9 @@ struct Table {
                   })
               )
             )
+            .onTouch((event: TouchEvent) => {
+              this.onCardFlipTouch(idx, event);
+            })
         }, (idx: number) => `${idx}`)
       }
       .id(ControlIds.HAND)
@@ -817,6 +827,23 @@ struct Table {
         .borderRadius(6)
         .onClick(() => {
           this.onDebugSfxPath();
+        })
+      Text(this.debugSfxArm ? $r('app.string.lb_str_debug_sfx_arm_off') :
+        $r('app.string.lb_str_debug_sfx_arm_on'))
+        .id(ControlIds.DEBUG_SFX_ARM)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor(this.debugSfxArm ? $r('app.color.tavern_accent') :
+          $r('app.color.tavern_mute'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugSfxArm();
         })
     }
     .id(ControlIds.DEBUG_LIFE)
@@ -1126,6 +1153,16 @@ struct Table {
     const next: boolean = !this.debugSfxRenderer;
     SoundPlayer.setUseRenderer(next);
     this.debugSfxRenderer = next;
+  }
+
+  /** EXP 5 A/B: touch-down earlier arm (早起) vs playFlip-only (同起). Flip only. */
+  private onDebugSfxArm(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    const next: boolean = !this.debugSfxArm;
+    SoundPlayer.setArmFlipTouchDown(next);
+    this.debugSfxArm = next;
   }
 
   private onDebugLifeDec(): void {
@@ -1624,9 +1661,53 @@ struct Table {
     }
     next.push(cardId);
     this.selectedIds = next;
-    // lb_sfx_card_flip kicks off in CardFace.playFlip (same animateTo), not here.
+    // Visual still CardFace.playFlip. Audio may already be armed from Down.
     this.noteSfx(SfxIds.CARD_SELECT);
     this.refreshPlayMeta(snap);
+  }
+
+  /**
+   * EXP 5: arm flip SFX on Down when this press will become a tap-select flip.
+   * Overlaps bufMs≈93 with press→Watch/animateTo. Deselect / over-select /
+   * peek-already-open / not-your-turn do not arm. LongPress peek also starts
+   * at Down on an unselected card — 92ms punch may fire; peek opens at 200ms.
+   * T0=touchDown; playFlip stays the visual kickoff (T2 from visual).
+   */
+  private onCardFlipTouch(idx: number, event: TouchEvent): void {
+    if (event.type !== TouchType.Down) {
+      return;
+    }
+    if (!this.canArmFlipTouch(idx)) {
+      return;
+    }
+    SoundPlayer.armCardFlipTouchDown();
+  }
+
+  private canArmFlipTouch(idx: number): boolean {
+    if (!SoundPlayer.isArmFlipTouchDown()) {
+      return false;
+    }
+    if (this.dealPlaying || this.showPeek || this.confirmBusy) {
+      return false;
+    }
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.phase === Phase.DEAL || snap.phase === Phase.CLAIM) {
+      return false;
+    }
+    if (!this.playEnabled) {
+      return false;
+    }
+    if (idx < 0 || idx >= this.selfCards.length) {
+      return false;
+    }
+    const cardId: string = this.selfCards[idx].cardId;
+    if (this.hasSelected(cardId)) {
+      return false;
+    }
+    if (this.selectedIds.length >= snap.config.max_play_cards) {
+      return false;
+    }
+    return true;
   }
 
   private removeSelect(cardId: string): void {

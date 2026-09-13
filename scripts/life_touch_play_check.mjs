@@ -75,6 +75,7 @@ const idLocks = [
   "DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec'",
   "DEBUG_BGM_MUTE: string = 'lb_btn_debug_bgm_mute'",
   "DEBUG_SFX_PATH: string = 'lb_btn_debug_sfx_path'",
+  "DEBUG_SFX_ARM: string = 'lb_btn_debug_sfx_arm'",
   "PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar'",
   "PLAY_CONFIRM: string = 'lb_btn_play_confirm'",
   "CARD_FLIP: string = 'lb_sfx_card_flip'",
@@ -283,9 +284,9 @@ if (player.includes('SfxDiag playRet') && player.includes('SfxDiag playFin') &&
   fail('SfxDiag playRet / playFin / write0 missing');
 }
 
-if (player.includes('VOL_FLIP: number = 0.70') &&
+if (player.includes('VOL_FLIP: number = 0.95') &&
     player.includes('VOL_EXTINGUISH: number = 0.55')) {
-  pass('volume (SEPARATE): VOL_FLIP 0.70 VOL_EXTINGUISH 0.55');
+  pass('volume (SEPARATE): VOL_FLIP 0.95 VOL_EXTINGUISH 0.55');
 } else {
   fail('VOL_FLIP / VOL_EXTINGUISH not the labeled volume bump');
 }
@@ -305,10 +306,21 @@ if (player.includes('SfxDiag rate') &&
     table.includes('onDebugSfxPath') &&
     table.includes('SoundPlayer.setUseRenderer') &&
     strings.includes('lb_str_debug_sfx_pool') &&
-    strings.includes('lb_str_debug_sfx_renderer')) {
-  pass('EXP 2 rate + EXP 3 renderer + EXP 4 INVALID-idle/flush buffer + debug A/B');
+    strings.includes('lb_str_debug_sfx_renderer') &&
+    player.includes('EXP_USE_NATIVE_OHAUDIO: boolean = false') &&
+    player.includes('EXP_ARM_FLIP_TOUCHDOWN: boolean = true') &&
+    player.includes('armCardFlipTouchDown') &&
+    player.includes('src=touchDown') &&
+    player.includes('bufMs=93') &&
+    table.includes('onCardFlipTouch') &&
+    table.includes('TouchType.Down') &&
+    table.includes('onDebugSfxArm') &&
+    table.includes('ControlIds.DEBUG_SFX_ARM') &&
+    strings.includes('lb_str_debug_sfx_arm_on') &&
+    strings.includes('lb_str_debug_sfx_arm_off')) {
+  pass('EXP 2/3/4 renderer + EXP 5 touch-down arm (native FAST researched, not wired)');
 } else {
-  fail('EXP 2/3/4 renderer path, rate logs, buffer flush, or debug A/B missing');
+  fail('EXP 2/3/4/5 renderer, buffer, touch-down arm, or debug A/B missing');
 }
 
 if (table.includes('max_play_cards') && table.includes('failGen') &&

@@ -78,6 +78,8 @@
     { "name": "lb_str_debug_bgm_mute", "value": "BGM静" },
     { "name": "lb_str_debug_bgm_on", "value": "BGM开" },
     { "name": "lb_str_debug_sfx_pool", "value": "池播" },
-    { "name": "lb_str_debug_sfx_renderer", "value": "低延迟" }
+    { "name": "lb_str_debug_sfx_renderer", "value": "低延迟" },
+    { "name": "lb_str_debug_sfx_arm_on", "value": "早起" },
+    { "name": "lb_str_debug_sfx_arm_off", "value": "同起" }
   ]
 }

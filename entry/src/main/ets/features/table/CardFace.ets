@@ -10,9 +10,13 @@ const CARD_RAISE_MS: number = 140;
  * Reusable baked card face (docs/04-设计/09 §4 + 15 flip/raise).
  * Identity lives in art_card_* PNG (盾徽 bake ≥22%). Do not overlay rank Text.
  * Tap-select: vertical-axis squash flip 180～240ms + raise 8～16vp.
- * Flip audio is SoundPlayer.playCardFlip (lb_sfx_card_flip) at playFlip
- * kickoff (same animateTo) — not after the squash completes. Peek face-up
- * does not play flip (selected stays false). Table noteSfx still routes the slot.
+ * Flip audio is SoundPlayer.playCardFlip (lb_sfx_card_flip).
+ * Visual kickoff stays playFlip (same animateTo) — not after the squash
+ * completes, and never at T2. EXP 5 may arm PCM on eligible TouchType.Down
+ * so the bufMs≈93 HAL period overlaps press→visual; T0 then is touchDown
+ * (logged earlier, explained). playCardFlip reuses that arm (no second play).
+ * Peek face-up does not play flip (selected stays false). Table noteSfx
+ * still routes the slot.
  */
 @Component
 export struct CardFace {
@@ -30,7 +34,7 @@ export struct CardFace {
   private flipTimer: number = -1;
   private failTimer: number = -1;
   private flipSfxArmed: boolean = false;
-  /** DIAG ONLY: T0 captured at playFlip entry (state/anim in). */
+  /** DIAG: visual kickoff stamp (playFlip / animateTo). T2 is 210ms from here. */
   private diagFlipT0: number = 0;
   private diagT2Timer: number = -1;
 
@@ -168,13 +172,17 @@ export struct CardFace {
       return;
     }
     this.flipSfxArmed = true;
-    const t0: number = this.diagFlipT0 > 0 ? this.diagFlipT0 : Date.now();
-    SoundPlayer.diagT0('flip', t0);
+    const visualAt: number = this.diagFlipT0 > 0 ? this.diagFlipT0 : Date.now();
+    if (!SoundPlayer.hasFlipTouchArm()) {
+      SoundPlayer.diagT0('flip', visualAt, 'playFlip');
+    }
+    SoundPlayer.logFlipVisualKick(visualAt);
     SoundPlayer.playCardFlip();
     if (this.diagT2Timer >= 0) {
       clearTimeout(this.diagT2Timer);
     }
-    const elapsed: number = Date.now() - t0;
+    // T2 = end of 210ms flip animate, from visual kickoff — not earlier T0.
+    const elapsed: number = Date.now() - visualAt;
     let wait: number = CARD_FLIP_MS - elapsed;
     if (wait < 0) {
       wait = 0;
