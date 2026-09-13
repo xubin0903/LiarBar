@@ -48,4 +48,26 @@
 
 ---
 
-*维护人：美术 / 音频岗 · 2026-09-10 · 2026-09-12 增补生命烛 Foley 程序化署名 · 2026-09-13 翻牌同槽短促起势覆盖*
+## 出牌飞出 · PlayLaunch / PlayLanded（程序化 Foley · 无第三方源）
+
+本批 **未** 嵌入 CC0 / 商用库采样。两槽均为仓内脚本合成，**原作 · 程序化** · **CC0-equivalent**。
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_play_launch.wav` |
+| 媒体 id / 调用 | `sfx_play_launch` · `lb_sfx_play_launch` |
+| 许可 / 来源 | **原作程序化**（`scripts/gen_play_fly_sfx.py` · 干纸短刮 / 离手轻扫；非 beep / 非正弦 tip / 非系统 click） |
+| 实测 | 48 kHz mono PCM16 · **0.076s** · peak **−10.00 dBFS** · 头静音 **0.000 ms** · 7340 字节 |
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_play_land.wav` |
+| 媒体 id / 调用 | `sfx_play_land` · `lb_sfx_play_land` |
+| 许可 / 来源 | **原作程序化**（同脚本 · 绿呢闷触 / 身前落毡；非木敲、非 keypad） |
+| 实测 | 48 kHz mono PCM16 · **0.104s** · peak **−9.50 dBFS** · 头静音 **0.000 ms** · 10028 字节 |
+
+**未** 改 `sfx_card_flip.wav` / `sfx_life_extinguish.wav`。**禁止** 飞出 / 落地复用 `lb_sfx_card_flip`（该槽只属 S15-4）。交件见 [出牌飞出SFX-launch-land-资产交件.md](./出牌飞出SFX-launch-land-资产交件.md)。
+
+---
+
+*维护人：美术 / 音频岗 · 2026-09-10 · 2026-09-12 增补生命烛 Foley 程序化署名 · 2026-09-13 翻牌同槽短促起势覆盖 · 2026-09-13 增补出牌飞出 launch/land 两槽*
