@@ -108,12 +108,16 @@ def main() -> None:
         raise SystemExit("R-LIFE-5: locked button id missing")
     if "DEBUG_BGM_MUTE" not in ids or "lb_btn_debug_bgm_mute" not in ids:
         raise SystemExit("EXP 1: lb_btn_debug_bgm_mute missing")
+    if "DEBUG_SFX_PATH" not in ids or "lb_btn_debug_sfx_path" not in ids:
+        raise SystemExit("EXP 3: lb_btn_debug_sfx_path missing")
     if "debugLifeChrome" not in table or "debugLifePanel" not in table:
         raise SystemExit("R-LIFE-5: debug open/panel missing")
     if "debugLifeOpen" not in table or "onDebugLifeDec" not in table:
         raise SystemExit("R-LIFE-5: panel toggle / −1 missing")
     if "onDebugBgmMute" not in table or "DEBUG_BGM_MUTE" not in table:
         raise SystemExit("EXP 1: debug BGM mute toggle not on panel")
+    if "onDebugSfxPath" not in table or "DEBUG_SFX_PATH" not in table:
+        raise SystemExit("EXP 3: debug SFX path toggle not on panel")
     if "lifeDecShown" not in table or "lifeDecShown" not in debug:
         raise SystemExit("R-LIFE-5: release hide gate missing")
     if "debugDecLife" not in engine:
@@ -156,6 +160,12 @@ def main() -> None:
         raise SystemExit("VOL_EXTINGUISH must stay the labeled 0.55 bump")
     if "SfxDiag playRet" not in player or "SfxDiag playFin" not in player:
         raise SystemExit("SfxDiag playRet / playFin INFO logs missing")
+    if "SfxDiag rate" not in player or "createAudioRenderer" not in player:
+        raise SystemExit("EXP 2/3: rate probe or AudioRenderer path missing")
+    if "EXP_USE_RENDERER: boolean = true" not in player:
+        raise SystemExit("EXP 3: EXP_USE_RENDERER default must be true (renderer PRIMARY)")
+    if "writeData" not in player or "resampleTo" not in player:
+        raise SystemExit("EXP 2/3: writeData / resample missing")
     audio = read("entry/src/main/ets/features/table/TableAudio.ets")
     if "EXP_MUTE_BGM: boolean = false" not in audio or "setBgmMuted" not in audio:
         raise SystemExit("EXP 1: TableAudio BGM mute flag/toggle missing")
