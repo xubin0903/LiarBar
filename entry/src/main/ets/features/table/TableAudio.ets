@@ -14,6 +14,8 @@ const PATH_CLAIM: string = 'audio/sfx/sfx_claim_set.wav';
 const PATH_SOFT: string = 'audio/sfx/sfx_play_soft.wav';
 const PATH_SLAM: string = 'audio/sfx/sfx_play_slam.wav';
 const PATH_HESITATE: string = 'audio/sfx/sfx_play_hesitate.wav';
+const PATH_LAUNCH: string = 'audio/sfx/sfx_play_launch.wav';
+const PATH_LAND: string = 'audio/sfx/sfx_play_land.wav';
 const PATH_TURN: string = 'audio/sfx/sfx_turn_tick.wav';
 const PATH_STARE: string = 'audio/sfx/sfx_named_stare.wav';
 const PATH_WIN: string = 'audio/sfx/sfx_result_win.wav';
@@ -38,6 +40,8 @@ export class TableAudio {
   static readonly PLAY_SOFT: string = SfxIds.PLAY_SOFT;
   static readonly PLAY_SLAM: string = SfxIds.PLAY_SLAM;
   static readonly PLAY_HESITATE: string = SfxIds.PLAY_HESITATE;
+  static readonly PLAY_LAUNCH: string = SfxIds.PLAY_LAUNCH;
+  static readonly PLAY_LAND: string = SfxIds.PLAY_LAND;
   static readonly TURN_TICK: string = SfxIds.TURN_TICK;
   static readonly NAMED_STARE: string = SfxIds.NAMED_STARE;
   static readonly RESULT_WIN: string = SfxIds.RESULT_WIN;
@@ -58,6 +62,8 @@ export class TableAudio {
   static readonly VOL_SOFT: number = 0.38;
   static readonly VOL_SLAM: number = 0.48;
   static readonly VOL_HESITATE: number = 0.34;
+  static readonly VOL_LAUNCH: number = 0.44;
+  static readonly VOL_LAND: number = 0.46;
   static readonly VOL_TURN: number = 0.22;
   static readonly VOL_STARE: number = 0.40;
   static readonly VOL_RESULT: number = 0.44;
@@ -80,6 +86,8 @@ export class TableAudio {
   private static softId: number = -1;
   private static slamId: number = -1;
   private static hesitateId: number = -1;
+  private static launchId: number = -1;
+  private static landId: number = -1;
   private static turnId: number = -1;
   private static stareId: number = -1;
   private static winId: number = -1;
@@ -93,6 +101,8 @@ export class TableAudio {
   private static pendingSoft: boolean = false;
   private static pendingSlam: boolean = false;
   private static pendingHesitate: boolean = false;
+  private static pendingLaunch: boolean = false;
+  private static pendingLand: boolean = false;
   private static pendingTurn: boolean = false;
   private static pendingStare: boolean = false;
   private static pendingWin: boolean = false;
@@ -141,7 +151,8 @@ export class TableAudio {
     if (on) {
       Logger.info(TAG,
         `${SfxIds.BGM_TABLE_BLUFF}/${SfxIds.CLAIM_SET}/${SfxIds.PLAY_SOFT}/` +
-        `${SfxIds.PLAY_SLAM}/${SfxIds.PLAY_HESITATE}/${SfxIds.TURN_TICK}/` +
+        `${SfxIds.PLAY_SLAM}/${SfxIds.PLAY_HESITATE}/${SfxIds.PLAY_LAUNCH}/` +
+        `${SfxIds.PLAY_LAND}/${SfxIds.TURN_TICK}/` +
         `${SfxIds.NAMED_STARE}/${SfxIds.RESULT_WIN}/${SfxIds.RESULT_LOSE} skipped (silent)`);
       TableAudio.clearPendings();
       TableAudio.stopBedsNow();
@@ -174,6 +185,8 @@ export class TableAudio {
       TableAudio.softId = await TableAudio.loadPath(PATH_SOFT);
       TableAudio.slamId = await TableAudio.loadPath(PATH_SLAM);
       TableAudio.hesitateId = await TableAudio.loadPath(PATH_HESITATE);
+      TableAudio.launchId = await TableAudio.loadPath(PATH_LAUNCH);
+      TableAudio.landId = await TableAudio.loadPath(PATH_LAND);
       TableAudio.turnId = await TableAudio.loadPath(PATH_TURN);
       TableAudio.stareId = await TableAudio.loadPath(PATH_STARE);
       TableAudio.winId = await TableAudio.loadPath(PATH_WIN);
@@ -252,6 +265,16 @@ export class TableAudio {
     TableAudio.playNamed(SfxIds.NAMED_STARE, TableAudio.stareId, TableAudio.VOL_STARE, 'pendingStare');
   }
 
+  /** 16 PlayLaunch onset. Dual slot — never flip / soft / slam / hesitate. */
+  static playPlayLaunch(): void {
+    TableAudio.playNamed(SfxIds.PLAY_LAUNCH, TableAudio.launchId, TableAudio.VOL_LAUNCH, 'pendingLaunch');
+  }
+
+  /** 16 PlayLanded onset. Dual slot — never flip. */
+  static playPlayLand(): void {
+    TableAudio.playNamed(SfxIds.PLAY_LAND, TableAudio.landId, TableAudio.VOL_LAND, 'pendingLand');
+  }
+
   static playStyleAtPeak(style: PlayStyle): void {
     if (TableAudio.silent) {
       Logger.info(TAG, `play-style ${style} skipped (silent)`);
@@ -312,6 +335,8 @@ export class TableAudio {
     TableAudio.softId = -1;
     TableAudio.slamId = -1;
     TableAudio.hesitateId = -1;
+    TableAudio.launchId = -1;
+    TableAudio.landId = -1;
     TableAudio.turnId = -1;
     TableAudio.stareId = -1;
     TableAudio.winId = -1;
@@ -358,6 +383,10 @@ export class TableAudio {
       TableAudio.pendingSlam = on;
     } else if (key === 'pendingHesitate') {
       TableAudio.pendingHesitate = on;
+    } else if (key === 'pendingLaunch') {
+      TableAudio.pendingLaunch = on;
+    } else if (key === 'pendingLand') {
+      TableAudio.pendingLand = on;
     } else if (key === 'pendingTurn') {
       TableAudio.pendingTurn = on;
     } else if (key === 'pendingStare') {
@@ -385,6 +414,14 @@ export class TableAudio {
     if (soundId === TableAudio.hesitateId && TableAudio.pendingHesitate) {
       TableAudio.pendingHesitate = false;
       TableAudio.playHesitate();
+    }
+    if (soundId === TableAudio.launchId && TableAudio.pendingLaunch) {
+      TableAudio.pendingLaunch = false;
+      TableAudio.playPlayLaunch();
+    }
+    if (soundId === TableAudio.landId && TableAudio.pendingLand) {
+      TableAudio.pendingLand = false;
+      TableAudio.playPlayLand();
     }
     if (soundId === TableAudio.turnId && TableAudio.pendingTurn) {
       TableAudio.pendingTurn = false;
@@ -583,6 +620,8 @@ export class TableAudio {
     TableAudio.pendingSoft = false;
     TableAudio.pendingSlam = false;
     TableAudio.pendingHesitate = false;
+    TableAudio.pendingLaunch = false;
+    TableAudio.pendingLand = false;
     TableAudio.pendingTurn = false;
     TableAudio.pendingStare = false;
     TableAudio.pendingWin = false;

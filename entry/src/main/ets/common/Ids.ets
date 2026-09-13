@@ -98,6 +98,14 @@ export class ControlIds {
   /** 15 · 桌上确认条（合法选中才出；主提交） */
   static readonly PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar';
   static readonly PLAY_CONFIRM: string = 'lb_btn_play_confirm';
+  /** 16 · PlayLaunch overlay. Not DealFx.flyOn. */
+  static readonly PLAY_FLY: string = 'lb_cmp_play_fly';
+  /** 16 · PlayLanded fan. This-round this-hand only. */
+  static readonly PLAY_FRONT_PILE: string = 'lb_cmp_play_front_pile';
+  /** 16 · RankSettle gate after land when hand==0. Not AwaitChallenge. */
+  static readonly RANK_SETTLE: string = 'lb_cmp_rank_settle';
+  /** Debug/dev only. Authority-reject after optimistic fly (C1-6). */
+  static readonly DEBUG_PLAY_REJECT: string = 'lb_btn_debug_play_reject';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
@@ -125,6 +133,10 @@ export class SfxIds {
   static readonly CARD_FLIP: string = 'lb_sfx_card_flip';
   static readonly CARD_SELECT: string = 'lb_sfx_card_select';
   static readonly PLAY_CONFIRM: string = 'lb_sfx_play_confirm';
+  /** 16 · PlayLaunch onset. Disk: sfx_play_launch.wav. Never flip. */
+  static readonly PLAY_LAUNCH: string = 'lb_sfx_play_launch';
+  /** 16 · PlayLanded onset. Disk: sfx_play_land.wav. Never flip. */
+  static readonly PLAY_LAND: string = 'lb_sfx_play_land';
   /** Call slot. Disk file may be sfx_life_extinguish.wav — do not rename this id. */
   static readonly LIFE_EXTINGUISH: string = 'lb_sfx_life_extinguish';
 }

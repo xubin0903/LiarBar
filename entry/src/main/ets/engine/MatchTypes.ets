@@ -94,6 +94,8 @@ export interface MatchSnapshot {
   currentSeatId: number;
   currentClaim: ClaimModel | null;
   lastPlay: PlayModel | null;
+  /** Aron L7: seats that emptied after a successful play, first-empty = 1st. */
+  emptyOrder: number[];
   lastPenalizedSeatId: number;
   roundIndex: number;
   playIndexInRound: number;

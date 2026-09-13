@@ -12,6 +12,9 @@ import { LifeCandles } from '../features/table/LifeCandles';
 import { SoundPlayer } from '../features/table/SoundPlayer';
 import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
+import { PlayFly } from '../features/table/components/PlayFly';
+import { PlayFrontPile } from '../features/table/components/PlayFrontPile';
+import { PlayFlyFx } from '../features/table/PlayFlyFx';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
@@ -99,6 +102,28 @@ struct Table {
   @State compactLife: boolean = false;
   @State confirmBarOn: boolean = false;
   @State confirmBusy: boolean = false;
+  /** 16 · PlayLaunch overlay. Independent of DealFx.flyOn. */
+  @State playFlyOn: boolean = false;
+  @State playFlyX: number = 0;
+  @State playFlyY: number = 0;
+  @State playFlyScale: number = 1;
+  @State playFlyCount: number = 1;
+  @State playFlySeat: number = 0;
+  @State pileN0: number = 0;
+  @State pileN1: number = 0;
+  @State pileN2: number = 0;
+  @State pileN3: number = 0;
+  @State pileX0: number = 0;
+  @State pileY0: number = 0;
+  @State pileX1: number = 0;
+  @State pileY1: number = 0;
+  @State pileX2: number = 0;
+  @State pileY2: number = 0;
+  @State pileX3: number = 0;
+  @State pileY3: number = 0;
+  @State hiddenCardIds: string[] = [];
+  @State rankSettleOn: boolean = false;
+  @State rankSettlePlace: number = 0;
   @State hintKind: number = 0;
   @State failIdx: number = -1;
   @State failGen: number = 0;
@@ -160,6 +185,13 @@ struct Table {
   private winRef: window.Window | null = null;
   private avoidBound: boolean = false;
   private heardPlayId: string = '';
+  private playFlyPlayId: string = '';
+  private playFlyTimer: number = -1;
+  private rollbackHand: CardModel[] = [];
+  private rollbackSelected: string[] = [];
+  private queuedPlayId: string = '';
+  private seatWs: number[] = [0, 0, 0, 0];
+  private seatHs: number[] = [0, 0, 0, 0];
   /** Flush-gate last line — skip identical onAreaChange spam. */
   private lastFlushLine: string = '';
   private flushPinH: number = 0;
@@ -220,6 +252,8 @@ struct Table {
       this.pollId = -1;
     }
     this.cancelDealTimers();
+    this.cancelPlayFlyTimer();
+    AppRuntime.director.playBusy = false;
     if (this.hintTimer >= 0) {
       clearTimeout(this.hintTimer);
       this.hintTimer = -1;
@@ -292,6 +326,10 @@ struct Table {
           this.captureFlushPin(area);
         })
 
+        // 16 play fly + front piles. Above heart, below confirm bar.
+        // Separate from DealFx.flyOn. Do not raise padB / GAP.
+        this.playFlyLayer()
+
         // 15 confirm bar: sibling overlay, BottomEnd, tappable only.
         // Must NOT live in handPin (that would grow the hug and lift cards).
         // Does not change padB / HAND_RING_GAP.
@@ -310,6 +348,10 @@ struct Table {
 
         if (this.hintKind > 0) {
           this.playHintToast()
+        }
+
+        if (this.rankSettleOn) {
+          this.rankSettleBanner()
         }
 
         if (DebugBuild.lifeDecShown()) {
@@ -599,35 +641,41 @@ struct Table {
     Stack({ alignContent: Alignment.Bottom }) {
       Row({ space: 6 }) {
         ForEach(this.cardBacks, (idx: number) => {
-          CardFace({
-            rank: this.rankAt(idx),
-            faceUp: this.cardFaceUp(idx),
-            selected: this.cardSelected(idx),
-            compact: true,
-            failTick: this.failTickAt(idx),
-            instanceId: `lb_cmp_card_${idx}`
-          })
-            .gesture(
-              GestureGroup(GestureMode.Exclusive,
-                TapGesture({ count: 1 })
-                  .onAction(() => {
-                    this.onCardTap(idx);
-                  }),
-                LongPressGesture({ duration: 200, repeat: false })
-                  .onAction(() => {
-                    this.openPeek();
-                  })
-                  .onActionEnd(() => {
-                    this.closePeek();
-                  })
-                  .onActionCancel(() => {
-                    this.closePeek();
-                  })
-              )
-            )
-            .onTouch((event: TouchEvent) => {
-              this.onCardFlipTouch(idx, event);
+          if (this.cardHiddenAt(idx)) {
+            Blank()
+              .width($r('app.float.card_w'))
+              .height($r('app.float.card_h'))
+          } else {
+            CardFace({
+              rank: this.rankAt(idx),
+              faceUp: this.cardFaceUp(idx),
+              selected: this.cardSelected(idx),
+              compact: true,
+              failTick: this.failTickAt(idx),
+              instanceId: `lb_cmp_card_${idx}`
             })
+              .gesture(
+                GestureGroup(GestureMode.Exclusive,
+                  TapGesture({ count: 1 })
+                    .onAction(() => {
+                      this.onCardTap(idx);
+                    }),
+                  LongPressGesture({ duration: 200, repeat: false })
+                    .onAction(() => {
+                      this.openPeek();
+                    })
+                    .onActionEnd(() => {
+                      this.closePeek();
+                    })
+                    .onActionCancel(() => {
+                      this.closePeek();
+                    })
+                )
+              )
+              .onTouch((event: TouchEvent) => {
+                this.onCardFlipTouch(idx, event);
+              })
+          }
         }, (idx: number) => `${idx}`)
       }
       .id(ControlIds.HAND)
@@ -709,6 +757,10 @@ struct Table {
           .fontSize($r('app.float.caption_text_size'))
       } else if (this.hintKind === 3) {
         Text($r('app.string.lb_str_play_illegal_count'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+      } else if (this.hintKind === 4) {
+        Text($r('app.string.lb_str_play_rollback'))
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.caption_text_size'))
       }
@@ -845,6 +897,21 @@ struct Table {
         .onClick(() => {
           this.onDebugSfxArm();
         })
+      Text($r('app.string.lb_str_debug_play_reject'))
+        .id(ControlIds.DEBUG_PLAY_REJECT)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor($r('app.color.tavern_accent'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugPlayReject();
+        })
     }
     .id(ControlIds.DEBUG_LIFE)
     .padding(8)
@@ -871,11 +938,9 @@ struct Table {
         .fontColor(this.challengeEnabled ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
         .fontSize($r('app.float.caption_text_size'))
         .onClick(() => {
-          if (!this.challengeEnabled) {
-            return;
-          }
-          AppRuntime.engine.intentChallenge();
-          this.pull();
+          // 16 §0 / F16-10: old four-beat frozen (no dual track).
+          // AwaitChallenge is Section 2. Do not push lb_scr_challenge.
+          return;
         })
       if (this.skipEnabled) {
         Text($r('app.string.lb_str_skip'))
@@ -1179,6 +1244,7 @@ struct Table {
   }
 
   private goHome(): void {
+    this.resetPlayFlyUi();
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
     LbRouter.toLobby();
@@ -1204,10 +1270,8 @@ struct Table {
       return;
     }
     if (snap.phase === Phase.CHALLENGE_RITUAL || snap.phase === Phase.JUDGE) {
-      if (!this.pushedChallenge) {
-        this.pushedChallenge = true;
-        LbRouter.toChallenge();
-      }
+      // 16 §0 / F16-10: freeze old four-beat. No dual-track AwaitChallenge.
+      this.pushedChallenge = false;
       return;
     }
     if (snap.phase === Phase.RECAP || snap.phase === Phase.END) {
@@ -1247,6 +1311,12 @@ struct Table {
     if (this.dealPlaying) {
       this.dealPlaying = false;
     }
+    if (snap.playIndexInRound === 0 && !this.playFlyOn) {
+      this.clearAllPiles();
+      if (this.hiddenCardIds.length > 0) {
+        this.hiddenCardIds = [];
+      }
+    }
     let nextClaim: string = '';
     if (snap.currentClaim !== null) {
       nextClaim = `本轮出 ${snap.currentClaim.rank}`;
@@ -1257,10 +1327,12 @@ struct Table {
         TableAudio.playClaimSet();
       }
     }
-    this.takeSelfHand(snap.selfHand);
-    this.takePeekRanks(this.ranksOf(snap.selfHand));
-    this.takeCardBacks(snap.selfHand.length);
-    const emptyHand: boolean = snap.selfHand.length === 0;
+    if (this.hiddenCardIds.length === 0 && !this.playFlyOn) {
+      this.takeSelfHand(snap.selfHand);
+      this.takePeekRanks(this.ranksOf(snap.selfHand));
+      this.takeCardBacks(snap.selfHand.length);
+    }
+    const emptyHand: boolean = snap.selfHand.length === 0 && !this.rankSettleOn;
     if (this.handEmpty !== emptyHand) {
       this.handEmpty = emptyHand;
     }
@@ -1270,7 +1342,6 @@ struct Table {
         TableAudio.playTurnTick();
       }
     }
-    this.hearLastPlay(snap);
     const called: number = snap.lastPlay === null ? -1 : snap.lastPlay.namedSeatId;
     if (this.calledSeat !== called) {
       this.calledSeat = called;
@@ -1284,10 +1355,11 @@ struct Table {
     }
     this.fillSeats(snap.seats);
     this.syncOppStacks(snap.seats);
+    this.maybeOtherPlayFly(snap);
     const humanTurn: boolean = this.isHumanTurn(snap);
-    const nextChallenge: boolean = humanTurn && snap.canChallenge && snap.phase === Phase.TURN;
-    if (this.challengeEnabled !== nextChallenge) {
-      this.challengeEnabled = nextChallenge;
+    // 16 Section 1: old challenge CTA stays frozen (stub). hand==0 never AwaitChallenge.
+    if (this.challengeEnabled) {
+      this.challengeEnabled = false;
     }
     const nextPlay: boolean = humanTurn && snap.hasCards &&
       (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF) &&
@@ -1552,17 +1624,20 @@ struct Table {
     } else if (this.styleName === PlayStyle.HESITATE) {
       style = PlayStyle.HESITATE;
     }
-    this.noteSfx(SfxIds.PLAY_CONFIRM);
-    AppRuntime.engine.submitPlay(this.selectedIds, style, '', this.namedSeatId);
+    this.beginHumanPlay(style, this.namedSeatId);
     this.showPlay = false;
-    this.selectedIds = [];
-    this.namedSeatId = -1;
-    this.confirmBusy = false;
-    this.pull();
   }
 
   /** 15 primary submit: table confirm bar. Default SOFT. Does not open sheet. */
   private confirmTablePlay(): void {
+    this.beginHumanPlay(PlayStyle.SOFT, -1);
+  }
+
+  /**
+   * 16 U01: confirm → instant PlayLaunch + launch SFX + SUBMIT_PLAY same frame.
+   * Land does not submit. confirmBusy swallows a second confirm.
+   */
+  private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
     if (snap === null || this.confirmBusy) {
       return;
@@ -1577,12 +1652,28 @@ struct Table {
       return;
     }
     this.confirmBusy = true;
+    AppRuntime.director.playBusy = true;
     this.confirmBarOn = false;
+    this.rankSettleOn = false;
+    this.rollbackHand = this.copyCards(this.selfCards);
+    this.rollbackSelected = this.copyIds(this.selectedIds);
+    this.hiddenCardIds = this.copyIds(this.selectedIds);
+    this.playFlyCount = this.selectedIds.length;
+    this.playFlySeat = TableCompass.BOTTOM;
     this.noteSfx(SfxIds.PLAY_CONFIRM);
-    AppRuntime.engine.submitPlay(this.selectedIds, PlayStyle.SOFT, '', -1);
+    TableAudio.playPlayLaunch();
+    this.kickPlayFly(TableCompass.BOTTOM, this.selectedIds.length);
+    const ok: boolean = AppRuntime.engine.submitPlay(this.selectedIds, style, '', namedSeatId);
+    if (!ok) {
+      this.onPlayRollback();
+      return;
+    }
+    const after: MatchSnapshot | null = AppRuntime.engine.current();
+    if (after !== null && after.lastPlay !== null) {
+      this.playFlyPlayId = after.lastPlay.playId;
+    }
     this.selectedIds = [];
-    this.confirmBusy = false;
-    this.pull();
+    this.namedSeatId = -1;
   }
 
   private openSecondaryPlaySheet(): void {
@@ -1733,7 +1824,7 @@ struct Table {
     }
   }
 
-  /** 1=非己回合 2=超选 3=张数不符 */
+  /** 1=非己回合 2=超选 3=张数不符 4=出牌未生效 / 张数已纠正 */
   private flashHint(kind: number): void {
     this.hintKind = kind;
     if (this.hintTimer >= 0) {
@@ -1812,9 +1903,13 @@ struct Table {
       this.calledSeat = -1;
     }
     this.heardPlayId = '';
+    this.resetPlayFlyUi();
   }
 
-  /** 13 §5.2: play-style peak + named stare when a new lastPlay lands in the pool. */
+  /**
+   * 13 §5.2 rebound: style peak + named stare on PlayLanded, not commit.
+   * Call from onPlayLanded only — pull() must not fire this on submit.
+   */
   private hearLastPlay(snap: MatchSnapshot): void {
     if (snap.lastPlay === null || snap.playIndexInRound <= 0) {
       return;
@@ -1827,6 +1922,341 @@ struct Table {
     if (snap.lastPlay.namedSeatId >= 0) {
       TableAudio.playNamedStare();
     }
+  }
+
+  @Builder
+  playFlyLayer() {
+    Stack() {
+    PlayFrontPile({
+      visible: this.pileN0 > 0,
+      count: this.pileN0,
+      seatId: TableCompass.BOTTOM,
+      x: this.pileX0,
+      y: this.pileY0,
+      instanceId: ControlIds.PLAY_FRONT_PILE
+    })
+    PlayFrontPile({
+      visible: this.pileN1 > 0,
+      count: this.pileN1,
+      seatId: TableCompass.RIGHT,
+      x: this.pileX1,
+      y: this.pileY1,
+      instanceId: `${ControlIds.PLAY_FRONT_PILE}_p1`
+    })
+    PlayFrontPile({
+      visible: this.pileN2 > 0,
+      count: this.pileN2,
+      seatId: TableCompass.TOP,
+      x: this.pileX2,
+      y: this.pileY2,
+      instanceId: `${ControlIds.PLAY_FRONT_PILE}_p2`
+    })
+    PlayFrontPile({
+      visible: this.pileN3 > 0,
+      count: this.pileN3,
+      seatId: TableCompass.LEFT,
+      x: this.pileX3,
+      y: this.pileY3,
+      instanceId: `${ControlIds.PLAY_FRONT_PILE}_p3`
+    })
+    PlayFly({
+      visible: this.playFlyOn,
+      count: this.playFlyCount,
+      x: this.playFlyX,
+      y: this.playFlyY,
+      scale: this.playFlyScale
+    })
+    }
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(this.playFlyOn ? HitTestMode.Default : HitTestMode.Transparent)
+  }
+
+  @Builder
+  rankSettleBanner() {
+    Column() {
+      Text($r('app.string.lb_str_rank_settle'))
+        .fontColor($r('app.color.tavern_candle'))
+        .fontSize($r('app.float.page_text_size'))
+      Text(`第${this.rankSettlePlace}`)
+        .fontColor($r('app.color.tavern_paper'))
+        .fontSize($r('app.float.caption_text_size'))
+    }
+    .id(ControlIds.RANK_SETTLE)
+    .padding({
+      left: 16,
+      right: 16,
+      top: 8,
+      bottom: 8
+    })
+    .backgroundColor($r('app.color.tavern_panel'))
+    .borderRadius(8)
+    .align(Alignment.Center)
+    .hitTestBehavior(HitTestMode.None)
+  }
+
+  private kickPlayFly(seatId: number, count: number): void {
+    this.cancelPlayFlyTimer();
+    const start: number[] = this.playOriginOf(seatId);
+    const dest: number[] = this.playDestOf(seatId, count);
+    this.playFlySeat = seatId;
+    this.playFlyCount = count;
+    this.playFlyX = start[0];
+    this.playFlyY = start[1];
+    this.playFlyScale = 1;
+    this.playFlyOn = true;
+    const opt: AnimateParam = {
+      duration: PlayFlyFx.FLY_MS,
+      curve: Curve.EaseOut
+    };
+    animateTo(opt, (): void => {
+      this.playFlyX = dest[0];
+      this.playFlyY = dest[1];
+    });
+    this.playFlyTimer = setTimeout((): void => {
+      this.playFlyTimer = -1;
+      this.onPlayLanded();
+    }, PlayFlyFx.FLY_MS);
+  }
+
+  private onPlayLanded(): void {
+    this.playFlyOn = false;
+    const dest: number[] = this.playDestOf(this.playFlySeat, this.playFlyCount);
+    this.setPile(this.playFlySeat, this.playFlyCount, dest[0], dest[1]);
+    TableAudio.playPlayLand();
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap !== null) {
+      this.hearLastPlay(snap);
+    }
+    this.confirmBusy = false;
+    AppRuntime.director.playBusy = false;
+    if (snap !== null) {
+      const left: number = this.handCountOf(snap.seats, this.playFlySeat);
+      if (left === 0) {
+        this.rankSettleOn = true;
+        this.rankSettlePlace = this.placeOf(snap.emptyOrder, this.playFlySeat);
+      }
+      this.refreshPlayMeta(snap);
+    }
+    this.pull();
+    this.flushQueuedPlay();
+  }
+
+  /** 16 onPlayRollback: drop fly + pile, restore hand, one key toast. */
+  private onPlayRollback(): void {
+    this.cancelPlayFlyTimer();
+    this.playFlyOn = false;
+    this.clearPile(this.playFlySeat);
+    this.rankSettleOn = false;
+    this.takeSelfHand(this.rollbackHand);
+    this.takePeekRanks(this.ranksOf(this.rollbackHand));
+    this.takeCardBacks(this.rollbackHand.length);
+    this.hiddenCardIds = [];
+    this.selectedIds = this.copyIds(this.rollbackSelected);
+    this.confirmBusy = false;
+    AppRuntime.director.playBusy = false;
+    this.playFlyPlayId = '';
+    AppRuntime.engine.rollbackLastPlay();
+    this.flashHint(4);
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap !== null) {
+      this.refreshPlayMeta(snap);
+    }
+    this.pull();
+  }
+
+  private maybeOtherPlayFly(snap: MatchSnapshot): void {
+    if (snap.lastPlay === null || snap.playIndexInRound <= 0) {
+      return;
+    }
+    const playId: string = snap.lastPlay.playId;
+    if (playId === this.playFlyPlayId || playId === this.heardPlayId) {
+      return;
+    }
+    if (this.playFlyOn || this.confirmBusy) {
+      this.queuedPlayId = playId;
+      return;
+    }
+    this.beginOtherPlay(snap);
+  }
+
+  private beginOtherPlay(snap: MatchSnapshot): void {
+    if (snap.lastPlay === null) {
+      return;
+    }
+    this.confirmBusy = true;
+    AppRuntime.director.playBusy = true;
+    this.playFlyPlayId = snap.lastPlay.playId;
+    this.playFlyCount = snap.lastPlay.count;
+    this.playFlySeat = snap.lastPlay.actorSeatId;
+    this.rankSettleOn = false;
+    TableAudio.playPlayLaunch();
+    this.kickPlayFly(snap.lastPlay.actorSeatId, snap.lastPlay.count);
+  }
+
+  private flushQueuedPlay(): void {
+    if (this.queuedPlayId.length === 0) {
+      return;
+    }
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.lastPlay === null || snap.lastPlay.playId !== this.queuedPlayId) {
+      this.queuedPlayId = '';
+      return;
+    }
+    this.queuedPlayId = '';
+    this.beginOtherPlay(snap);
+  }
+
+  private playOriginOf(seatId: number): number[] {
+    if (seatId === TableCompass.BOTTOM) {
+      let slot: number = 0;
+      for (let i = 0; i < this.selfCards.length; i++) {
+        if (this.hasHidden(this.selfCards[i].cardId)) {
+          slot = i;
+          break;
+        }
+      }
+      let x: number = this.handX + slot * (PlayFlyFx.CARD_W + 6);
+      if (this.handW <= 0) {
+        x = TableBreakpoints.handBandCenterX(this.padL, this.padR, this.stackW) - PlayFlyFx.CARD_W / 2;
+      }
+      return [x, this.handY];
+    }
+    return [this.seatXs[seatId], this.seatYs[seatId]];
+  }
+
+  private playDestOf(seatId: number, count: number): number[] {
+    const w: number = PlayFlyFx.pileWidth(count);
+    const h: number = PlayFlyFx.pileHeight();
+    if (seatId === TableCompass.BOTTOM) {
+      const cx: number = TableBreakpoints.handBandCenterX(this.padL, this.padR, this.stackW);
+      let x: number = cx - w / 2;
+      if (this.stackW <= 0) {
+        x = this.handX + this.handW / 2 - w / 2;
+      }
+      let y: number = this.handY - h - PlayFlyFx.SELF_GAP_VP;
+      if (y < this.padT + 8) {
+        y = this.padT + 8;
+      }
+      return [x, y];
+    }
+    const sx: number = this.seatXs[seatId];
+    const sy: number = this.seatYs[seatId];
+    const sw: number = this.seatWs[seatId];
+    const sh: number = this.seatHs[seatId];
+    if (seatId === TableCompass.RIGHT) {
+      return [sx - w - PlayFlyFx.INSET_VP, sy + sh / 2 - h / 2];
+    }
+    if (seatId === TableCompass.TOP) {
+      return [sx + sw / 2 - w / 2, sy + sh + PlayFlyFx.INSET_VP];
+    }
+    return [sx + sw + PlayFlyFx.INSET_VP, sy + sh / 2 - h / 2];
+  }
+
+  private setPile(seatId: number, count: number, x: number, y: number): void {
+    if (seatId === TableCompass.RIGHT) {
+      this.pileN1 = count;
+      this.pileX1 = x;
+      this.pileY1 = y;
+      return;
+    }
+    if (seatId === TableCompass.TOP) {
+      this.pileN2 = count;
+      this.pileX2 = x;
+      this.pileY2 = y;
+      return;
+    }
+    if (seatId === TableCompass.LEFT) {
+      this.pileN3 = count;
+      this.pileX3 = x;
+      this.pileY3 = y;
+      return;
+    }
+    this.pileN0 = count;
+    this.pileX0 = x;
+    this.pileY0 = y;
+  }
+
+  private clearPile(seatId: number): void {
+    this.setPile(seatId, 0, 0, 0);
+  }
+
+  private clearAllPiles(): void {
+    this.pileN0 = 0;
+    this.pileN1 = 0;
+    this.pileN2 = 0;
+    this.pileN3 = 0;
+  }
+
+  private resetPlayFlyUi(): void {
+    this.cancelPlayFlyTimer();
+    this.playFlyOn = false;
+    this.clearAllPiles();
+    this.hiddenCardIds = [];
+    this.rankSettleOn = false;
+    this.playFlyPlayId = '';
+    this.queuedPlayId = '';
+    this.confirmBusy = false;
+    AppRuntime.director.playBusy = false;
+  }
+
+  private cancelPlayFlyTimer(): void {
+    if (this.playFlyTimer >= 0) {
+      clearTimeout(this.playFlyTimer);
+      this.playFlyTimer = -1;
+    }
+  }
+
+  private cardHiddenAt(idx: number): boolean {
+    if (idx < 0 || idx >= this.selfCards.length) {
+      return false;
+    }
+    return this.hasHidden(this.selfCards[idx].cardId);
+  }
+
+  private hasHidden(cardId: string): boolean {
+    for (let i = 0; i < this.hiddenCardIds.length; i++) {
+      if (this.hiddenCardIds[i] === cardId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private placeOf(order: number[], seatId: number): number {
+    for (let i = 0; i < order.length; i++) {
+      if (order[i] === seatId) {
+        return i + 1;
+      }
+    }
+    return 1;
+  }
+
+  private copyIds(src: string[]): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < src.length; i++) {
+      out.push(src[i]);
+    }
+    return out;
+  }
+
+  private copyCards(src: CardModel[]): CardModel[] {
+    const out: CardModel[] = [];
+    for (let i = 0; i < src.length; i++) {
+      out.push({ cardId: src[i].cardId, rank: src[i].rank });
+    }
+    return out;
+  }
+
+  private onDebugPlayReject(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    if (!this.playFlyOn && this.pileN0 === 0 && this.pileN1 === 0 &&
+      this.pileN2 === 0 && this.pileN3 === 0) {
+      return;
+    }
+    this.onPlayRollback();
   }
 
   private ensureDealShow(snap: MatchSnapshot): void {
@@ -2075,6 +2505,14 @@ struct Table {
     const loc: number[] = this.localOf(area);
     this.seatXs[seatId] = loc[0];
     this.seatYs[seatId] = loc[1];
+    const w: number = Number(area.width);
+    const h: number = Number(area.height);
+    if (w > 0) {
+      this.seatWs[seatId] = w;
+    }
+    if (h > 0) {
+      this.seatHs[seatId] = h;
+    }
   }
 
   private localOf(area: Area): number[] {
