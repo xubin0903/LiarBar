@@ -8,6 +8,8 @@ Tokens: docs/04-设计/夜半酒馆-风格板.md
 Slots:  docs/04-设计/生命烛精致化-资产交件.md
         docs/04-设计/14-局内生命显示规格.md
         docs/04-设计/15-局内手牌触摸出牌规格.md §7 (lb_sfx_card_flip)
+        Flip wav is owned by scripts/gen_card_flip_punch_sfx.py — this file
+        no longer writes sfx_card_flip.wav.
 
 Zero .ets. Does not touch BGM or gen_table_audio.py.
 """
@@ -389,7 +391,7 @@ def band_noise(n: int, rng: np.random.Generator, lo: float, hi: float) -> np.nda
 
 
 def make_card_flip() -> np.ndarray:
-    """Short paper flap: two-finger slip + page edge. Not a UI click."""
+    """Historical #108 200ms rustle. Unused — punch clip is gen_card_flip_punch_sfx.py."""
     rng = np.random.default_rng(20260912)
     n = int(round(0.20 * SR))
     t = np.arange(n) / SR
@@ -632,8 +634,9 @@ def main() -> None:
     assert_extinguish_sequence([Image.open(p).convert("RGBA") for p in ext_paths])
 
     print("— sfx —")
+    # Flip same-slot is owned by scripts/gen_card_flip_punch_sfx.py (80–100ms punch).
+    # Do not overwrite sfx_card_flip.wav here.
     jobs = (
-        (SFX / "sfx_card_flip.wav", make_card_flip, 0.25, 0.12, 0.25, (-12.4, -9.6)),
         (SFX / "sfx_life_extinguish.wav", make_life_extinguish, 0.60, 0.25, 0.60, (-12.4, -9.6)),
     )
     for path, fn, max_s, min_s, _hi, peak_win in jobs:
@@ -645,7 +648,7 @@ def main() -> None:
         if not (peak_win[0] <= pk <= peak_win[1]):
             raise SystemExit(f"{path.name} peak {pk:.2f} outside {peak_win}")
 
-    print("life-candle polish written (body > flame; flame_full/hurt/dying bind; optional full_0..3; extinguish; two Foley wavs)")
+    print("life-candle polish written (body > flame; flame_full/hurt/dying bind; optional full_0..3; extinguish Foley only — flip owned by gen_card_flip_punch_sfx.py)")
 
 
 if __name__ == "__main__":
