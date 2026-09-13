@@ -108,6 +108,8 @@ struct Table {
   @State debugLifeOpen: boolean = false;
   /** EXP 1: debug panel BGM mute (table AVPlayer only; SFX stay). */
   @State debugBgmMuted: boolean = false;
+  /** EXP 3: debug panel renderer vs SoundPool A/B. */
+  @State debugSfxRenderer: boolean = true;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -175,6 +177,7 @@ struct Table {
     TableAudio.bind(ctx);
     TableAudio.prepare();
     this.debugBgmMuted = TableAudio.isBgmMuted();
+    this.debugSfxRenderer = SoundPlayer.usesRenderer() || SoundPlayer.EXP_USE_RENDERER;
     const boot: MatchSnapshot | null = AppRuntime.engine.current();
     if (boot !== null) {
       DealAudio.setSilent(boot.silentMode);
@@ -185,6 +188,9 @@ struct Table {
     Logger.info('SfxDiag',
       `SfxDiag bgmMute enter-table runtime=${TableAudio.isBgmMuted()} ` +
         `exp=${TableAudio.EXP_MUTE_BGM}`);
+    Logger.info('SfxDiag',
+      `SfxDiag path enter-table renderer=${SoundPlayer.EXP_USE_RENDERER} ` +
+        `runtime=${this.debugSfxRenderer}`);
     this.lockTableWindow();
     this.pull();
     this.pollId = setInterval((): void => {
@@ -196,6 +202,7 @@ struct Table {
   /** Enter-table: finish SoundPool loadComplete + silent warmup before first tap. */
   private async warmupTableSfx(): Promise<void> {
     await SoundPlayer.prepare();
+    this.debugSfxRenderer = SoundPlayer.usesRenderer();
     Logger.info('SfxReady',
       `SfxReady enter-table warm=${SoundPlayer.isWarm()} pending=false deferred=false t=${Date.now()}`);
   }
@@ -794,6 +801,23 @@ struct Table {
         .onClick(() => {
           this.onDebugBgmMute();
         })
+      Text(this.debugSfxRenderer ? $r('app.string.lb_str_debug_sfx_pool') :
+        $r('app.string.lb_str_debug_sfx_renderer'))
+        .id(ControlIds.DEBUG_SFX_PATH)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor(this.debugSfxRenderer ? $r('app.color.tavern_accent') :
+          $r('app.color.tavern_mute'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugSfxPath();
+        })
     }
     .id(ControlIds.DEBUG_LIFE)
     .padding(8)
@@ -1092,6 +1116,16 @@ struct Table {
     const next: boolean = !TableAudio.isBgmMuted();
     TableAudio.setBgmMuted(next);
     this.debugBgmMuted = next;
+  }
+
+  /** EXP 3 A/B: AudioRenderer (低延迟) vs SoundPool (池播). Hang points stay. */
+  private onDebugSfxPath(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    const next: boolean = !this.debugSfxRenderer;
+    SoundPlayer.setUseRenderer(next);
+    this.debugSfxRenderer = next;
   }
 
   private onDebugLifeDec(): void {

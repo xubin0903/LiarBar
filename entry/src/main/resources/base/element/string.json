@@ -76,6 +76,8 @@
     { "name": "lb_str_debug_open", "value": "调" },
     { "name": "lb_str_debug_life_dec", "value": "−1" },
     { "name": "lb_str_debug_bgm_mute", "value": "BGM静" },
-    { "name": "lb_str_debug_bgm_on", "value": "BGM开" }
+    { "name": "lb_str_debug_bgm_on", "value": "BGM开" },
+    { "name": "lb_str_debug_sfx_pool", "value": "池播" },
+    { "name": "lb_str_debug_sfx_renderer", "value": "低延迟" }
   ]
 }

@@ -5,6 +5,7 @@ import { resourceManager } from '@kit.LocalizationKit';
 import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
+import { SfxPcm, SfxWavClip } from './SfxPcm';
 
 const TAG = 'SoundPlayer';
 const TAG_READY: string = 'SfxReady';
@@ -15,28 +16,26 @@ const PATH_EXTINGUISH: string = 'audio/sfx/sfx_life_extinguish.wav';
 const READY_TIMEOUT_MS: number = 1500;
 
 /**
- * Table one-shots that must actually hit SoundPool — not log-only.
- * Disk: sfx_card_flip.wav / sfx_life_extinguish.wav.
+ * Table one-shots that must actually hit a player — not log-only.
+ * Disk: sfx_card_flip.wav / sfx_life_extinguish.wav (48 kHz mono PCM16).
  * Call slots stay lb_sfx_card_flip / lb_sfx_life_extinguish (no parallel names).
  * Missing file = fail-soft; visuals still run. Silent skips the player.
  *
- * Ready ≠ load() id. Harmony SoundPool can return an id before loadComplete;
- * play() then queues late (~0.5s). prepare() waits loadComplete + silent warmup
- * so the first user play after enter-table is already ready (not pending).
- * Call-site timing stays #118: flip with playFlip kickoff; extinguish at extFrame=0.
+ * EXP 1 CLOSED (falsified): BGM mute via debug, still late. dT1-T0≈3–5ms;
+ * playRet 2–8ms; dT2≈210–218ms; playFin-T1≈283–335ms. Flip wav≈200ms →
+ * onset vs T1 still ~80–130ms late. Not BGM contention.
  *
- * Path B (Aron log): dT1-T0 already 0–4ms, path=play, ready, not pending —
- * ear still late every play. Production pool uses STREAM_USAGE_GAME +
- * rendererFlags:1 (not the MUSIC createSoundPool sample). Warmup loads a
- * separate soundId and stop()s that stream: OH docs say the same sound ID
- * play()ed multiple times may only play once. Table BGM stays on TableAudio
- * AVPlayer (MUSIC); this pool is short-SFX only.
+ * EXP 2 — sample rate: log device preferred output vs rawfile wav. If
+ * mismatch, resample in memory (no silence trim). Art slot names stay
+ * sfx_card_flip / sfx_life_extinguish at the device native rate.
  *
- * DIAG (#listen): T0/T1/T2 + playRet streamId so Rebuild can compare dT1-T0
- * (must stay small) against listen-feel. Does not change when play() is called.
- * playFin = playFinished vs T1 (mixer/output duration; cannot replace ear).
+ * EXP 3 PRIMARY — AudioRenderer writeData, pre-started GAME renderer
+ * (official PCM path). Tests: SoundPool post-playRet delay is structural.
+ * Goal: playFin-T1 ≈ wav duration (onset felt <30ms). SoundPool stays
+ * as A/B (debug 低延迟/池播). BAN StreamUsage-only change — still GAME.
  *
- * Volume below is a SEPARATE item from EXP 1 (TableAudio BGM mute).
+ * Hang points stay #118: flip with playFlip kickoff; extinguish extFrame=0.
+ * DIAG: T0/T1/T2 + playRet + playFin + SfxReady. VOL_FLIP stays 0.70.
  */
 export class SoundPlayer {
   /** SEPARATE from latency EXP 1. #126 ear: flip too quiet. 0.40 → 0.70. */
@@ -49,6 +48,11 @@ export class SoundPlayer {
    * GAME + rendererFlags:1. MUSIC sample is not used for flip/extinguish.
    */
   static readonly DIAG_STREAM_USAGE_GAME: boolean = true;
+  /**
+   * EXP 3 rebuild flag. true = AudioRenderer (PRIMARY). false = SoundPool A/B.
+   * Debug 低延迟/池播 can still flip at runtime. NOT a StreamUsage-only switch.
+   */
+  static readonly EXP_USE_RENDERER: boolean = true;
 
   private static context: common.UIAbilityContext | null = null;
   private static pool: media.SoundPool | null = null;
@@ -77,9 +81,22 @@ export class SoundPlayer {
   private static diagExtT0: number = 0;
   private static diagFlipT1: number = 0;
   private static diagExtT1: number = 0;
+  private static useRenderer: boolean = true;
+  private static rendererOk: boolean = false;
+  private static deviceRate: number = 48000;
+  private static flipClip: SfxWavClip | null = null;
+  private static extClip: SfxWavClip | null = null;
+  private static flipRenderer: audio.AudioRenderer | null = null;
+  private static extRenderer: audio.AudioRenderer | null = null;
+  private static flipCursor: number = -1;
+  private static extCursor: number = -1;
+  private static flipPlayArmed: boolean = false;
+  private static extPlayArmed: boolean = false;
+  private static rendererSeq: number = 0;
 
   static bind(context: common.UIAbilityContext): void {
     SoundPlayer.context = context;
+    SoundPlayer.useRenderer = SoundPlayer.EXP_USE_RENDERER;
   }
 
   static setSilent(on: boolean): void {
@@ -87,11 +104,34 @@ export class SoundPlayer {
     if (on) {
       SoundPlayer.pendingFlip = 0;
       SoundPlayer.pendingExt = 0;
+      SoundPlayer.flipCursor = -1;
+      SoundPlayer.extCursor = -1;
+      SoundPlayer.flipPlayArmed = false;
+      SoundPlayer.extPlayArmed = false;
       Logger.info(TAG, `${SfxIds.CARD_FLIP}/${SfxIds.LIFE_EXTINGUISH} skipped (silent)`);
     }
   }
 
+  static usesRenderer(): boolean {
+    return SoundPlayer.useRenderer && SoundPlayer.rendererOk;
+  }
+
+  /**
+   * EXP 3 A/B: renderer vs SoundPool. Does not move hang points.
+   * Both paths stay warm after prepare so the toggle is instant.
+   */
+  static setUseRenderer(on: boolean): void {
+    SoundPlayer.useRenderer = on;
+    Logger.info(TAG_DIAG,
+      `SfxDiag path toggle renderer=${on} ok=${SoundPlayer.rendererOk} ` +
+        `exp=${SoundPlayer.EXP_USE_RENDERER}`);
+  }
+
   static isWarm(): boolean {
+    if (SoundPlayer.usesRenderer()) {
+      return SoundPlayer.flipClip !== null && SoundPlayer.extClip !== null &&
+        SoundPlayer.flipRenderer !== null && SoundPlayer.extRenderer !== null;
+    }
     return SoundPlayer.flipReady && SoundPlayer.extReady && SoundPlayer.pool !== null &&
       SoundPlayer.flipId >= 0 && SoundPlayer.extId >= 0;
   }
@@ -101,7 +141,8 @@ export class SoundPlayer {
       Logger.info(TAG_READY,
         `SfxReady already warm slot=${SfxIds.CARD_FLIP} id=${SoundPlayer.flipId} ` +
           `slot=${SfxIds.LIFE_EXTINGUISH} id=${SoundPlayer.extId} ready=true pending=false ` +
-          `t=${Date.now()} usage=${SoundPlayer.usageLabel()} playN=0`);
+          `t=${Date.now()} usage=${SoundPlayer.usageLabel()} playN=0 ` +
+          `path=${SoundPlayer.pathLabel()}`);
       return;
     }
     if (SoundPlayer.inFlight !== null) {
@@ -175,6 +216,7 @@ export class SoundPlayer {
     SoundPlayer.completedIds = [];
     SoundPlayer.firstPlayDone = false;
     SoundPlayer.resetDiag();
+    SoundPlayer.releaseRenderers();
     const pool: media.SoundPool | null = SoundPlayer.pool;
     SoundPlayer.pool = null;
     if (pool === null) {
@@ -192,6 +234,9 @@ export class SoundPlayer {
     }
     try {
       SoundPlayer.resetDiag();
+      SoundPlayer.useRenderer = SoundPlayer.EXP_USE_RENDERER;
+      await SoundPlayer.prepareClipsAndRates();
+      await SoundPlayer.prepareRenderers();
       if (SoundPlayer.pool === null) {
         const info: audio.AudioRendererInfo = {
           usage: audio.StreamUsage.STREAM_USAGE_GAME,
@@ -214,7 +259,7 @@ export class SoundPlayer {
         SoundPlayer.extId = await SoundPlayer.loadPath(PATH_EXTINGUISH);
         SoundPlayer.applyCompleted(SoundPlayer.extId);
       }
-      if (SoundPlayer.flipId < 0 && SoundPlayer.extId < 0) {
+      if (SoundPlayer.flipId < 0 && SoundPlayer.extId < 0 && !SoundPlayer.rendererOk) {
         Logger.info(TAG_READY, 'SfxReady warmup skipped: both slots missing');
         return;
       }
@@ -229,14 +274,17 @@ export class SoundPlayer {
           `slot=${SfxIds.LIFE_EXTINGUISH} id=${SoundPlayer.extId} ` +
           `warmId=${SoundPlayer.extWarmId} ` +
           `ready=${SoundPlayer.extReady} pending=${SoundPlayer.pendingExt} ` +
-          `t=${Date.now()} usage=${SoundPlayer.usageLabel()} playN=0`);
+          `t=${Date.now()} usage=${SoundPlayer.usageLabel()} playN=0 ` +
+          `path=${SoundPlayer.pathLabel()} deviceRate=${SoundPlayer.deviceRate}`);
     } catch (err) {
       Logger.warn(TAG, `pool unavailable — fail-soft, visuals continue: ${err}`);
     }
   }
 
   private static playNamed(idName: string, soundId: number, volume: number, isFlip: boolean): void {
-    const ready: boolean = isFlip ? SoundPlayer.flipReady : SoundPlayer.extReady;
+    const renderer: boolean = SoundPlayer.slotRendererReady(isFlip);
+    const ready: boolean = renderer ? true :
+      (isFlip ? SoundPlayer.flipReady : SoundPlayer.extReady);
     const first: boolean = !SoundPlayer.firstPlayDone;
     const playN: number = SoundPlayer.diagPlayN(isFlip);
     const now: number = Date.now();
@@ -251,7 +299,7 @@ export class SoundPlayer {
       }
       return;
     }
-    if (soundId < 0 || SoundPlayer.pool === null || !ready) {
+    if (!renderer && (soundId < 0 || SoundPlayer.pool === null || !ready)) {
       if (isFlip) {
         SoundPlayer.pendingFlip = SoundPlayer.pendingFlip + 1;
       } else {
@@ -272,11 +320,15 @@ export class SoundPlayer {
     if (first) {
       Logger.info(TAG_READY,
         `SfxReady firstPlay slot=${idName} id=${soundId} ready=true pending=false ` +
-          `deferred=false playN=${playN} t=${now}`);
+          `deferred=false playN=${playN} t=${now} path=${SoundPlayer.pathLabel()}`);
     } else {
       Logger.info(TAG_READY,
         `SfxReady play slot=${idName} id=${soundId} ready=true pending=false ` +
-          `deferred=false playN=${playN} t=${now}`);
+          `deferred=false playN=${playN} t=${now} path=${SoundPlayer.pathLabel()}`);
+    }
+    if (renderer) {
+      SoundPlayer.fireRenderer(volume, 'renderer', isFlip);
+      return;
     }
     SoundPlayer.firePlay(soundId, volume, 'play');
   }
@@ -313,10 +365,48 @@ export class SoundPlayer {
       const dRet: number = tRet - tCall;
       Logger.info(TAG_DIAG,
         `SfxDiag playRet kind=${kind} playN=${playN} t=${tRet} stream=${stream} ` +
-          `dPlayRet-T1=${dRet} usage=${SoundPlayer.usageLabel()} id=${soundId}`);
+          `dPlayRet-T1=${dRet} usage=${SoundPlayer.usageLabel()} id=${soundId} ` +
+          `path=play wavMs=${SoundPlayer.wavMs(kind === 'flip')}`);
     }).catch((err: BusinessError): void => {
       Logger.warn(TAG, `play fail-soft: ${err.message}`);
     });
+  }
+
+  private static fireRenderer(volume: number, path: string, isFlip: boolean): void {
+    const clip: SfxWavClip | null = isFlip ? SoundPlayer.flipClip : SoundPlayer.extClip;
+    const renderer: audio.AudioRenderer | null =
+      isFlip ? SoundPlayer.flipRenderer : SoundPlayer.extRenderer;
+    if (clip === null || renderer === null) {
+      return;
+    }
+    const kind: string = isFlip ? 'flip' : 'extinguish';
+    SoundPlayer.diagT1(kind, path, isFlip ? SoundPlayer.flipId : SoundPlayer.extId);
+    const tCall: number = Date.now();
+    renderer.setVolume(volume).catch((err: BusinessError): void => {
+      Logger.info(TAG, `setVolume fail-soft: ${err.message}`);
+    });
+    SoundPlayer.ensureRendererRunning(renderer);
+    if (isFlip) {
+      SoundPlayer.flipCursor = 0;
+      SoundPlayer.flipPlayArmed = true;
+    } else {
+      SoundPlayer.extCursor = 0;
+      SoundPlayer.extPlayArmed = true;
+    }
+    SoundPlayer.rendererSeq = SoundPlayer.rendererSeq + 1;
+    const stream: number = SoundPlayer.rendererSeq;
+    if (isFlip) {
+      SoundPlayer.lastFlipStream = stream;
+    } else {
+      SoundPlayer.lastExtStream = stream;
+    }
+    const tRet: number = Date.now();
+    const playN: number = SoundPlayer.diagPlayN(isFlip);
+    Logger.info(TAG_DIAG,
+      `SfxDiag playRet kind=${kind} playN=${playN} t=${tRet} stream=${stream} ` +
+        `dPlayRet-T1=${tRet - tCall} usage=${SoundPlayer.usageLabel()} ` +
+        `id=${isFlip ? SoundPlayer.flipId : SoundPlayer.extId} path=renderer ` +
+        `wavMs=${clip.durationMs} rate=${clip.sampleRate}`);
   }
 
   /**
@@ -393,6 +483,10 @@ export class SoundPlayer {
     if (kind.length === 0) {
       return;
     }
+    SoundPlayer.logPlayFin(kind, streamId, tFin, 'play');
+  }
+
+  private static logPlayFin(kind: string, streamId: number, tFin: number, path: string): void {
     const isFlip: boolean = kind === 'flip';
     const playN: number = SoundPlayer.diagPlayN(isFlip);
     const t0: number = isFlip ? SoundPlayer.diagFlipT0 : SoundPlayer.diagExtT0;
@@ -401,7 +495,8 @@ export class SoundPlayer {
     const dFin0: number = t0 > 0 ? tFin - t0 : -1;
     Logger.info(TAG_DIAG,
       `SfxDiag playFin kind=${kind} playN=${playN} t=${tFin} stream=${streamId} ` +
-        `dPlayFin-T1=${dFin1} dPlayFin-T0=${dFin0}`);
+        `dPlayFin-T1=${dFin1} dPlayFin-T0=${dFin0} path=${path} ` +
+        `wavMs=${SoundPlayer.wavMs(isFlip)}`);
   }
 
   private static applyCompleted(soundId: number): void {
@@ -495,7 +590,11 @@ export class SoundPlayer {
       SoundPlayer.pendingFlip = 0;
       for (let i = 0; i < n; i++) {
         SoundPlayer.logDeferredReplay(SfxIds.CARD_FLIP, SoundPlayer.flipId);
-        SoundPlayer.firePlay(SoundPlayer.flipId, SoundPlayer.VOL_FLIP, 'deferred');
+        if (SoundPlayer.slotRendererReady(true)) {
+          SoundPlayer.fireRenderer(SoundPlayer.VOL_FLIP, 'deferred', true);
+        } else {
+          SoundPlayer.firePlay(SoundPlayer.flipId, SoundPlayer.VOL_FLIP, 'deferred');
+        }
       }
       return;
     }
@@ -503,7 +602,11 @@ export class SoundPlayer {
     SoundPlayer.pendingExt = 0;
     for (let i = 0; i < n; i++) {
       SoundPlayer.logDeferredReplay(SfxIds.LIFE_EXTINGUISH, SoundPlayer.extId);
-      SoundPlayer.firePlay(SoundPlayer.extId, SoundPlayer.VOL_EXTINGUISH, 'deferred');
+      if (SoundPlayer.slotRendererReady(false)) {
+        SoundPlayer.fireRenderer(SoundPlayer.VOL_EXTINGUISH, 'deferred', false);
+      } else {
+        SoundPlayer.firePlay(SoundPlayer.extId, SoundPlayer.VOL_EXTINGUISH, 'deferred');
+      }
     }
   }
 
@@ -526,6 +629,10 @@ export class SoundPlayer {
 
   private static waitSlotsReady(): Promise<void> {
     if (SoundPlayer.flipReady && SoundPlayer.extReady) {
+      SoundPlayer.clearWarmTimer();
+      return Promise.resolve();
+    }
+    if (SoundPlayer.rendererOk && SoundPlayer.flipClip !== null && SoundPlayer.extClip !== null) {
       SoundPlayer.clearWarmTimer();
       return Promise.resolve();
     }
@@ -621,7 +728,7 @@ export class SoundPlayer {
     const d10: number = t0 > 0 ? t1 - t0 : -1;
     Logger.info(TAG_DIAG,
       `SfxDiag T1 kind=${kind} playN=${playN} t=${t1} dT1-T0=${d10} path=${path} ` +
-        `id=${soundId} usage=${SoundPlayer.usageLabel()}`);
+        `id=${soundId} usage=${SoundPlayer.usageLabel()} rate=${SoundPlayer.deviceRate}`);
   }
 
   private static diagPlayN(isFlip: boolean): number {
@@ -642,5 +749,314 @@ export class SoundPlayer {
 
   private static usageLabel(): string {
     return 'GAME';
+  }
+
+  private static pathLabel(): string {
+    if (SoundPlayer.usesRenderer()) {
+      return 'renderer';
+    }
+    return 'play';
+  }
+
+  private static wavMs(isFlip: boolean): number {
+    const clip: SfxWavClip | null = isFlip ? SoundPlayer.flipClip : SoundPlayer.extClip;
+    if (clip !== null) {
+      return clip.durationMs;
+    }
+    if (isFlip) {
+      return 200;
+    }
+    return 420;
+  }
+
+  private static slotRendererReady(isFlip: boolean): boolean {
+    if (!SoundPlayer.useRenderer || !SoundPlayer.rendererOk) {
+      return false;
+    }
+    if (isFlip) {
+      return SoundPlayer.flipClip !== null && SoundPlayer.flipRenderer !== null;
+    }
+    return SoundPlayer.extClip !== null && SoundPlayer.extRenderer !== null;
+  }
+
+  /** EXP 2: device preferred output vs rawfile wav. Resample on mismatch; never trim. */
+  private static async prepareClipsAndRates(): Promise<void> {
+    const ctx: common.UIAbilityContext | null = SoundPlayer.context;
+    if (ctx === null) {
+      return;
+    }
+    SoundPlayer.deviceRate = await SoundPlayer.probeDeviceRate();
+    const flipRaw: SfxWavClip | null = await SoundPlayer.loadClip(PATH_FLIP);
+    const extRaw: SfxWavClip | null = await SoundPlayer.loadClip(PATH_EXTINGUISH);
+    const flipRate: number = flipRaw !== null ? flipRaw.sampleRate : 0;
+    const extRate: number = extRaw !== null ? extRaw.sampleRate : 0;
+    const matchFlip: boolean = flipRate === SoundPlayer.deviceRate;
+    const matchExt: boolean = extRate === SoundPlayer.deviceRate;
+    Logger.info(TAG_DIAG,
+      `SfxDiag rate device=${SoundPlayer.deviceRate} wavFlip=${flipRate} wavExt=${extRate} ` +
+        `matchFlip=${matchFlip} matchExt=${matchExt} slot=${SfxIds.CARD_FLIP} ` +
+        `file=${PATH_FLIP} slot=${SfxIds.LIFE_EXTINGUISH} file=${PATH_EXTINGUISH}`);
+    if (flipRaw === null) {
+      Logger.info(TAG_DIAG,
+        `SfxDiag rate art-needed slot=${SfxIds.CARD_FLIP} nativeRate=${SoundPlayer.deviceRate} ` +
+          `current=unreadable file=${PATH_FLIP} note=PCM16-wav`);
+    } else if (!matchFlip) {
+      Logger.info(TAG_DIAG,
+        `SfxDiag rate mismatch slot=${SfxIds.CARD_FLIP} wav=${flipRate} ` +
+          `device=${SoundPlayer.deviceRate} action=resample`);
+    }
+    if (extRaw === null) {
+      Logger.info(TAG_DIAG,
+        `SfxDiag rate art-needed slot=${SfxIds.LIFE_EXTINGUISH} nativeRate=${SoundPlayer.deviceRate} ` +
+          `current=unreadable file=${PATH_EXTINGUISH} note=PCM16-wav`);
+    } else if (!matchExt) {
+      Logger.info(TAG_DIAG,
+        `SfxDiag rate mismatch slot=${SfxIds.LIFE_EXTINGUISH} wav=${extRate} ` +
+          `device=${SoundPlayer.deviceRate} action=resample`);
+    }
+    if (flipRaw !== null) {
+      SoundPlayer.flipClip = matchFlip ? flipRaw : SfxPcm.resampleTo(flipRaw, SoundPlayer.deviceRate);
+    }
+    if (extRaw !== null) {
+      SoundPlayer.extClip = matchExt ? extRaw : SfxPcm.resampleTo(extRaw, SoundPlayer.deviceRate);
+    }
+  }
+
+  private static async probeDeviceRate(): Promise<number> {
+    try {
+      const routing: audio.AudioRoutingManager = audio.getAudioManager().getRoutingManager();
+      const info: audio.AudioRendererInfo = {
+        usage: audio.StreamUsage.STREAM_USAGE_GAME,
+        rendererFlags: 1
+      };
+      let devices: audio.AudioDeviceDescriptors =
+        await routing.getPreferOutputDeviceForRendererInfo(info);
+      let src: string = 'preferOutput';
+      if (devices.length === 0) {
+        devices = await routing.getDevices(audio.DeviceFlag.OUTPUT_DEVICES_FLAG);
+        src = 'outputDevices';
+      }
+      if (devices.length === 0) {
+        Logger.info(TAG_DIAG, `SfxDiag rate device=48000 src=default48k list=-`);
+        return 48000;
+      }
+      const desc: audio.AudioDeviceDescriptor = devices[0];
+      const picked: number = SfxPcm.pickDeviceRate(desc.sampleRates);
+      Logger.info(TAG_DIAG,
+        `SfxDiag rate device=${picked} src=${src} list=${SfxPcm.joinRates(desc.sampleRates)} ` +
+          `type=${desc.deviceType}`);
+      return picked;
+    } catch (err) {
+      Logger.info(TAG_DIAG, `SfxDiag rate device=48000 src=default48k fail-soft=${err}`);
+      return 48000;
+    }
+  }
+
+  private static async loadClip(path: string): Promise<SfxWavClip | null> {
+    const ctx: common.UIAbilityContext | null = SoundPlayer.context;
+    if (ctx === null) {
+      return null;
+    }
+    try {
+      const bytes: Uint8Array = await ctx.resourceManager.getRawFileContent(path);
+      return SfxPcm.parseWav(bytes, path);
+    } catch (err) {
+      Logger.warn(TAG, `${path} clip missing — fail-soft: ${err}`);
+      return null;
+    }
+  }
+
+  /** EXP 3: pre-started AudioRenderer + writeData silence so HAL is already open. */
+  private static async prepareRenderers(): Promise<void> {
+    SoundPlayer.rendererOk = false;
+    if (SoundPlayer.flipClip === null && SoundPlayer.extClip === null) {
+      Logger.info(TAG_READY, 'SfxReady renderer skipped: no PCM clips');
+      return;
+    }
+    try {
+      if (SoundPlayer.flipClip !== null) {
+        SoundPlayer.flipRenderer = await SoundPlayer.createSlotRenderer(SoundPlayer.flipClip, true);
+      }
+      if (SoundPlayer.extClip !== null) {
+        SoundPlayer.extRenderer = await SoundPlayer.createSlotRenderer(SoundPlayer.extClip, false);
+      }
+      SoundPlayer.rendererOk = SoundPlayer.flipRenderer !== null && SoundPlayer.extRenderer !== null;
+      Logger.info(TAG_READY,
+        `SfxReady renderer prepare ok=${SoundPlayer.rendererOk} ` +
+          `flip=${SoundPlayer.flipRenderer !== null} ext=${SoundPlayer.extRenderer !== null} ` +
+          `rate=${SoundPlayer.deviceRate} exp=${SoundPlayer.EXP_USE_RENDERER}`);
+    } catch (err) {
+      Logger.warn(TAG, `renderer unavailable — SoundPool A/B remains: ${err}`);
+      SoundPlayer.rendererOk = false;
+    }
+  }
+
+  private static async createSlotRenderer(clip: SfxWavClip, isFlip: boolean): Promise<audio.AudioRenderer | null> {
+    let work: SfxWavClip = clip;
+    let renderer: audio.AudioRenderer | null =
+      await SoundPlayer.tryCreateRenderer(work, 1);
+    if (renderer === null && work.channels === 1) {
+      work = SfxPcm.upmixMonoToStereo(work);
+      renderer = await SoundPlayer.tryCreateRenderer(work, 1);
+      if (renderer !== null) {
+        if (isFlip) {
+          SoundPlayer.flipClip = work;
+        } else {
+          SoundPlayer.extClip = work;
+        }
+        Logger.info(TAG_DIAG,
+          `SfxDiag rate upmix slot=${isFlip ? SfxIds.CARD_FLIP : SfxIds.LIFE_EXTINGUISH} ` +
+            `mono→stereo device=${work.sampleRate}`);
+      }
+    }
+    if (renderer === null) {
+      renderer = await SoundPlayer.tryCreateRenderer(work, 0);
+    }
+    if (renderer === null) {
+      return null;
+    }
+    if (isFlip) {
+      renderer.on('writeData', (buffer: ArrayBuffer): audio.AudioDataCallbackResult => {
+        return SoundPlayer.fillRenderer(buffer, true);
+      });
+    } else {
+      renderer.on('writeData', (buffer: ArrayBuffer): audio.AudioDataCallbackResult => {
+        return SoundPlayer.fillRenderer(buffer, false);
+      });
+    }
+    try {
+      await renderer.setInterruptMode(audio.InterruptMode.SHARE_MODE);
+    } catch (err) {
+      Logger.info(TAG, `setInterruptMode fail-soft: ${err}`);
+    }
+    try {
+      await renderer.start();
+      Logger.info(TAG_READY,
+        `SfxReady renderer start slot=${isFlip ? SfxIds.CARD_FLIP : SfxIds.LIFE_EXTINGUISH} ` +
+          `rate=${work.sampleRate} ch=${work.channels} wavMs=${work.durationMs}`);
+    } catch (err) {
+      Logger.warn(TAG, `renderer start fail-soft: ${err}`);
+      renderer.release().catch((e: BusinessError): void => {
+        Logger.info(TAG, `renderer release fail-soft: ${e.message}`);
+      });
+      return null;
+    }
+    return renderer;
+  }
+
+  private static async tryCreateRenderer(clip: SfxWavClip, flags: number): Promise<audio.AudioRenderer | null> {
+    try {
+      const streamInfo: audio.AudioStreamInfo = {
+        samplingRate: SfxPcm.toSamplingRate(clip.sampleRate),
+        channels: SfxPcm.toChannel(clip.channels),
+        sampleFormat: audio.AudioSampleFormat.SAMPLE_FORMAT_S16LE,
+        encodingType: audio.AudioEncodingType.ENCODING_TYPE_RAW
+      };
+      const rendererInfo: audio.AudioRendererInfo = {
+        usage: audio.StreamUsage.STREAM_USAGE_GAME,
+        rendererFlags: flags
+      };
+      const options: audio.AudioRendererOptions = {
+        streamInfo: streamInfo,
+        rendererInfo: rendererInfo
+      };
+      return await audio.createAudioRenderer(options);
+    } catch (err) {
+      Logger.info(TAG, `createAudioRenderer flags=${flags} ch=${clip.channels} fail-soft: ${err}`);
+      return null;
+    }
+  }
+
+  private static fillRenderer(buffer: ArrayBuffer, isFlip: boolean): audio.AudioDataCallbackResult {
+    const dest: Uint8Array = new Uint8Array(buffer);
+    const clip: SfxWavClip | null = isFlip ? SoundPlayer.flipClip : SoundPlayer.extClip;
+    let cursor: number = isFlip ? SoundPlayer.flipCursor : SoundPlayer.extCursor;
+    const armed: boolean = isFlip ? SoundPlayer.flipPlayArmed : SoundPlayer.extPlayArmed;
+    if (clip === null || !armed || cursor < 0) {
+      for (let i = 0; i < dest.length; i++) {
+        dest[i] = 0;
+      }
+      return audio.AudioDataCallbackResult.VALID;
+    }
+    const src: Uint8Array = new Uint8Array(clip.pcm);
+    let n: number = dest.length;
+    const avail: number = src.length - cursor;
+    if (avail < n) {
+      n = avail;
+    }
+    if (n < 0) {
+      n = 0;
+    }
+    for (let i = 0; i < n; i++) {
+      dest[i] = src[cursor + i];
+    }
+    for (let i = n; i < dest.length; i++) {
+      dest[i] = 0;
+    }
+    cursor = cursor + n;
+    const done: boolean = cursor >= src.length;
+    if (isFlip) {
+      SoundPlayer.flipCursor = done ? -1 : cursor;
+      if (done) {
+        SoundPlayer.flipPlayArmed = false;
+      }
+    } else {
+      SoundPlayer.extCursor = done ? -1 : cursor;
+      if (done) {
+        SoundPlayer.extPlayArmed = false;
+      }
+    }
+    if (done) {
+      const kind: string = isFlip ? 'flip' : 'extinguish';
+      const stream: number = isFlip ? SoundPlayer.lastFlipStream : SoundPlayer.lastExtStream;
+      SoundPlayer.logPlayFin(kind, stream, Date.now(), 'renderer');
+    }
+    return audio.AudioDataCallbackResult.VALID;
+  }
+
+  private static ensureRendererRunning(renderer: audio.AudioRenderer): void {
+    const state: audio.AudioState = renderer.state;
+    if (state === audio.AudioState.STATE_RUNNING) {
+      return;
+    }
+    if (state === audio.AudioState.STATE_PREPARED || state === audio.AudioState.STATE_PAUSED ||
+      state === audio.AudioState.STATE_STOPPED) {
+      renderer.start().catch((err: BusinessError): void => {
+        Logger.info(TAG, `renderer restart fail-soft: ${err.message}`);
+      });
+    }
+  }
+
+  private static releaseRenderers(): void {
+    SoundPlayer.flipCursor = -1;
+    SoundPlayer.extCursor = -1;
+    SoundPlayer.flipPlayArmed = false;
+    SoundPlayer.extPlayArmed = false;
+    SoundPlayer.rendererOk = false;
+    SoundPlayer.flipClip = null;
+    SoundPlayer.extClip = null;
+    const flip: audio.AudioRenderer | null = SoundPlayer.flipRenderer;
+    const ext: audio.AudioRenderer | null = SoundPlayer.extRenderer;
+    SoundPlayer.flipRenderer = null;
+    SoundPlayer.extRenderer = null;
+    SoundPlayer.releaseOneRenderer(flip);
+    SoundPlayer.releaseOneRenderer(ext);
+  }
+
+  private static releaseOneRenderer(renderer: audio.AudioRenderer | null): void {
+    if (renderer === null) {
+      return;
+    }
+    try {
+      renderer.off('writeData');
+    } catch (err) {
+      Logger.info(TAG, `renderer off fail-soft: ${err}`);
+    }
+    renderer.stop().catch((err: BusinessError): void => {
+      Logger.info(TAG, `renderer stop fail-soft: ${err.message}`);
+    });
+    renderer.release().catch((err: BusinessError): void => {
+      Logger.info(TAG, `renderer release fail-soft: ${err.message}`);
+    });
   }
 }

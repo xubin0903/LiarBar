@@ -74,6 +74,7 @@ const idLocks = [
   "DEBUG_LIFE: string = 'lb_cmp_debug_life'",
   "DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec'",
   "DEBUG_BGM_MUTE: string = 'lb_btn_debug_bgm_mute'",
+  "DEBUG_SFX_PATH: string = 'lb_btn_debug_sfx_path'",
   "PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar'",
   "PLAY_CONFIRM: string = 'lb_btn_play_confirm'",
   "CARD_FLIP: string = 'lb_sfx_card_flip'",
@@ -285,6 +286,24 @@ if (player.includes('VOL_FLIP: number = 0.70') &&
   pass('volume (SEPARATE): VOL_FLIP 0.70 VOL_EXTINGUISH 0.55');
 } else {
   fail('VOL_FLIP / VOL_EXTINGUISH not the labeled volume bump');
+}
+
+if (player.includes('SfxDiag rate') &&
+    player.includes('matchFlip') &&
+    player.includes('resampleTo') &&
+    player.includes('never trim') &&
+    player.includes('createAudioRenderer') &&
+    player.includes('writeData') &&
+    player.includes('EXP_USE_RENDERER: boolean = true') &&
+    player.includes('path=renderer') &&
+    table.includes('ControlIds.DEBUG_SFX_PATH') &&
+    table.includes('onDebugSfxPath') &&
+    table.includes('SoundPlayer.setUseRenderer') &&
+    strings.includes('lb_str_debug_sfx_pool') &&
+    strings.includes('lb_str_debug_sfx_renderer')) {
+  pass('EXP 2 rate probe/resample + EXP 3 AudioRenderer path + debug A/B');
+} else {
+  fail('EXP 2/3 renderer path, rate logs, or debug A/B missing');
 }
 
 if (table.includes('max_play_cards') && table.includes('failGen') &&
