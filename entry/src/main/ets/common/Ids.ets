@@ -104,8 +104,18 @@ export class ControlIds {
   static readonly PLAY_FRONT_PILE: string = 'lb_cmp_play_front_pile';
   /** 16 · RankSettle gate after land when hand==0. Not AwaitChallenge. */
   static readonly RANK_SETTLE: string = 'lb_cmp_rank_settle';
+  /** 17 / C2 · in-table AwaitChallenge overlay (not lb_scr_challenge). */
+  static readonly CHALLENGE_AWAIT: string = 'lb_cmp_challenge_await';
+  static readonly CHALLENGE_ENTRY: string = 'lb_cmp_challenge_entry';
+  static readonly CHALLENGE_TRUE: string = 'lb_btn_challenge_true';
+  static readonly CHALLENGE_FALSE: string = 'lb_btn_challenge_false';
+  static readonly CHALLENGE_PASS: string = 'lb_btn_challenge_pass';
+  static readonly CHALLENGE_TIMER: string = 'lb_cmp_challenge_timer';
+  static readonly CHALLENGE_RING: string = 'lb_cmp_challenge_ring';
   /** Debug/dev only. Authority-reject after optimistic fly (C1-6). */
   static readonly DEBUG_PLAY_REJECT: string = 'lb_btn_debug_play_reject';
+  /** Debug/dev only. Authority-reject next 假 (C2-7). */
+  static readonly DEBUG_CHALLENGE_REJECT: string = 'lb_btn_debug_challenge_reject';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
@@ -137,6 +147,10 @@ export class SfxIds {
   static readonly PLAY_LAUNCH: string = 'lb_sfx_play_launch';
   /** 16 · PlayLanded onset. Disk: sfx_play_land.wav. Never flip. */
   static readonly PLAY_LAND: string = 'lb_sfx_play_land';
+  /** 17 · AwaitChallenge onEnter. Disk: sfx_challenge_enter.wav. Never flip/launch/land. */
+  static readonly CHALLENGE_ENTER: string = 'lb_sfx_challenge_enter';
+  /** 17 · 真/假 press. Disk: sfx_challenge_commit.wav. Pass has no slot. */
+  static readonly CHALLENGE_COMMIT: string = 'lb_sfx_challenge_commit';
   /** Call slot. Disk file may be sfx_life_extinguish.wav — do not rename this id. */
   static readonly LIFE_EXTINGUISH: string = 'lb_sfx_life_extinguish';
 }

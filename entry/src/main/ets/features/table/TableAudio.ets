@@ -16,6 +16,8 @@ const PATH_SLAM: string = 'audio/sfx/sfx_play_slam.wav';
 const PATH_HESITATE: string = 'audio/sfx/sfx_play_hesitate.wav';
 const PATH_LAUNCH: string = 'audio/sfx/sfx_play_launch.wav';
 const PATH_LAND: string = 'audio/sfx/sfx_play_land.wav';
+const PATH_CH_ENTER: string = 'audio/sfx/sfx_challenge_enter.wav';
+const PATH_CH_COMMIT: string = 'audio/sfx/sfx_challenge_commit.wav';
 const PATH_TURN: string = 'audio/sfx/sfx_turn_tick.wav';
 const PATH_STARE: string = 'audio/sfx/sfx_named_stare.wav';
 const PATH_WIN: string = 'audio/sfx/sfx_result_win.wav';
@@ -25,7 +27,9 @@ const PATH_LOSE: string = 'audio/sfx/sfx_result_lose.wav';
  * Table bed + §5.2 SFX (docs 13 §3/§5/§6, assets #80).
  * Enter: lobby BGM already 400ms fade-out → this bed 600ms fade-in.
  * Leave / silent: 400ms fade-out. Silent = BGM + SFX fully off (same as LobbyAudio).
- * Do not load or play sfx_challenge_*.
+ * Section 2 loads only sfx_challenge_enter / sfx_challenge_commit.
+ * Do not load old four-beat sfx_challenge_windup / _standoff / _reveal / _result.
+ * Pass has no slot. Never play flip / launch / land as challenge.
  * BGM stays on this AVPlayer (MUSIC). Flip/extinguish short SFX live on
  * SoundPlayer's GAME SoundPool — not this MUSIC pool — so path-B latency
  * experiments do not share the table bed mixer.
@@ -42,6 +46,8 @@ export class TableAudio {
   static readonly PLAY_HESITATE: string = SfxIds.PLAY_HESITATE;
   static readonly PLAY_LAUNCH: string = SfxIds.PLAY_LAUNCH;
   static readonly PLAY_LAND: string = SfxIds.PLAY_LAND;
+  static readonly CHALLENGE_ENTER: string = SfxIds.CHALLENGE_ENTER;
+  static readonly CHALLENGE_COMMIT: string = SfxIds.CHALLENGE_COMMIT;
   static readonly TURN_TICK: string = SfxIds.TURN_TICK;
   static readonly NAMED_STARE: string = SfxIds.NAMED_STARE;
   static readonly RESULT_WIN: string = SfxIds.RESULT_WIN;
@@ -64,6 +70,8 @@ export class TableAudio {
   static readonly VOL_HESITATE: number = 0.34;
   static readonly VOL_LAUNCH: number = 0.44;
   static readonly VOL_LAND: number = 0.46;
+  static readonly VOL_CH_ENTER: number = 0.42;
+  static readonly VOL_CH_COMMIT: number = 0.44;
   static readonly VOL_TURN: number = 0.22;
   static readonly VOL_STARE: number = 0.40;
   static readonly VOL_RESULT: number = 0.44;
@@ -88,6 +96,8 @@ export class TableAudio {
   private static hesitateId: number = -1;
   private static launchId: number = -1;
   private static landId: number = -1;
+  private static enterId: number = -1;
+  private static commitId: number = -1;
   private static turnId: number = -1;
   private static stareId: number = -1;
   private static winId: number = -1;
@@ -103,6 +113,8 @@ export class TableAudio {
   private static pendingHesitate: boolean = false;
   private static pendingLaunch: boolean = false;
   private static pendingLand: boolean = false;
+  private static pendingEnter: boolean = false;
+  private static pendingCommit: boolean = false;
   private static pendingTurn: boolean = false;
   private static pendingStare: boolean = false;
   private static pendingWin: boolean = false;
@@ -152,7 +164,8 @@ export class TableAudio {
       Logger.info(TAG,
         `${SfxIds.BGM_TABLE_BLUFF}/${SfxIds.CLAIM_SET}/${SfxIds.PLAY_SOFT}/` +
         `${SfxIds.PLAY_SLAM}/${SfxIds.PLAY_HESITATE}/${SfxIds.PLAY_LAUNCH}/` +
-        `${SfxIds.PLAY_LAND}/${SfxIds.TURN_TICK}/` +
+        `${SfxIds.PLAY_LAND}/${SfxIds.CHALLENGE_ENTER}/${SfxIds.CHALLENGE_COMMIT}/` +
+        `${SfxIds.TURN_TICK}/` +
         `${SfxIds.NAMED_STARE}/${SfxIds.RESULT_WIN}/${SfxIds.RESULT_LOSE} skipped (silent)`);
       TableAudio.clearPendings();
       TableAudio.stopBedsNow();
@@ -187,6 +200,8 @@ export class TableAudio {
       TableAudio.hesitateId = await TableAudio.loadPath(PATH_HESITATE);
       TableAudio.launchId = await TableAudio.loadPath(PATH_LAUNCH);
       TableAudio.landId = await TableAudio.loadPath(PATH_LAND);
+      TableAudio.enterId = await TableAudio.loadPath(PATH_CH_ENTER);
+      TableAudio.commitId = await TableAudio.loadPath(PATH_CH_COMMIT);
       TableAudio.turnId = await TableAudio.loadPath(PATH_TURN);
       TableAudio.stareId = await TableAudio.loadPath(PATH_STARE);
       TableAudio.winId = await TableAudio.loadPath(PATH_WIN);
@@ -275,6 +290,18 @@ export class TableAudio {
     TableAudio.playNamed(SfxIds.PLAY_LAND, TableAudio.landId, TableAudio.VOL_LAND, 'pendingLand');
   }
 
+  /** 17 AwaitChallenge onEnter. Never flip / launch / land. */
+  static playChallengeEnter(): void {
+    TableAudio.playNamed(SfxIds.CHALLENGE_ENTER, TableAudio.enterId, TableAudio.VOL_CH_ENTER,
+      'pendingEnter');
+  }
+
+  /** 17 真/假 press. Pass must not call this. */
+  static playChallengeCommit(): void {
+    TableAudio.playNamed(SfxIds.CHALLENGE_COMMIT, TableAudio.commitId, TableAudio.VOL_CH_COMMIT,
+      'pendingCommit');
+  }
+
   static playStyleAtPeak(style: PlayStyle): void {
     if (TableAudio.silent) {
       Logger.info(TAG, `play-style ${style} skipped (silent)`);
@@ -337,6 +364,8 @@ export class TableAudio {
     TableAudio.hesitateId = -1;
     TableAudio.launchId = -1;
     TableAudio.landId = -1;
+    TableAudio.enterId = -1;
+    TableAudio.commitId = -1;
     TableAudio.turnId = -1;
     TableAudio.stareId = -1;
     TableAudio.winId = -1;
@@ -387,6 +416,10 @@ export class TableAudio {
       TableAudio.pendingLaunch = on;
     } else if (key === 'pendingLand') {
       TableAudio.pendingLand = on;
+    } else if (key === 'pendingEnter') {
+      TableAudio.pendingEnter = on;
+    } else if (key === 'pendingCommit') {
+      TableAudio.pendingCommit = on;
     } else if (key === 'pendingTurn') {
       TableAudio.pendingTurn = on;
     } else if (key === 'pendingStare') {
@@ -422,6 +455,14 @@ export class TableAudio {
     if (soundId === TableAudio.landId && TableAudio.pendingLand) {
       TableAudio.pendingLand = false;
       TableAudio.playPlayLand();
+    }
+    if (soundId === TableAudio.enterId && TableAudio.pendingEnter) {
+      TableAudio.pendingEnter = false;
+      TableAudio.playChallengeEnter();
+    }
+    if (soundId === TableAudio.commitId && TableAudio.pendingCommit) {
+      TableAudio.pendingCommit = false;
+      TableAudio.playChallengeCommit();
     }
     if (soundId === TableAudio.turnId && TableAudio.pendingTurn) {
       TableAudio.pendingTurn = false;
@@ -622,6 +663,8 @@ export class TableAudio {
     TableAudio.pendingHesitate = false;
     TableAudio.pendingLaunch = false;
     TableAudio.pendingLand = false;
+    TableAudio.pendingEnter = false;
+    TableAudio.pendingCommit = false;
     TableAudio.pendingTurn = false;
     TableAudio.pendingStare = false;
     TableAudio.pendingWin = false;
