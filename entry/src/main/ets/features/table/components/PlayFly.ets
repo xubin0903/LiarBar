@@ -11,7 +11,8 @@ export struct PlayFly {
   @Prop count: number = 1;
   @Prop x: number = 0;
   @Prop y: number = 0;
-  @Prop scale: number = 1;
+  /** Not `scale` — that name shadows CustomComponent.scale (CompileArkTS). */
+  @Prop flyScale: number = 1;
 
   build() {
     if (this.visible) {
@@ -28,7 +29,7 @@ export struct PlayFly {
       .width(PlayFlyFx.pileWidth(this.count))
       .height(PlayFlyFx.pileHeight())
       .position({ x: this.x, y: this.y })
-      .scale({ x: this.scale, y: this.scale })
+      .scale({ x: this.flyScale, y: this.flyScale })
       .hitTestBehavior(HitTestMode.Default)
     }
   }
