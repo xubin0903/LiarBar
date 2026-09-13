@@ -42,13 +42,33 @@ const READY_TIMEOUT_MS: number = 1500;
  * flush() residual, log measured cbBytes/bufMs. rendererFlags stays 1
  * (OH AUDIO_FLAG_MMAP try) then 0. Interrupt stays SHARE_MODE.
  *
- * Hang points stay #118: flip with playFlip kickoff; extinguish extFrame=0.
+ * Hang points stay #118: CardFace.playFlip is still the *visual* kickoff
+ * (animateTo). T2 stays 210ms from that visual beat — never move SFX to T2.
  * DIAG: T0/T1/T2 + playRet + write0 + playFin(sem=writeDone) + SfxReady.
- * VOL_FLIP stays 0.70.
+ *
+ * EXP 5 — bufMs=93 floor (#130 / #129 closed, ear still FAIL).
+ * Closed log: wavMs=92, rate match=true, write0 dWrite0-T1≈3–12ms,
+ * playFin≈write0 (whole clip one buffer), getBufferSize frames=4458
+ * bufMs=93 ≈ wav duration. INVALID+flush removed idle silence, but
+ * speaker onset is still ≥1 callback period (~90ms). ArkTS has no
+ * SetLatencyMode / SetFrameSizeInCallback (OHAudio C only).
+ *
+ * Native FAST researched, NOT wired: course HAP is ArkTS-only (01
+ * scaffold, no cpp/ CMake NDK NAPI, no libohaudio.so). Adding a native
+ * .so just to call OH_AudioStreamBuilder_SetLatencyMode(FAST) /
+ * SetFrameSizeInCallback would need DevEco NDK + a second renderer
+ * stack; a stub that cannot build would brick the 课设 HAP. Const
+ * EXP_USE_NATIVE_OHAUDIO stays false. usage/hang-only PRs remain banned.
+ *
+ * Legal earlier onset (PRIMARY): arm flip SFX on eligible touch-down so
+ * the ~90ms HAL period overlaps press → playFlip visual. T0 logs earlier
+ * (src=touchDown) and explains. CardFace.playCardFlip reuses that arm
+ * (no second play). Peek LongPress also starts at Down — documented.
+ * VOL_FLIP 0.70 → 0.95 (short punch quieter = separate from latency).
  */
 export class SoundPlayer {
-  /** SEPARATE from latency EXP 1. #126 ear: flip too quiet. 0.40 → 0.70. */
-  static readonly VOL_FLIP: number = 0.70;
+  /** SEPARATE from latency. #126/#129 ear: short punch too quiet. 0.70 → 0.95. */
+  static readonly VOL_FLIP: number = 0.95;
   /** SEPARATE from latency EXP 1. Slight bump 0.42 → 0.55. */
   static readonly VOL_EXTINGUISH: number = 0.55;
   static readonly MAX_STREAMS: number = 4;
@@ -62,6 +82,20 @@ export class SoundPlayer {
    * Debug 低延迟/池播 can still flip at runtime. NOT a StreamUsage-only switch.
    */
   static readonly EXP_USE_RENDERER: boolean = true;
+  /**
+   * EXP 5 researched: OHAudio C FAST / smaller callback frames could cut
+   * bufMs=93 → ~5–10ms. Not feasible in this ArkTS-only course HAP.
+   * Keep false — do not stub a native path that DevEco cannot link.
+   */
+  static readonly EXP_USE_NATIVE_OHAUDIO: boolean = false;
+  /**
+   * EXP 5 PRIMARY. true = arm lb_sfx_card_flip on eligible TouchType.Down
+   * so the bufMs≈93 callback period overlaps the press. false = playFlip only.
+   * Debug 早起/同起 can still flip at runtime. Flip only — not extinguish.
+   */
+  static readonly EXP_ARM_FLIP_TOUCHDOWN: boolean = true;
+  /** Same-gesture window: playFlip may reuse the touch-down arm. */
+  static readonly FLIP_TOUCH_ARM_MS: number = 400;
 
   private static context: common.UIAbilityContext | null = null;
   private static pool: media.SoundPool | null = null;
@@ -91,6 +125,8 @@ export class SoundPlayer {
   private static diagFlipT1: number = 0;
   private static diagExtT1: number = 0;
   private static useRenderer: boolean = true;
+  private static armFlipTouch: boolean = true;
+  private static flipTouchArmAt: number = 0;
   private static rendererOk: boolean = false;
   private static deviceRate: number = 48000;
   private static flipClip: SfxWavClip | null = null;
@@ -114,6 +150,7 @@ export class SoundPlayer {
   static bind(context: common.UIAbilityContext): void {
     SoundPlayer.context = context;
     SoundPlayer.useRenderer = SoundPlayer.EXP_USE_RENDERER;
+    SoundPlayer.armFlipTouch = SoundPlayer.EXP_ARM_FLIP_TOUCHDOWN;
   }
 
   static setSilent(on: boolean): void {
@@ -129,6 +166,7 @@ export class SoundPlayer {
       SoundPlayer.extFlushGen = SoundPlayer.extFlushGen + 1;
       SoundPlayer.flipWrote0 = false;
       SoundPlayer.extWrote0 = false;
+      SoundPlayer.flipTouchArmAt = 0;
       Logger.info(TAG, `${SfxIds.CARD_FLIP}/${SfxIds.LIFE_EXTINGUISH} skipped (silent)`);
     }
   }
@@ -146,6 +184,25 @@ export class SoundPlayer {
     Logger.info(TAG_DIAG,
       `SfxDiag path toggle renderer=${on} ok=${SoundPlayer.rendererOk} ` +
         `exp=${SoundPlayer.EXP_USE_RENDERER}`);
+  }
+
+  static isArmFlipTouchDown(): boolean {
+    return SoundPlayer.armFlipTouch;
+  }
+
+  static hasFlipTouchArm(): boolean {
+    return SoundPlayer.shouldReuseFlipTouchArm();
+  }
+
+  /**
+   * EXP 5 A/B: touch-down earlier arm vs playFlip-only. Flip only.
+   * Does not move T2 / extinguish / StreamUsage.
+   */
+  static setArmFlipTouchDown(on: boolean): void {
+    SoundPlayer.armFlipTouch = on;
+    Logger.info(TAG_DIAG,
+      `SfxDiag arm toggle touchDown=${on} exp=${SoundPlayer.EXP_ARM_FLIP_TOUCHDOWN} ` +
+        `nativeFast=${SoundPlayer.EXP_USE_NATIVE_OHAUDIO} volFlip=${SoundPlayer.VOL_FLIP}`);
   }
 
   static isWarm(): boolean {
@@ -182,8 +239,43 @@ export class SoundPlayer {
   }
 
   static playCardFlip(): void {
+    if (SoundPlayer.shouldReuseFlipTouchArm()) {
+      const t0: number = SoundPlayer.diagFlipT0;
+      const visualAt: number = Date.now();
+      Logger.info(TAG_DIAG,
+        `SfxDiag kick kind=flip playN=${SoundPlayer.diagFlipN} t=${visualAt} ` +
+          `src=playFlip audio=reuseTouchArm dVisual-T0=${t0 > 0 ? visualAt - t0 : -1} ` +
+          `note=CardFace visual kickoff; T0 stayed touchDown (bufMs≈93)`);
+      return;
+    }
     SoundPlayer.ensureDiagT0(true);
     SoundPlayer.playNamed(SfxIds.CARD_FLIP, SoundPlayer.flipId, SoundPlayer.VOL_FLIP, true);
+  }
+
+  /**
+   * EXP 5: legal earlier onset for flip only. Call on eligible TouchType.Down
+   * (tap-select will flip). Overlaps the bufMs≈93 HAL period with press→visual.
+   * T0 is this stamp (src=touchDown). playFlip still owns animateTo + T2.
+   */
+  static armCardFlipTouchDown(): void {
+    if (!SoundPlayer.armFlipTouch) {
+      return;
+    }
+    const t0: number = Date.now();
+    SoundPlayer.diagT0('flip', t0, 'touchDown');
+    SoundPlayer.flipTouchArmAt = t0;
+    SoundPlayer.playNamed(SfxIds.CARD_FLIP, SoundPlayer.flipId, SoundPlayer.VOL_FLIP, true);
+  }
+
+  /** DIAG: CardFace animateTo beat. T2 is 210ms from here, not from earlier T0. */
+  static logFlipVisualKick(visualAt: number): void {
+    const t0: number = SoundPlayer.diagFlipT0;
+    const reuse: boolean = SoundPlayer.shouldReuseFlipTouchArm();
+    Logger.info(TAG_DIAG,
+      `SfxDiag visual kind=flip playN=${SoundPlayer.diagFlipN} t=${visualAt} ` +
+        `src=playFlip dVisual-T0=${t0 > 0 ? visualAt - t0 : -1} ` +
+        `audio=${reuse ? 'reuseTouchArm' : 'playFlip'} ` +
+        `note=CardFace animateTo; T2=210ms from visual; bufMs≈93`);
   }
 
   static playLifeExtinguish(): void {
@@ -191,21 +283,33 @@ export class SoundPlayer {
     SoundPlayer.playNamed(SfxIds.LIFE_EXTINGUISH, SoundPlayer.extId, SoundPlayer.VOL_EXTINGUISH, false);
   }
 
-  /** DIAG ONLY: T0 = playFlip / playExtinguish entry (timestamp from the caller). */
-  static diagT0(kind: string, t0: number): void {
+  /** DIAG ONLY: T0 = audio kick (touchDown if earlier arm; else playFlip / playExtinguish). */
+  static diagT0(kind: string, t0: number, src?: string): void {
+    let origin: string = '';
+    if (src !== undefined && src.length > 0) {
+      origin = src;
+    } else if (kind === 'flip') {
+      origin = 'playFlip';
+    } else {
+      origin = 'playExtinguish';
+    }
     if (kind === 'flip') {
       SoundPlayer.diagFlipN = SoundPlayer.diagFlipN + 1;
       SoundPlayer.diagFlipT0 = t0;
       SoundPlayer.diagFlipT1 = 0;
+      let note: string = '';
+      if (origin === 'touchDown') {
+        note = ' note=T0 earlier than playFlip; bufMs≈93 HAL period overlaps press→visual';
+      }
       Logger.info(TAG_DIAG,
-        `SfxDiag T0 kind=flip playN=${SoundPlayer.diagFlipN} t=${t0} src=playFlip`);
+        `SfxDiag T0 kind=flip playN=${SoundPlayer.diagFlipN} t=${t0} src=${origin}${note}`);
       return;
     }
     SoundPlayer.diagExtN = SoundPlayer.diagExtN + 1;
     SoundPlayer.diagExtT0 = t0;
     SoundPlayer.diagExtT1 = 0;
     Logger.info(TAG_DIAG,
-      `SfxDiag T0 kind=extinguish playN=${SoundPlayer.diagExtN} t=${t0} src=playExtinguish`);
+      `SfxDiag T0 kind=extinguish playN=${SoundPlayer.diagExtN} t=${t0} src=${origin}`);
   }
 
   /** DIAG ONLY: T2 = flip 210ms / extinguish clear. */
@@ -256,6 +360,11 @@ export class SoundPlayer {
     try {
       SoundPlayer.resetDiag();
       SoundPlayer.useRenderer = SoundPlayer.EXP_USE_RENDERER;
+      SoundPlayer.armFlipTouch = SoundPlayer.EXP_ARM_FLIP_TOUCHDOWN;
+      Logger.info(TAG_DIAG,
+        `SfxDiag floor bufMs=93 nativeFast=${SoundPlayer.EXP_USE_NATIVE_OHAUDIO} ` +
+          `armFlip=${SoundPlayer.armFlipTouch} volFlip=${SoundPlayer.VOL_FLIP} ` +
+          `note=ArkTS-no-SetFrameSize;no-cpp-NAPI;touchDown-arm`);
       await SoundPlayer.prepareClipsAndRates();
       await SoundPlayer.prepareRenderers();
       if (SoundPlayer.pool === null) {
@@ -780,6 +889,15 @@ export class SoundPlayer {
     SoundPlayer.diagExtT0 = 0;
     SoundPlayer.diagFlipT1 = 0;
     SoundPlayer.diagExtT1 = 0;
+    SoundPlayer.flipTouchArmAt = 0;
+  }
+
+  private static shouldReuseFlipTouchArm(): boolean {
+    if (!SoundPlayer.armFlipTouch || SoundPlayer.flipTouchArmAt <= 0) {
+      return false;
+    }
+    const age: number = Date.now() - SoundPlayer.flipTouchArmAt;
+    return age >= 0 && age <= SoundPlayer.FLIP_TOUCH_ARM_MS;
   }
 
   private static usageLabel(): string {
@@ -890,7 +1008,7 @@ export class SoundPlayer {
         `frames=${SoundPlayer.framesOf(measured, clip)} ` +
         `bufMs=${SoundPlayer.bufMsOf(measured, clip)} flags=1 interrupt=SHARE ` +
         `rate=${clip.sampleRate} ch=${clip.channels} ` +
-        `note=ArkTS-no-SetFrameSize;INVALID-idle+flush`);
+        `note=ArkTS-no-SetFrameSize;no-native-FAST;INVALID-idle+flush;bufMs≈93`);
   }
 
   /** First PCM copied into writeData buffer — still not speaker, but ≠ playFin. */

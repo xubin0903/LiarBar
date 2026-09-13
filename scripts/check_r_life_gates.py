@@ -110,6 +110,8 @@ def main() -> None:
         raise SystemExit("EXP 1: lb_btn_debug_bgm_mute missing")
     if "DEBUG_SFX_PATH" not in ids or "lb_btn_debug_sfx_path" not in ids:
         raise SystemExit("EXP 3: lb_btn_debug_sfx_path missing")
+    if "DEBUG_SFX_ARM" not in ids or "lb_btn_debug_sfx_arm" not in ids:
+        raise SystemExit("EXP 5: lb_btn_debug_sfx_arm missing")
     if "debugLifeChrome" not in table or "debugLifePanel" not in table:
         raise SystemExit("R-LIFE-5: debug open/panel missing")
     if "debugLifeOpen" not in table or "onDebugLifeDec" not in table:
@@ -118,6 +120,12 @@ def main() -> None:
         raise SystemExit("EXP 1: debug BGM mute toggle not on panel")
     if "onDebugSfxPath" not in table or "DEBUG_SFX_PATH" not in table:
         raise SystemExit("EXP 3: debug SFX path toggle not on panel")
+    if "onDebugSfxArm" not in table or "DEBUG_SFX_ARM" not in table:
+        raise SystemExit("EXP 5: debug SFX arm toggle not on panel")
+    if "onCardFlipTouch" not in table or "armCardFlipTouchDown" not in table:
+        raise SystemExit("EXP 5: Table touch-down flip arm missing")
+    if "TouchType.Down" not in table:
+        raise SystemExit("EXP 5: flip arm must be TouchType.Down")
     if "lifeDecShown" not in table or "lifeDecShown" not in debug:
         raise SystemExit("R-LIFE-5: release hide gate missing")
     if "debugDecLife" not in engine:
@@ -154,10 +162,18 @@ def main() -> None:
 
     if "pool.play" not in player or "sfx_card_flip.wav" not in player:
         raise SystemExit("flip is still log-only / no SoundPlayer path")
-    if "VOL_FLIP: number = 0.70" not in player:
-        raise SystemExit("VOL_FLIP must stay the labeled 0.70 bump (separate from EXP 1)")
+    if "VOL_FLIP: number = 0.95" not in player:
+        raise SystemExit("VOL_FLIP must be the labeled 0.95 bump (short punch quieter)")
     if "VOL_EXTINGUISH: number = 0.55" not in player:
         raise SystemExit("VOL_EXTINGUISH must stay the labeled 0.55 bump")
+    if "EXP_USE_NATIVE_OHAUDIO: boolean = false" not in player:
+        raise SystemExit("EXP 5: native OHAudio FAST must stay false (ArkTS-only HAP)")
+    if "EXP_ARM_FLIP_TOUCHDOWN: boolean = true" not in player:
+        raise SystemExit("EXP 5: EXP_ARM_FLIP_TOUCHDOWN default must be true")
+    if "armCardFlipTouchDown" not in player or "src=touchDown" not in player:
+        raise SystemExit("EXP 5: touch-down earlier arm / T0 src=touchDown missing")
+    if "bufMs=93" not in player:
+        raise SystemExit("EXP 5: must cite closed-log bufMs=93 floor")
     if "SfxDiag playRet" not in player or "SfxDiag playFin" not in player:
         raise SystemExit("SfxDiag playRet / playFin INFO logs missing")
     if "SfxDiag rate" not in player or "createAudioRenderer" not in player:

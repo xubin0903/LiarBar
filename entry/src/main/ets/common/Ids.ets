@@ -93,6 +93,8 @@ export class ControlIds {
   static readonly DEBUG_BGM_MUTE: string = 'lb_btn_debug_bgm_mute';
   /** EXP 3 · debug/dev only. A/B AudioRenderer vs SoundPool (hang points stay). */
   static readonly DEBUG_SFX_PATH: string = 'lb_btn_debug_sfx_path';
+  /** EXP 5 · debug/dev only. A/B touch-down earlier arm vs playFlip-only. */
+  static readonly DEBUG_SFX_ARM: string = 'lb_btn_debug_sfx_arm';
   /** 15 · 桌上确认条（合法选中才出；主提交） */
   static readonly PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar';
   static readonly PLAY_CONFIRM: string = 'lb_btn_play_confirm';
