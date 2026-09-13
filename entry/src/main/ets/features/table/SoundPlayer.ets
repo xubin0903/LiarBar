@@ -30,12 +30,21 @@ const READY_TIMEOUT_MS: number = 1500;
  * sfx_card_flip / sfx_life_extinguish at the device native rate.
  *
  * EXP 3 PRIMARY — AudioRenderer writeData, pre-started GAME renderer
- * (official PCM path). Tests: SoundPool post-playRet delay is structural.
- * Goal: playFin-T1 ≈ wav duration (onset felt <30ms). SoundPool stays
- * as A/B (debug 低延迟/池播). BAN StreamUsage-only change — still GAME.
+ * (official PCM path). SoundPool stays as A/B (debug 低延迟/池播).
+ * BAN StreamUsage-only change — still GAME.
+ *
+ * EXP 4 — buffer / queue (this pack). #128 ear still late after rate match.
+ * playFin was last writeData copy (write-complete), NOT speaker onset.
+ * Official writeData: VALID buffers are queued for playback; idle VALID
+ * silence therefore sits in the HAL queue (getBufferSize periods).
+ * ArkTS AudioRendererOptions has no SetLatencyMode / SetFrameSizeInCallback
+ * (those are OHAudio C). Lever here: do not queue silence (INVALID idle),
+ * flush() residual, log measured cbBytes/bufMs. rendererFlags stays 1
+ * (OH AUDIO_FLAG_MMAP try) then 0. Interrupt stays SHARE_MODE.
  *
  * Hang points stay #118: flip with playFlip kickoff; extinguish extFrame=0.
- * DIAG: T0/T1/T2 + playRet + playFin + SfxReady. VOL_FLIP stays 0.70.
+ * DIAG: T0/T1/T2 + playRet + write0 + playFin(sem=writeDone) + SfxReady.
+ * VOL_FLIP stays 0.70.
  */
 export class SoundPlayer {
   /** SEPARATE from latency EXP 1. #126 ear: flip too quiet. 0.40 → 0.70. */
@@ -93,6 +102,14 @@ export class SoundPlayer {
   private static flipPlayArmed: boolean = false;
   private static extPlayArmed: boolean = false;
   private static rendererSeq: number = 0;
+  private static flipFlushGen: number = 0;
+  private static extFlushGen: number = 0;
+  private static flipWrote0: boolean = false;
+  private static extWrote0: boolean = false;
+  private static flipCbBytes: number = 0;
+  private static extCbBytes: number = 0;
+  private static flipGetBuf: number = 0;
+  private static extGetBuf: number = 0;
 
   static bind(context: common.UIAbilityContext): void {
     SoundPlayer.context = context;
@@ -108,6 +125,10 @@ export class SoundPlayer {
       SoundPlayer.extCursor = -1;
       SoundPlayer.flipPlayArmed = false;
       SoundPlayer.extPlayArmed = false;
+      SoundPlayer.flipFlushGen = SoundPlayer.flipFlushGen + 1;
+      SoundPlayer.extFlushGen = SoundPlayer.extFlushGen + 1;
+      SoundPlayer.flipWrote0 = false;
+      SoundPlayer.extWrote0 = false;
       Logger.info(TAG, `${SfxIds.CARD_FLIP}/${SfxIds.LIFE_EXTINGUISH} skipped (silent)`);
     }
   }
@@ -386,27 +407,37 @@ export class SoundPlayer {
       Logger.info(TAG, `setVolume fail-soft: ${err.message}`);
     });
     SoundPlayer.ensureRendererRunning(renderer);
-    if (isFlip) {
-      SoundPlayer.flipCursor = 0;
-      SoundPlayer.flipPlayArmed = true;
-    } else {
-      SoundPlayer.extCursor = 0;
-      SoundPlayer.extPlayArmed = true;
+    const gen: number = SoundPlayer.beginFlushArm(isFlip);
+    try {
+      renderer.flush().then((): void => {
+        SoundPlayer.finishFlushArm(isFlip, gen, kind, tCall, clip);
+      }).catch((err: BusinessError): void => {
+        Logger.info(TAG, `flush fail-soft: ${err.message}`);
+        SoundPlayer.finishFlushArm(isFlip, gen, kind, tCall, clip);
+      });
+    } catch (err) {
+      Logger.info(TAG, `flush throw fail-soft: ${err}`);
+      SoundPlayer.finishFlushArm(isFlip, gen, kind, tCall, clip);
     }
-    SoundPlayer.rendererSeq = SoundPlayer.rendererSeq + 1;
-    const stream: number = SoundPlayer.rendererSeq;
-    if (isFlip) {
-      SoundPlayer.lastFlipStream = stream;
-    } else {
-      SoundPlayer.lastExtStream = stream;
+  }
+
+  private static finishFlushArm(isFlip: boolean, gen: number, kind: string, tCall: number,
+    clip: SfxWavClip): void {
+    if (!SoundPlayer.sameFlushGen(isFlip, gen)) {
+      return;
     }
+    SoundPlayer.armRendererPlay(isFlip);
     const tRet: number = Date.now();
+    const stream: number = isFlip ? SoundPlayer.lastFlipStream : SoundPlayer.lastExtStream;
     const playN: number = SoundPlayer.diagPlayN(isFlip);
     Logger.info(TAG_DIAG,
       `SfxDiag playRet kind=${kind} playN=${playN} t=${tRet} stream=${stream} ` +
         `dPlayRet-T1=${tRet - tCall} usage=${SoundPlayer.usageLabel()} ` +
         `id=${isFlip ? SoundPlayer.flipId : SoundPlayer.extId} path=renderer ` +
-        `wavMs=${clip.durationMs} rate=${clip.sampleRate}`);
+        `wavMs=${clip.durationMs} rate=${clip.sampleRate} ` +
+        `bufMs=${SoundPlayer.bufMsOf(SoundPlayer.cbBytes(isFlip), clip)} ` +
+        `cbBytes=${SoundPlayer.cbBytes(isFlip)} getBuf=${SoundPlayer.getBuf(isFlip)} ` +
+        `sem=armedAfterFlush`);
   }
 
   /**
@@ -493,10 +524,14 @@ export class SoundPlayer {
     const t1: number = isFlip ? SoundPlayer.diagFlipT1 : SoundPlayer.diagExtT1;
     const dFin1: number = t1 > 0 ? tFin - t1 : -1;
     const dFin0: number = t0 > 0 ? tFin - t0 : -1;
+    const clip: SfxWavClip | null = isFlip ? SoundPlayer.flipClip : SoundPlayer.extClip;
+    const cb: number = SoundPlayer.cbBytes(isFlip);
+    const sem: string = path === 'renderer' ? 'writeDone' : 'poolFinished';
     Logger.info(TAG_DIAG,
       `SfxDiag playFin kind=${kind} playN=${playN} t=${tFin} stream=${streamId} ` +
         `dPlayFin-T1=${dFin1} dPlayFin-T0=${dFin0} path=${path} ` +
-        `wavMs=${SoundPlayer.wavMs(isFlip)}`);
+        `wavMs=${SoundPlayer.wavMs(isFlip)} bufMs=${SoundPlayer.bufMsOf(cb, clip)} ` +
+        `cbBytes=${cb} sem=${sem} note=playFin≠onset`);
   }
 
   private static applyCompleted(soundId: number): void {
@@ -779,6 +814,133 @@ export class SoundPlayer {
     return SoundPlayer.extClip !== null && SoundPlayer.extRenderer !== null;
   }
 
+  /**
+   * Disarm until flush() drops queued VALID silence, then arm.
+   * writeData must stay INVALID during this window.
+   */
+  private static beginFlushArm(isFlip: boolean): number {
+    if (isFlip) {
+      SoundPlayer.flipPlayArmed = false;
+      SoundPlayer.flipCursor = -1;
+      SoundPlayer.flipWrote0 = false;
+      SoundPlayer.flipFlushGen = SoundPlayer.flipFlushGen + 1;
+      return SoundPlayer.flipFlushGen;
+    }
+    SoundPlayer.extPlayArmed = false;
+    SoundPlayer.extCursor = -1;
+    SoundPlayer.extWrote0 = false;
+    SoundPlayer.extFlushGen = SoundPlayer.extFlushGen + 1;
+    return SoundPlayer.extFlushGen;
+  }
+
+  private static sameFlushGen(isFlip: boolean, gen: number): boolean {
+    if (isFlip) {
+      return SoundPlayer.flipFlushGen === gen;
+    }
+    return SoundPlayer.extFlushGen === gen;
+  }
+
+  private static armRendererPlay(isFlip: boolean): void {
+    SoundPlayer.rendererSeq = SoundPlayer.rendererSeq + 1;
+    const stream: number = SoundPlayer.rendererSeq;
+    if (isFlip) {
+      SoundPlayer.flipCursor = 0;
+      SoundPlayer.flipPlayArmed = true;
+      SoundPlayer.lastFlipStream = stream;
+      return;
+    }
+    SoundPlayer.extCursor = 0;
+    SoundPlayer.extPlayArmed = true;
+    SoundPlayer.lastExtStream = stream;
+  }
+
+  private static cbBytes(isFlip: boolean): number {
+    if (isFlip) {
+      return SoundPlayer.flipCbBytes;
+    }
+    return SoundPlayer.extCbBytes;
+  }
+
+  private static getBuf(isFlip: boolean): number {
+    if (isFlip) {
+      return SoundPlayer.flipGetBuf;
+    }
+    return SoundPlayer.extGetBuf;
+  }
+
+  private static bufMsOf(bytes: number, clip: SfxWavClip | null): number {
+    if (clip === null || clip.sampleRate < 1 || clip.channels < 1 || bytes < 1) {
+      return 0;
+    }
+    return Math.round(bytes * 1000 / (clip.sampleRate * clip.channels * 2));
+  }
+
+  private static framesOf(bytes: number, clip: SfxWavClip | null): number {
+    if (clip === null || clip.channels < 1 || bytes < 1) {
+      return 0;
+    }
+    return Math.floor(bytes / (clip.channels * 2));
+  }
+
+  private static logBuf(isFlip: boolean, clip: SfxWavClip, getBuf: number, cbBytes: number): void {
+    const slot: string = isFlip ? SfxIds.CARD_FLIP : SfxIds.LIFE_EXTINGUISH;
+    const measured: number = cbBytes > 0 ? cbBytes : getBuf;
+    Logger.info(TAG_DIAG,
+      `SfxDiag buf slot=${slot} getBufferSize=${getBuf} cbBytes=${cbBytes} ` +
+        `frames=${SoundPlayer.framesOf(measured, clip)} ` +
+        `bufMs=${SoundPlayer.bufMsOf(measured, clip)} flags=1 interrupt=SHARE ` +
+        `rate=${clip.sampleRate} ch=${clip.channels} ` +
+        `note=ArkTS-no-SetFrameSize;INVALID-idle+flush`);
+  }
+
+  /** First PCM copied into writeData buffer — still not speaker, but ≠ playFin. */
+  private static logWrite0(isFlip: boolean, cbBytes: number, clip: SfxWavClip): void {
+    const t0w: number = Date.now();
+    const kind: string = isFlip ? 'flip' : 'extinguish';
+    const playN: number = SoundPlayer.diagPlayN(isFlip);
+    const t0: number = isFlip ? SoundPlayer.diagFlipT0 : SoundPlayer.diagExtT0;
+    const t1: number = isFlip ? SoundPlayer.diagFlipT1 : SoundPlayer.diagExtT1;
+    const stream: number = isFlip ? SoundPlayer.lastFlipStream : SoundPlayer.lastExtStream;
+    const d1: number = t1 > 0 ? t0w - t1 : -1;
+    const d0: number = t0 > 0 ? t0w - t0 : -1;
+    const bufMs: number = SoundPlayer.bufMsOf(cbBytes, clip);
+    Logger.info(TAG_DIAG,
+      `SfxDiag write0 kind=${kind} playN=${playN} t=${t0w} stream=${stream} ` +
+        `dWrite0-T1=${d1} dWrite0-T0=${d0} path=renderer ` +
+        `bufBytes=${cbBytes} frames=${SoundPlayer.framesOf(cbBytes, clip)} ` +
+        `bufMs=${bufMs} getBuf=${SoundPlayer.getBuf(isFlip)} ` +
+        `sem=firstPcm note=write0≠onset`);
+    setTimeout((): void => {
+      SoundPlayer.logTsPos(isFlip, stream, t0w);
+    }, 0);
+  }
+
+  /** Playhead after first PCM enqueue. Claimed, not ear. Do not call from writeData. */
+  private static logTsPos(isFlip: boolean, stream: number, write0At: number): void {
+    const renderer: audio.AudioRenderer | null =
+      isFlip ? SoundPlayer.flipRenderer : SoundPlayer.extRenderer;
+    if (renderer === null) {
+      return;
+    }
+    try {
+      const info: audio.AudioTimestampInfo = renderer.getAudioTimestampInfoSync();
+      const t: number = Date.now();
+      const t1: number = isFlip ? SoundPlayer.diagFlipT1 : SoundPlayer.diagExtT1;
+      const playN: number = SoundPlayer.diagPlayN(isFlip);
+      const kind: string = isFlip ? 'flip' : 'extinguish';
+      Logger.info(TAG_DIAG,
+        `SfxDiag tsPos kind=${kind} playN=${playN} t=${t} stream=${stream} ` +
+          `framePos=${info.framePos} tsNs=${info.timestamp} ` +
+          `dTs-T1=${t1 > 0 ? t - t1 : -1} dTs-write0=${t - write0At} ` +
+          `path=renderer sem=playhead note=notSpeaker`);
+    } catch (err) {
+      Logger.info(TAG_DIAG,
+        `SfxDiag tsPos kind=${isFlip ? 'flip' : 'extinguish'} ` +
+          `playN=${SoundPlayer.diagPlayN(isFlip)} stream=${stream} ` +
+          `sem=playhead fail-soft=${err}`);
+    }
+  }
+
   /** EXP 2: device preferred output vs rawfile wav. Resample on mismatch; never trim. */
   private static async prepareClipsAndRates(): Promise<void> {
     const ctx: common.UIAbilityContext | null = SoundPlayer.context;
@@ -931,9 +1093,26 @@ export class SoundPlayer {
     }
     try {
       await renderer.start();
+      let getBuf: number = 0;
+      try {
+        getBuf = renderer.getBufferSizeSync();
+      } catch (bufErr) {
+        Logger.info(TAG, `getBufferSizeSync fail-soft: ${bufErr}`);
+      }
+      if (isFlip) {
+        SoundPlayer.flipGetBuf = getBuf;
+      } else {
+        SoundPlayer.extGetBuf = getBuf;
+      }
+      try {
+        await renderer.flush();
+      } catch (flushErr) {
+        Logger.info(TAG, `warmup flush fail-soft: ${flushErr}`);
+      }
       Logger.info(TAG_READY,
         `SfxReady renderer start slot=${isFlip ? SfxIds.CARD_FLIP : SfxIds.LIFE_EXTINGUISH} ` +
           `rate=${work.sampleRate} ch=${work.channels} wavMs=${work.durationMs}`);
+      SoundPlayer.logBuf(isFlip, work, getBuf, 0);
     } catch (err) {
       Logger.warn(TAG, `renderer start fail-soft: ${err}`);
       renderer.release().catch((e: BusinessError): void => {
@@ -969,6 +1148,18 @@ export class SoundPlayer {
 
   private static fillRenderer(buffer: ArrayBuffer, isFlip: boolean): audio.AudioDataCallbackResult {
     const dest: Uint8Array = new Uint8Array(buffer);
+    const firstCb: boolean = isFlip ? SoundPlayer.flipCbBytes === 0 : SoundPlayer.extCbBytes === 0;
+    if (isFlip) {
+      SoundPlayer.flipCbBytes = dest.length;
+    } else {
+      SoundPlayer.extCbBytes = dest.length;
+    }
+    if (firstCb && dest.length > 0) {
+      const measure: SfxWavClip | null = isFlip ? SoundPlayer.flipClip : SoundPlayer.extClip;
+      if (measure !== null) {
+        SoundPlayer.logBuf(isFlip, measure, SoundPlayer.getBuf(isFlip), dest.length);
+      }
+    }
     const clip: SfxWavClip | null = isFlip ? SoundPlayer.flipClip : SoundPlayer.extClip;
     let cursor: number = isFlip ? SoundPlayer.flipCursor : SoundPlayer.extCursor;
     const armed: boolean = isFlip ? SoundPlayer.flipPlayArmed : SoundPlayer.extPlayArmed;
@@ -976,7 +1167,9 @@ export class SoundPlayer {
       for (let i = 0; i < dest.length; i++) {
         dest[i] = 0;
       }
-      return audio.AudioDataCallbackResult.VALID;
+      // Official writeData: VALID queues this buffer. Idle VALID silence
+      // is why #128 heard after flip. INVALID = do not enqueue.
+      return audio.AudioDataCallbackResult.INVALID;
     }
     const src: Uint8Array = new Uint8Array(clip.pcm);
     let n: number = dest.length;
@@ -992,6 +1185,15 @@ export class SoundPlayer {
     }
     for (let i = n; i < dest.length; i++) {
       dest[i] = 0;
+    }
+    const firstPcm: boolean = isFlip ? !SoundPlayer.flipWrote0 : !SoundPlayer.extWrote0;
+    if (firstPcm && n > 0) {
+      if (isFlip) {
+        SoundPlayer.flipWrote0 = true;
+      } else {
+        SoundPlayer.extWrote0 = true;
+      }
+      SoundPlayer.logWrite0(isFlip, dest.length, clip);
     }
     cursor = cursor + n;
     const done: boolean = cursor >= src.length;
@@ -1032,6 +1234,14 @@ export class SoundPlayer {
     SoundPlayer.extCursor = -1;
     SoundPlayer.flipPlayArmed = false;
     SoundPlayer.extPlayArmed = false;
+    SoundPlayer.flipFlushGen = SoundPlayer.flipFlushGen + 1;
+    SoundPlayer.extFlushGen = SoundPlayer.extFlushGen + 1;
+    SoundPlayer.flipWrote0 = false;
+    SoundPlayer.extWrote0 = false;
+    SoundPlayer.flipCbBytes = 0;
+    SoundPlayer.extCbBytes = 0;
+    SoundPlayer.flipGetBuf = 0;
+    SoundPlayer.extGetBuf = 0;
     SoundPlayer.rendererOk = false;
     SoundPlayer.flipClip = null;
     SoundPlayer.extClip = null;
