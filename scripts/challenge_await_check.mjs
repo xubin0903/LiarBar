@@ -157,22 +157,32 @@ if (passBody.includes('closeChallengeEntry(true)') &&
 
 const trueFn = table.split('private onChallengeTrue')[1] || '';
 const trueBody = trueFn.split('private onChallengeFalse')[0];
-if (trueBody.includes('playChallengeCommit') && !trueBody.includes('intentChallenge')) {
-  pass('真 = commit SFX then own play (no reveal / no ritual)');
+if (trueBody.includes('this.commitChallenge(true)') && !trueBody.includes('closeChallengeEntry(true)')) {
+  pass('真 = ChallengeCommit (not disguised Pass / own play)');
 } else {
-  fail('真 path');
+  fail('真 still unloads to own play');
 }
 
-const falseFn = table.split('private onChallengeFalse')[1] || '';
-const falseBody = falseFn.split('private rejectChallengeRestore')[0];
-if (falseBody.includes('playChallengeCommit') &&
-    falseBody.includes('intentChallenge') &&
-    falseBody.includes('rejectChallengeRestore') &&
-    !falseBody.includes('lastPlayRanks') &&
-    !falseBody.includes('revealOpen')) {
-  pass('假 = commit SFX, wait intentChallenge ACK, no flip');
+const commitFn = table.split('private commitChallenge')[1] || '';
+const commitBody = commitFn.split('private rejectChallengeRestore')[0];
+if (commitBody.includes('playChallengeCommit') &&
+    commitBody.includes('intentChallenge') &&
+    commitBody.includes('rejectChallengeRestore') &&
+    commitBody.includes('RevealAfterAck stub') &&
+    commitBody.includes('closeChallengeEntry(false)') &&
+    !commitBody.includes('closeChallengeEntry(true)') &&
+    !commitBody.includes('lastPlayRanks') &&
+    !commitBody.includes('revealOpen')) {
+  pass('真/假 share ChallengeCommit → ACK → stub reveal; no local-first open');
 } else {
-  fail('假 ACK path');
+  fail('shared ChallengeCommit ACK path');
+}
+
+if (table.includes('this.commitChallenge(true)') &&
+    table.includes('this.commitChallenge(false)')) {
+  pass('both 真 and 假 call commitChallenge');
+} else {
+  fail('真/假 not unified on commitChallenge');
 }
 
 if (!table.includes('LbRouter.toChallenge()') &&
@@ -220,10 +230,10 @@ if (audio.includes('sfx_challenge_enter.wav') &&
 const enterPlay = audio.split('static playChallengeEnter')[1] || '';
 const enterBody = enterPlay.split('static playChallengeCommit')[0];
 const commitPlay = audio.split('static playChallengeCommit')[1] || '';
-const commitBody = commitPlay.split('static playStyleAtPeak')[0];
+const audioCommitBody = commitPlay.split('static playStyleAtPeak')[0];
 if (enterBody.includes('CHALLENGE_ENTER') && !enterBody.includes('PLAY_LAUNCH') &&
     !enterBody.includes('CARD_FLIP') &&
-    commitBody.includes('CHALLENGE_COMMIT') && !commitBody.includes('PLAY_LAND')) {
+    audioCommitBody.includes('CHALLENGE_COMMIT') && !audioCommitBody.includes('PLAY_LAND')) {
   pass('enter/commit methods do not impersonate flip/launch/land');
 } else {
   fail('challenge SFX methods reuse frozen slots');

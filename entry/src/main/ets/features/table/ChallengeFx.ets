@@ -9,7 +9,8 @@
  *   C2-4 打光禁入口 — hand==0 / emptyOrder / RankSettle → no entry
  *   C2-5 飞中禁钮 — PlayLaunch / confirmBusy → no entry
  *   C2-6 单轨 — no lb_scr_challenge push / no weak lb_btn_challenge CTA
- *   C2-7 先 ack 再揭 — 假 waits intentChallenge(); reject → lb_str_challenge_reject
+ *   C2-7 先 ack 再揭 — 真 AND 假 = ChallengeCommit + intentChallenge ACK;
+ *                      reject → lb_str_challenge_reject. 真 is not Pass.
  *   C2-8 超时交权 — 10s (8～12) → Pass, leave AwaitChallenge
  *
  * Hard locks: padB / HAND_RING_GAP=24% / lives_default=3 / MAX_PLAY=3 unchanged.

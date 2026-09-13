@@ -2459,23 +2459,22 @@ struct Table {
     }
   }
 
-  /** 真 = ChallengeCommit without reveal; current seat plays (15). */
+  /** 真 = ChallengeCommit. Same ACK path as 假. Not a disguised Pass. */
   private onChallengeTrue(): void {
-    if (!this.challengeEntryOn || this.challengeCommitBusy) {
-      return;
-    }
-    TableAudio.playChallengeCommit();
-    Logger.info(TAG,
-      `${SfxIds.CHALLENGE_COMMIT} true target=${this.challengeTargetPlayId}`);
-    this.challengeResolvedPlayId = this.challengeTargetPlayId;
-    this.closeChallengeEntry(true);
+    this.commitChallenge(true);
+  }
+
+  /** 假 = ChallengeCommit. Same ACK path as 真. */
+  private onChallengeFalse(): void {
+    this.commitChallenge(false);
   }
 
   /**
-   * 假 = ChallengeCommit. Wait authority ACK. No local-first open.
-   * Reject → lb_str_challenge_reject + restore entry (C2-7).
+   * Q04: 真 / 假 both ChallengeCommit + lb_sfx_challenge_commit.
+   * Wait authority ACK before pile reveal (C2-7 / #141).
+   * Guess right/wrong + life deduct = Section 3. This PR stubs RevealAfterAck.
    */
-  private onChallengeFalse(): void {
+  private commitChallenge(guessTrue: boolean): void {
     if (!this.challengeEntryOn || this.challengeCommitBusy) {
       return;
     }
@@ -2488,7 +2487,8 @@ struct Table {
       target = snap.lastPlay.playId;
       this.challengeTargetPlayId = target;
     }
-    Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} false target=${target}`);
+    const guess: string = guessTrue ? 'true' : 'false';
+    Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} ${guess} target=${target}`);
     if (this.challengeDebugReject) {
       this.challengeDebugReject = false;
       this.rejectChallengeRestore();
@@ -2503,7 +2503,8 @@ struct Table {
       this.rejectChallengeRestore();
       return;
     }
-    // ACK accepted. Pile stays backs. Section 3 owns reveal.
+    // ACK accepted. Pile stays backs. Section 3 owns flip / judge / lives.
+    Logger.info(TAG, `RevealAfterAck stub guess=${guess} target=${target}`);
     this.closeChallengeEntry(false);
     this.pull();
   }
