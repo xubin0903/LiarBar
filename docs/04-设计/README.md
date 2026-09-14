@@ -4,7 +4,7 @@
 
 > **2026-09-14 · 14/14b v0.1.6 UI 索引补丁（本 PR · 废左轮 / 三烛）**  
 > **[14](./14-局内生命显示规格.md) v0.1.6** / **[14b](./14b-局内生命显示-打回加严.md) v0.1.6**：开局三烛 `lives_default=3`；揭牌输家直接熄 1（无转轮）；烛尽淘汰；CollectRedeal **不**绑开枪；冻结 `RevolverGun` / 膛位 HUD / `sfx_revolver_*`；废 `lives_default=1` / 实弹即死。  
-> 失败短句：**开局不是三烛** / **揭牌输家未熄烛** / **熄尽未淘汰** / **左轮当命数** / **膛位当命读**（对齐 #176/#177 S18-16～20：`lb_str_revolver_as_lives` / `lb_str_still_revolver_shoot` / `lb_str_loser_no_extinguish` / `lb_str_start_not_3_candles` / `lb_str_zero_candle_not_elim`；UI 键可作同义登记）。  
+> 失败短句：**开局不是三烛** / **揭牌输家未熄烛** / **熄尽未淘汰** / **左轮当命数** / **膛位当命读**（`lb_str_open_not_three_candles` / `lb_str_loser_no_extinguish` / `lb_str_all_out_not_eliminated` / `lb_str_revolver_as_lives`；交叉 S18-16～18 + S18-17 `lb_str_still_revolver_shoot`；open/all_out **待策划补 string**）。  
 > 命名登记认 **[02 v0.1.21](./02-组件与资源命名约定.md)**（冻结左轮挂点）。仍锁烛 art/SFX；禁抬 `padB`；GAP=24%；17 **质疑|相信**。零 ets · **合入 ≠ 终验**。  
 > **2026-09-14 · 17 v0.3.0 UI 索引补丁（本 PR）**  
 > 入口改 **质疑\|相信**（`lb_btn_challenge_doubt` / `lb_btn_challenge_believe`；文案 `lb_str_challenge_doubt`/`believe`）；废入口真/假/过；**质疑 ≠ 相信**；失败键对齐 #172 S18-13～16。  
