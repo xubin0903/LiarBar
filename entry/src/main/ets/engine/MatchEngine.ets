@@ -764,9 +764,9 @@ export class MatchEngine {
     if (this.roundSafeWaitSeats.length === 0) {
       return;
     }
-    const handLens: number[][] = [];
+    const handLens: number[] = [];
     for (let i = 0; i < this.hands.length; i++) {
-      handLens.push(this.hands[i]);
+      handLens.push(this.hands[i].length);
     }
     if (allOtherAliveEmpty(this.seats, handLens, this.roundSafeWaitSeats)) {
       Logger.info(TAG, 'RoundSafeWait settle → CollectRedeal');

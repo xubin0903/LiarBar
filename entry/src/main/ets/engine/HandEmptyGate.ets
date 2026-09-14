@@ -18,7 +18,7 @@ export function classifyEmptyGate(alive: number): EmptyGateKind {
 /** RoundSafeWait settle: all other alive seats hand==0 and no shot yet. */
 export function allOtherAliveEmpty(
   seats: SeatModel[],
-  hands: number[][],
+  handLens: number[],
   waitSeats: number[]
 ): boolean {
   const alive: number = aliveCount(seats);
@@ -40,7 +40,7 @@ export function allOtherAliveEmpty(
     if (inWait) {
       continue;
     }
-    const hc: number = id >= 0 && id < hands.length ? hands[id].length : 0;
+    const hc: number = id >= 0 && id < handLens.length ? handLens[id] : 0;
     if (hc > 0) {
       return false;
     }
