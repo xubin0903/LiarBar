@@ -36,7 +36,7 @@ const PATH_LOSE: string = 'audio/sfx/sfx_result_lose.wav';
  * Do not load old four-beat sfx_challenge_windup / _standoff / _reveal / _result.
  * Pass has no slot. Never play flip / launch / land as challenge.
  * 18 reveal: draw/flip only — never select-flip / launch / land / enter / commit / deal as reveal.
- * #168 revolver: click/shot/spin only — never flip / launch / land as revolver.
+ * #168 revolver Foley FROZEN (废左轮): methods may remain; not game-critical primary.
  * BGM stays on this AVPlayer (MUSIC). Flip/extinguish short SFX live on
  * SoundPlayer's GAME SoundPool — not this MUSIC pool — so path-B latency
  * experiments do not share the table bed mixer.
@@ -348,19 +348,19 @@ export class TableAudio {
       'pendingRevealFlip');
   }
 
-  /** #168 EmptySafe you/prev press. Never flip / launch / land. */
+  /** Frozen · 废左轮. Do not call from EmptySafe you/prev primary. */
   static playRevolverClick(): void {
     TableAudio.playNamed(SfxIds.REVOLVER_CLICK, TableAudio.revClickId, TableAudio.VOL_REV_CLICK,
       'pendingRevClick');
   }
 
-  /** #168 Engine applyShoot. Never flip / launch / land. */
+  /** Frozen · 废左轮. Do not call from PenaltyExtinguish1 / CollectRedeal. */
   static playRevolverShot(): void {
     TableAudio.playNamed(SfxIds.REVOLVER_SHOT, TableAudio.revShotId, TableAudio.VOL_REV_SHOT,
       'pendingRevShot');
   }
 
-  /** #168 CollectRedeal / chamber advance. Never flip / launch / land. */
+  /** Frozen · 废左轮. CollectRedeal must not spin revolver. */
   static playRevolverSpin(): void {
     TableAudio.playNamed(SfxIds.REVOLVER_SPIN, TableAudio.revSpinId, TableAudio.VOL_REV_SPIN,
       'pendingRevSpin');

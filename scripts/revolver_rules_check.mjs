@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * Spec check: revolver rules v1 (左轮对局-状态机 v1.1.1 / GDD v0.3.0).
- * Deck 20 / hand 5 / chambers 6 / lb_cmp_empty_target_choice / Table EmptySafeEntry /
- * chooseEmptyYou / no RoundWin-on-empty as primary.
+ * Spec check: 对局-状态机 v2.0.0 / GDD v0.4.0 — 废左轮 · lives_default=3.
+ * SUPERSEDES revolver v1 (左轮对局-状态机). Asserts PenaltyExtinguish1 primary,
+ * no RevolverGun on MatchEngine primary path, CollectRedeal unbound from gun.
  * Cloud has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
 import { readFileSync } from 'node:fs';
@@ -27,7 +27,6 @@ const engine = src('entry/src/main/ets/engine/MatchEngine.ets');
 const types = src('entry/src/main/ets/engine/MatchTypes.ets');
 const defaultsTs = src('entry/src/main/ets/config/MatchDefaults.ets');
 const phase = src('entry/src/main/ets/engine/Phase.ets');
-const gun = src('entry/src/main/ets/engine/RevolverGun.ets');
 const ids = src('entry/src/main/ets/common/Ids.ets');
 const emptyEntry = src('entry/src/main/ets/features/table/components/EmptySafeEntry.ets');
 const layout = src('entry/src/main/ets/features/table/TableLayout.ets');
@@ -40,7 +39,7 @@ function deckTotal(bag) {
 for (const key of ['n3', 'n4', 'n5', 'n6']) {
   const bag = deck.decks[key];
   if (bag && bag.A === 6 && bag.K === 6 && bag.Q === 6 && bag.JOKER === 2 && deckTotal(bag) === 20) {
-    pass(`deck.${key} = 6+6+6+2 (20)}`);
+    pass(`deck.${key} = 6+6+6+2 (20)`);
   } else {
     fail(`deck.${key} not 20=6K+6Q+6A+2Joker`);
   }
@@ -52,51 +51,65 @@ if (match.hand_size_default === 5) {
   fail(`hand_size_default=${match.hand_size_default}`);
 }
 
-if (match.revolver_chambers === 6 && match.revolver_live === 1) {
-  pass('revolver 6 chambers / 1 live');
+if (match.lives_default === 3) {
+  pass('lives_default=3 (candle lives; abolish 1 / 真弹即死)');
 } else {
-  fail(`revolver chambers/live = ${match.revolver_chambers}/${match.revolver_live}`);
+  fail(`lives_default must be 3, got ${match.lives_default}`);
 }
 
-if (match.lives_default === 1) {
-  pass('lives_default=1 (alive token, not 3-life win)');
+if (defaultsTs.includes('lives_default') && defaultsTs.includes('Candle lives')) {
+  pass('MatchDefaults documents candle lives_default=3');
+} else if (defaultsTs.includes('lives_default') && !defaultsTs.includes('alive-token (1)')) {
+  pass('MatchDefaults lives_default not alive-token=1');
 } else {
-  fail(`lives_default drifted to ${match.lives_default}`);
+  fail('MatchDefaults still describes lives_default as alive-token=1');
 }
 
-if (defaultsTs.includes('revolver_chambers') && defaultsTs.includes('revolver_live')) {
-  pass('MatchDefaults has revolver fields');
+// RevolverGun must NOT be MatchEngine primary path.
+if (engine.includes("import { RevolverGun }") || engine.includes('new RevolverGun') ||
+    engine.includes('this.gun') || engine.includes('applyShoot')) {
+  fail('MatchEngine still wires RevolverGun / applyShoot as primary');
 } else {
-  fail('MatchDefaults missing revolver fields');
+  pass('MatchEngine has no RevolverGun / applyShoot primary path');
 }
 
-if (gun.includes('class RevolverGun') && gun.includes('fire()') && gun.includes('liveSlots')) {
-  pass('RevolverGun helper present');
+if (engine.includes('applyPenaltyExtinguish1') && engine.includes('PenaltyExtinguish1') &&
+    engine.includes('LIFE_CHANGE') && engine.includes('extinguishPending')) {
+  pass('engine PenaltyExtinguish1 (lives−1) primary');
 } else {
-  fail('RevolverGun missing');
+  fail('engine missing PenaltyExtinguish1 / extinguishPending / LIFE_CHANGE');
 }
 
-if (phase.includes('EMPTY_SAFE') && phase.includes('FORCE_CHALLENGE') && phase.includes('SHOOT')) {
-  pass('Phase TurnWindow EMPTY_SAFE/FORCE_CHALLENGE + EventKind.SHOOT');
+if (engine.includes('collectRedeal') &&
+    (engine.includes('不绑枪') || engine.includes('PenaltyExtinguish1') ||
+      engine.includes('after PenaltyExtinguish1'))) {
+  pass('CollectRedeal after settle without gun binding');
+} else if (engine.includes('collectRedeal') && !engine.includes('only after shot')) {
+  pass('CollectRedeal present; not shot-bound wording');
 } else {
-  fail('Phase missing empty-safe / SHOOT');
+  fail('CollectRedeal still gun/shot-bound or missing');
+}
+
+if (phase.includes('EMPTY_SAFE') && phase.includes('FORCE_CHALLENGE')) {
+  pass('Phase TurnWindow EMPTY_SAFE/FORCE_CHALLENGE');
+} else {
+  fail('Phase missing empty-safe windows');
 }
 
 if (types.includes('emptySafePending') && types.includes('forceChallengeEmpty') &&
-    types.includes('chamberIndex') && types.includes('roundSafeWaitSeats')) {
-  pass('MatchSnapshot revolver / HandEmptyGate fields');
+    types.includes('roundSafeWaitSeats')) {
+  pass('MatchSnapshot HandEmptyGate fields');
 } else {
-  fail('MatchTypes missing revolver snapshot fields');
+  fail('MatchTypes missing HandEmptyGate snapshot fields');
 }
 
-// Button + container ids locked (#166 / 20).
 if (ids.includes("CHALLENGE_YOU: string = 'lb_btn_challenge_you'") &&
     ids.includes("CHALLENGE_PREV: string = 'lb_btn_challenge_prev'") &&
     ids.includes("EMPTY_TARGET_CHOICE: string = 'lb_cmp_empty_target_choice'") &&
     !ids.includes("'lb_cmp_empty_safe_entry'")) {
   pass('Ids lock lb_btn_challenge_you / lb_btn_challenge_prev / lb_cmp_empty_target_choice');
 } else {
-  fail('Ids missing CHALLENGE_YOU / CHALLENGE_PREV / EMPTY_TARGET_CHOICE (or still empty_safe_entry)');
+  fail('Ids missing CHALLENGE_YOU / CHALLENGE_PREV / EMPTY_TARGET_CHOICE');
 }
 
 if (emptyEntry.includes('ControlIds.CHALLENGE_YOU') &&
@@ -117,36 +130,35 @@ if ((prevVal === '上家' || prevVal === '不质疑你') && prevVal !== '质疑�
   fail(`lb_str_challenge_prev must be 「上家」 or 「不质疑你」, not 「质疑上家」 (got ${JSON.stringify(prevVal)})`);
 }
 
-// Primary path must not be RoundWin-on-empty.
 const emptySetsRoundWin =
   /emptied[\s\S]{0,200}roundWinPending\s*=\s*true/.test(engine) ||
   (/commitPicked[\s\S]{0,400}RoundWinPending/.test(engine) &&
     /commitPicked empty → RoundWinPending/.test(engine));
 
-const hasRevolverPrimary =
+const hasNoRevolverPrimary =
   engine.includes('enterHandEmptyGate') &&
   (engine.includes('collectRedeal') || engine.includes('CollectRedeal')) &&
-  engine.includes('applyShoot') &&
-  engine.includes('RevolverGun');
+  engine.includes('applyPenaltyExtinguish1') &&
+  !engine.includes('applyShoot') &&
+  !engine.includes('new RevolverGun');
 
-if (hasRevolverPrimary && !emptySetsRoundWin) {
-  pass('engine HandEmptyGate + CollectRedeal + shoot; no RoundWin-on-empty primary');
+if (hasNoRevolverPrimary && !emptySetsRoundWin) {
+  pass('engine HandEmptyGate + PenaltyExtinguish1 + CollectRedeal; no RoundWin-on-empty / no gun');
 } else if (emptySetsRoundWin) {
   fail('engine still sets RoundWinPending on empty as primary');
 } else {
-  fail('engine missing CollectRedeal / HandEmptyGate / shoot primary wiring');
+  fail('engine missing no-revolver primary wiring');
 }
 
-if (engine.includes('beginRoundWin') && engine.includes('ignored (revolver') &&
-    engine.includes('redealAll') && engine.includes('CollectRedeal only after shot')) {
+if (engine.includes('beginRoundWin') && engine.includes('ignored') &&
+    engine.includes('redealAll') && engine.includes('CollectRedeal')) {
   pass('beginRoundWin/redealAll deprecated stubs');
 } else {
   fail('RoundWin APIs not gated as deprecated stubs');
 }
 
-// Table hangpoints: EmptySafeEntry mounted; chooseEmptyYou/Shangjia; no RoundWin-on-empty primary.
-const tableImportsEmpty = table.includes("EmptySafeEntry") &&
-  table.includes("features/table/components/EmptySafeEntry");
+const tableImportsEmpty = table.includes('EmptySafeEntry') &&
+  table.includes('features/table/components/EmptySafeEntry');
 const tableMountsEmpty = table.includes('EmptySafeEntry({') &&
   (table.includes('onChooseEmptyYou') || table.includes('chooseEmptyYou'));
 const tableWiresChoose =
@@ -159,21 +171,24 @@ const tableSyncsEmpty =
 const tableNoRoundWinPrimary =
   !/left\s*===\s*0[\s\S]{0,280}startRoundWin\s*\(/.test(table) &&
   table.includes('HandEmptyGate primary');
-const tableUsesTargetChoiceId =
-  ids.includes("'lb_cmp_empty_target_choice'") &&
-  emptyEntry.includes('ControlIds.EMPTY_TARGET_CHOICE');
+const tableNoRevClick =
+  !table.includes('TableAudio.playRevolverClick()');
+const tableNoRevShotSpin =
+  !table.includes('TableAudio.playRevolverShot()') &&
+  !table.includes('TableAudio.playRevolverSpin()');
 
 if (tableImportsEmpty && tableMountsEmpty && tableWiresChoose &&
-    tableSyncsEmpty && tableNoRoundWinPrimary && tableUsesTargetChoiceId) {
-  pass('Table hangpoints: EmptySafeEntry / empty_target_choice / chooseEmptyYou / no RoundWin-on-empty primary');
+    tableSyncsEmpty && tableNoRoundWinPrimary && tableNoRevClick && tableNoRevShotSpin) {
+  pass('Table: EmptySafe hangpoints; no RoundWin-on-empty; no revolver SFX primary');
 } else {
-  fail('Table missing EmptySafeEntry hangpoints or still RoundWin-on-empty primary');
+  fail('Table missing EmptySafe hangpoints or still revolver/RoundWin primary');
   if (!tableImportsEmpty) fail('  · import/mount EmptySafeEntry');
   if (!tableMountsEmpty) fail('  · EmptySafeEntry({...}) / onChooseEmptyYou');
   if (!tableWiresChoose) fail('  · engine chooseEmptyYou / chooseEmptyShangjia');
   if (!tableSyncsEmpty) fail('  · syncEmptySafeEntry / emptySafePending / forceChallengeEmpty');
   if (!tableNoRoundWinPrimary) fail('  · still startRoundWin on left===0 primary');
-  if (!tableUsesTargetChoiceId) fail('  · lb_cmp_empty_target_choice not locked');
+  if (!tableNoRevClick) fail('  · still playRevolverClick on you/prev');
+  if (!tableNoRevShotSpin) fail('  · still playRevolverShot/Spin primary');
 }
 
 if (layout.includes('HAND_RING_GAP_PCT: number = 24')) {
@@ -195,6 +210,13 @@ if (match.max_play_cards === 3 && match.min_play_cards === 1) {
   fail('MAX_PLAY drifted');
 }
 
+// Ban lives_default=1 formula in engine comments / start
+if (engine.includes('alive-token') || /lives_default\s*=\s*1/.test(engine)) {
+  fail('engine still documents/uses lives_default=1 alive-token formula');
+} else {
+  pass('engine abolished lives_default=1 / alive-token formula');
+}
+
 if (!process.exitCode) {
-  console.log('revolver_rules_check: all green');
+  console.log('revolver_rules_check: all green (no-revolver · 3lives)');
 }

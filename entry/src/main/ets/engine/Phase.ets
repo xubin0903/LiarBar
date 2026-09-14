@@ -1,6 +1,6 @@
 /**
  * Stage ids — 左轮对局-状态机 v1.1.1 + GDD v0.3.0.
- * PENALTY kept as SHOOT window id for Table compatibility (旧−1命废).
+ * PENALTY = PenaltyExtinguish1 feedback window (废左轮开枪; candle −1).
  * UI may have subviews; logs / live window only report these IDs.
  */
 export enum Phase {

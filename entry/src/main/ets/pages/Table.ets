@@ -207,7 +207,7 @@ struct Table {
   private winRef: window.Window | null = null;
   private avoidBound: boolean = false;
   private heardPlayId: string = '';
-  /** #168 · cursor into snap.eventLog for revolver shot/spin hangpoints. */
+  /** Frozen · was revolver eventLog cursor; unused after 废左轮. */
   private heardEventCount: number = 0;
   private heardMatchId: string = '';
   private playFlyPlayId: string = '';
@@ -1424,7 +1424,7 @@ struct Table {
     DealAudio.setSilent(snap.silentMode);
     TableAudio.setSilent(snap.silentMode);
     SoundPlayer.setSilent(snap.silentMode);
-    this.hearRevolverEvents(snap);
+    // 废左轮: no sfx_revolver_* on challenge/penalty/CollectRedeal primary path.
     if (snap.phase === Phase.DEAL) {
       if (stamp !== this.lastHudStamp) {
         this.lastHudStamp = stamp;
@@ -2092,35 +2092,14 @@ struct Table {
   }
 
   /**
-   * #168 · revolver SFX hangpoints from engine eventLog.
-   * SHOOT → shot; COLLECT_REDEAL → spin (chamber advance / redeal).
-   * Does not invent gameplay — only mirrors engine events.
+   * Frozen · 废左轮 (#176/#177): do not play sfx_revolver_* on SHOOT/COLLECT_REDEAL.
+   * Assets may remain unused; candle extinguish is lives primary SFX.
    */
   private hearRevolverEvents(snap: MatchSnapshot): void {
-    if (snap.matchId !== this.heardMatchId) {
-      this.heardMatchId = snap.matchId;
-      this.heardEventCount = 0;
-    }
-    const log = snap.eventLog;
-    if (log === null || log === undefined) {
+    // Frozen · 废左轮: intentionally unused; keep signature for bisect.
+    if (snap.matchId.length < 0) {
       return;
     }
-    let i: number = this.heardEventCount;
-    if (i > log.length) {
-      i = 0;
-    }
-    while (i < log.length) {
-      const kind = log[i].kind;
-      if (kind === EventKind.SHOOT) {
-        TableAudio.playRevolverShot();
-        Logger.info(TAG, `${SfxIds.REVOLVER_SHOT} eventLog`);
-      } else if (kind === EventKind.COLLECT_REDEAL) {
-        TableAudio.playRevolverSpin();
-        Logger.info(TAG, `${SfxIds.REVOLVER_SPIN} eventLog`);
-      }
-      i++;
-    }
-    this.heardEventCount = i;
   }
 
   @Builder
@@ -2542,7 +2521,7 @@ struct Table {
       return;
     }
     this.emptySafeEntryOn = false;
-    TableAudio.playRevolverClick();
+    // 废左轮: EmptySafe you/prev must NOT play revolver click as narrative.
     const ok: boolean = AppRuntime.engine.chooseEmptyYou();
     if (!ok) {
       Logger.warn(TAG, 'chooseEmptyYou rejected');
@@ -2566,7 +2545,7 @@ struct Table {
       return;
     }
     this.emptySafeEntryOn = false;
-    TableAudio.playRevolverClick();
+    // 废左轮: EmptySafe you/prev must NOT play revolver click as narrative.
     const ok: boolean = AppRuntime.engine.chooseEmptyShangjia();
     if (!ok) {
       Logger.warn(TAG, 'chooseEmptyShangjia rejected');

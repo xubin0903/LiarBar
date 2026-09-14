@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Spec check: #168 art/SFX client bind (EmptySafe you/prev chrome + revolver Foley).
- * Media keys + wavs present; TableAudio slots; call sites; no flip/launch/land impersonation.
+ * Spec check: #168 EmptySafe you/prev chrome + 废左轮 Foley freeze.
+ * Media keys present; revolver wavs may remain unused; Table MUST NOT call
+ * playRevolverClick/Shot/Spin on EmptySafe / SHOOT / COLLECT_REDEAL primary.
  * Cloud has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -86,9 +87,9 @@ if (audio.includes('sfx_revolver_click.wav') &&
     audio.includes('playRevolverClick') &&
     audio.includes('playRevolverShot') &&
     audio.includes('playRevolverSpin')) {
-  pass('TableAudio loads + plays revolver click/shot/spin');
+  pass('TableAudio still has frozen revolver slots (assets unused OK)');
 } else {
-  fail('TableAudio revolver wiring incomplete');
+  fail('TableAudio revolver slot methods/paths missing (keep frozen stubs)');
 }
 
 const clickBody = (audio.split('static playRevolverClick')[1] || '').split('static playRevolverShot')[0];
@@ -115,23 +116,19 @@ if (noImpersonate('playRevolverClick', clickBody) &&
   fail('revolver SFX methods reuse frozen slots or wrong ids');
 }
 
-if (table.includes('TableAudio.playRevolverClick()') &&
-    table.includes('onChooseEmptyYou') &&
+if (table.includes('onChooseEmptyYou') &&
     table.includes('onChooseEmptyShangjia') &&
-    table.includes('playRevolverClick')) {
-  pass('Table: click on you/prev press');
+    !table.includes('TableAudio.playRevolverClick()')) {
+  pass('Table: EmptySafe you/prev without revolver click narrative');
 } else {
-  fail('Table missing click hangpoint on you/prev');
+  fail('Table still plays revolver click on you/prev or missing choose handlers');
 }
 
-if (table.includes('hearRevolverEvents') &&
-    table.includes('EventKind.SHOOT') &&
-    table.includes('playRevolverShot') &&
-    table.includes('EventKind.COLLECT_REDEAL') &&
-    table.includes('playRevolverSpin')) {
-  pass('Table: shot on SHOOT / spin on COLLECT_REDEAL');
+if (!table.includes('TableAudio.playRevolverShot()') &&
+    !table.includes('TableAudio.playRevolverSpin()')) {
+  pass('Table: no revolver shot/spin on primary eventLog path');
 } else {
-  fail('Table missing shot/spin eventLog hangpoints');
+  fail('Table still calls playRevolverShot/Spin as primary');
 }
 
 if (layout.includes('HAND_RING_GAP_PCT: number = 24') &&
@@ -143,5 +140,5 @@ if (layout.includes('HAND_RING_GAP_PCT: number = 24') &&
 }
 
 if (!process.exitCode) {
-  console.log('revolver_art_bind_check: all green');
+  console.log('revolver_art_bind_check: all green (no-revolver primary)');
 }
