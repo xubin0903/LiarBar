@@ -317,13 +317,13 @@ struct Table {
             }
             .layoutWeight(1)
             .width('100%')
+            .onClick(() => {
+              this.clearHandSelect();
+            })
           }
           .width('100%')
           .height('100%')
           .justifyContent(FlexAlign.Start)
-          .onClick(() => {
-            this.clearHandSelect();
-          })
 
           Stack({ alignContent: Alignment.Center }) {
             this.tableHeart()
@@ -450,6 +450,9 @@ struct Table {
         if (DebugBuild.lifeDecShown()) {
           this.debugLifeChrome()
         }
+
+        // F3: home exit above fly/reveal/debug chrome so mid-match return works.
+        this.homeExitChrome()
       }
       .width('100%')
       .height('100%')
@@ -557,14 +560,11 @@ struct Table {
         .fontSize($r('app.float.page_text_size'))
         .margin({ left: 8, right: 8 })
       this.weakCta()
-      Text($r('app.string.lb_str_home'))
-        .id(ControlIds.HOME)
-        .fontColor($r('app.color.tavern_mute'))
-        .fontSize($r('app.float.caption_text_size'))
+      // F3: lb_btn_home in homeExitChrome (above overlays). Spacer keeps balance.
+      Blank()
+        .width(48)
+        .height(1)
         .margin({ left: 8 })
-        .onClick(() => {
-          this.goHome();
-        })
     }
     .id(ControlIds.TOPBAR)
     .width('100%')
@@ -581,14 +581,14 @@ struct Table {
   seatRing() {
     Row() {
       Column() {
-        this.seatBlock(TableCompass.LEFT, this.seat3, this.life3, ControlIds.SEAT_P3)
+        this.seatBlock(TableCompass.LEFT, this.seat3, ControlIds.SEAT_P3)
       }
       .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
       .justifyContent(FlexAlign.Center)
 
       Column() {
-        this.seatBlock(TableCompass.TOP, this.seat2, this.life2, ControlIds.SEAT_P2)
+        this.seatBlock(TableCompass.TOP, this.seat2, ControlIds.SEAT_P2)
         Blank()
           .layoutWeight(1)
       }
@@ -596,7 +596,7 @@ struct Table {
       .height('100%')
 
       Column() {
-        this.seatBlock(TableCompass.RIGHT, this.seat1, this.life1, ControlIds.SEAT_P1)
+        this.seatBlock(TableCompass.RIGHT, this.seat1, ControlIds.SEAT_P1)
       }
       .width(`${TableBreakpoints.SIDE_SEAT_PCT}%`)
       .height('100%')
@@ -902,6 +902,35 @@ struct Table {
   }
 
   /**
+   * F3: mid-match return. Dedicated TopEnd chrome above fly/reveal/debug (zIndex 40).
+   * Do not leave lb_btn_home under full-screen Transparent/Default overlays.
+   * Does not change padB / HAND_RING_GAP.
+   */
+  @Builder
+  homeExitChrome() {
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Text($r('app.string.lb_str_home'))
+        .id(ControlIds.HOME)
+        .fontColor($r('app.color.tavern_mute'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 12,
+          right: 12,
+          top: 8,
+          bottom: 8
+        })
+        .margin({ top: 2, right: 4 })
+        .onClick(() => {
+          this.goHome();
+        })
+    }
+    .width('100%')
+    .height(44)
+    .hitTestBehavior(HitTestMode.Transparent)
+    .zIndex(40)
+  }
+
+  /**
    * 14b R-LIFE-5. Debug/dev only (caller gates on DebugBuild.lifeDecShown).
    * Steady state: one 28～32vp lb_btn_debug_open. −1 lives only in the panel.
    * Click entry again or the dim to close. Release: nothing mounted.
@@ -937,7 +966,8 @@ struct Table {
         }
       }
       .alignItems(HorizontalAlign.End)
-      .margin({ top: 2, right: 4 })
+      // Below topBar / homeExitChrome so debug open does not eat lb_btn_home (F3).
+      .margin({ top: 40, right: 4 })
     }
     .width('100%')
     .height('100%')
@@ -1060,8 +1090,18 @@ struct Table {
   @Builder
   debugSeatChip(seatId: number, label: string) {
     Text(label)
-      .fontColor(this.debugSeatId === seatId ? $r('app.color.tavern_accent') : $r('app.color.tavern_mute'))
+      .id(`lb_btn_debug_seat_${seatId}`)
+      .fontColor(this.debugSeatId === seatId ? $r('app.color.tavern_shadow') : $r('app.color.tavern_paper'))
       .fontSize($r('app.float.caption_text_size'))
+      .padding({
+        left: 8,
+        right: 8,
+        top: 4,
+        bottom: 4
+      })
+      .backgroundColor(this.debugSeatId === seatId ? $r('app.color.tavern_accent') :
+        $r('app.color.tavern_mute'))
+      .borderRadius(6)
       .onClick(() => {
         this.debugSeatId = seatId;
       })
@@ -1126,7 +1166,7 @@ struct Table {
   }
 
   @Builder
-  seatBlock(seatId: number, name: string, life: number, id: string) {
+  seatBlock(seatId: number, name: string, id: string) {
     if (TableCompass.isTop(seatId)) {
       Row({ space: 6 }) {
         this.seatAvatar(seatId, id)
@@ -1138,7 +1178,11 @@ struct Table {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (name.length > 0) {
             LifeCandles({
-              lives: life,
+              // F1: bind parent @State directly — @Builder param `life` did not
+              // refresh lb_cmp_life_seat_p* / extinguish Watch (self-only deduct).
+              lives: seatId === TableCompass.RIGHT ? this.life1 :
+                (seatId === TableCompass.TOP ? this.life2 :
+                  (seatId === TableCompass.LEFT ? this.life3 : this.life0)),
               groupId: this.lifeIdOf(seatId),
               compact: true,
               small: this.compactLife
@@ -1168,7 +1212,11 @@ struct Table {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (name.length > 0) {
           LifeCandles({
-            lives: life,
+            // F1: bind parent @State directly — @Builder param `life` did not
+            // refresh lb_cmp_life_seat_p* / extinguish Watch (self-only deduct).
+            lives: seatId === TableCompass.RIGHT ? this.life1 :
+                (seatId === TableCompass.TOP ? this.life2 :
+                  (seatId === TableCompass.LEFT ? this.life3 : this.life0)),
             groupId: this.lifeIdOf(seatId),
             compact: true,
             small: this.compactLife
@@ -1383,10 +1431,29 @@ struct Table {
     this.pull();
   }
 
+  /** F3: system back → same as lb_btn_home. */
+  onBackPress(): boolean {
+    this.goHome();
+    return true;
+  }
+
   private goHome(): void {
     this.resetPlayFlyUi();
+    this.resetRevealUi();
+    this.closeChallengeEntry(false);
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
+    // Portrait before replace so lobby is not stuck landscape (R-LAND return).
+    void this.unlockLobbyThenRoute();
+  }
+
+  private async unlockLobbyThenRoute(): Promise<void> {
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      await WindowOrientation.lockPortrait(ctx);
+    } catch (err) {
+      Logger.warn(TAG, 'goHome portrait lock fail-soft');
+    }
     LbRouter.toLobby();
   }
 
@@ -1413,6 +1480,8 @@ struct Table {
       // C2-6 / C2-7: stay on table. No lb_scr_challenge. No local pile flip.
       this.closeChallengeEntry(false);
       this.pushedChallenge = false;
+      // F1: still sync seat.lives → candles (AI/human ritual must not freeze HUD).
+      this.fillSeats(snap.seats);
       return;
     }
     if (snap.phase === Phase.RECAP || snap.phase === Phase.END) {
@@ -2116,7 +2185,8 @@ struct Table {
     }
     .width('100%')
     .height('100%')
-    .hitTestBehavior(this.playFlyOn ? HitTestMode.Default : HitTestMode.Transparent)
+    // F3: always Transparent — Default while flying ate lb_btn_home taps.
+    .hitTestBehavior(HitTestMode.Transparent)
   }
 
   @Builder
