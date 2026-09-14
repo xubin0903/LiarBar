@@ -98,26 +98,26 @@ export interface MatchSnapshot {
   /** Seats that emptied this land (RoundSafeWait contributors). Not whole-match place. */
   emptyOrder: number[];
   /**
-   * Deprecated RoundWin flag — always false under revolver v1.
-   * Kept so older Table builds compile; HandEmptyGate replaces RoundWin→RedealAll.
+   * Deprecated under revolver v1 — engine keeps false.
+   * HandEmptyGate replaces RoundWin→RedealAll.
    */
   roundWinPending: boolean;
   /** ≥3 EmptySafe3: next must choose 你/上家. */
-  emptySafePending: boolean;
+  emptySafePending?: boolean;
   /** =2: force challenge emptier's last hand. */
-  forceChallengeEmpty: boolean;
+  forceChallengeEmpty?: boolean;
   /** Emptier seat for HandEmptyGate. */
-  emptyHandSeatId: number;
+  emptyHandSeatId?: number;
   /** Seats in RoundSafeWait (≥3 不质疑你). */
-  roundSafeWaitSeats: number[];
+  roundSafeWaitSeats?: number[];
   /** Shared revolver cursor 0..chambers-1. */
-  chamberIndex: number;
+  chamberIndex?: number;
   /** Live chamber index (hidden until shot). */
-  liveChamberIndex: number;
+  liveChamberIndex?: number;
   /** Last shot was live bullet. */
-  lastShotLive: boolean;
+  lastShotLive?: boolean;
   /** Who just pulled the trigger (−1 none). */
-  lastShooterSeatId: number;
+  lastShooterSeatId?: number;
   lastPenalizedSeatId: number;
   roundIndex: number;
   playIndexInRound: number;
