@@ -1,1 +1,0 @@
-@/tmp/gdd_content.md
