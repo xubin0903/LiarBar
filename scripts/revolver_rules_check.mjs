@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Spec check: revolver rules v1 (左轮对局-状态机 v1.1.1 / GDD v0.3.0).
- * Deck 20 / hand 5 / chambers 6 / no RoundWin-on-empty as primary.
+ * Deck 20 / hand 5 / chambers 6 / button ids / no RoundWin-on-empty as primary.
  * Cloud has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
 import { readFileSync } from 'node:fs';
@@ -27,6 +27,8 @@ const types = src('entry/src/main/ets/engine/MatchTypes.ets');
 const defaultsTs = src('entry/src/main/ets/config/MatchDefaults.ets');
 const phase = src('entry/src/main/ets/engine/Phase.ets');
 const gun = src('entry/src/main/ets/engine/RevolverGun.ets');
+const ids = src('entry/src/main/ets/common/Ids.ets');
+const emptyEntry = src('entry/src/main/ets/features/table/components/EmptySafeEntry.ets');
 const layout = src('entry/src/main/ets/features/table/TableLayout.ets');
 const table = src('entry/src/main/ets/pages/Table.ets');
 
@@ -37,7 +39,7 @@ function deckTotal(bag) {
 for (const key of ['n3', 'n4', 'n5', 'n6']) {
   const bag = deck.decks[key];
   if (bag && bag.A === 6 && bag.K === 6 && bag.Q === 6 && bag.JOKER === 2 && deckTotal(bag) === 20) {
-    pass(`deck.${key} = 6+6+6+2 (20)`);
+    pass(`deck.${key} = 6+6+6+2 (20)}`);
   } else {
     fail(`deck.${key} not 20=6K+6Q+6A+2Joker`);
   }
@@ -73,7 +75,7 @@ if (gun.includes('class RevolverGun') && gun.includes('fire()') && gun.includes(
   fail('RevolverGun missing');
 }
 
-if (phase.includes("EMPTY_SAFE") && phase.includes("FORCE_CHALLENGE") && phase.includes("SHOOT")) {
+if (phase.includes('EMPTY_SAFE') && phase.includes('FORCE_CHALLENGE') && phase.includes('SHOOT')) {
   pass('Phase TurnWindow EMPTY_SAFE/FORCE_CHALLENGE + EventKind.SHOOT');
 } else {
   fail('Phase missing empty-safe / SHOOT');
@@ -86,22 +88,48 @@ if (types.includes('emptySafePending') && types.includes('forceChallengeEmpty') 
   fail('MatchTypes missing revolver snapshot fields');
 }
 
+// Button ids locked (#166).
+if (ids.includes("CHALLENGE_YOU: string = 'lb_btn_challenge_you'") &&
+    ids.includes("CHALLENGE_PREV: string = 'lb_btn_challenge_prev'") &&
+    ids.includes("EMPTY_SAFE_ENTRY: string = 'lb_cmp_empty_safe_entry'")) {
+  pass('Ids lock lb_btn_challenge_you / lb_btn_challenge_prev / lb_cmp_empty_safe_entry');
+} else {
+  fail('Ids missing CHALLENGE_YOU / CHALLENGE_PREV / EMPTY_SAFE_ENTRY');
+}
+
+if (emptyEntry.includes('ControlIds.CHALLENGE_YOU') &&
+    emptyEntry.includes('ControlIds.CHALLENGE_PREV') &&
+    emptyEntry.includes('ControlIds.EMPTY_SAFE_ENTRY')) {
+  pass('EmptySafeEntry binds locked button ids');
+} else {
+  fail('EmptySafeEntry missing locked id binds');
+}
+
 // Primary path must not be RoundWin-on-empty.
 const emptySetsRoundWin =
   /emptied[\s\S]{0,200}roundWinPending\s*=\s*true/.test(engine) ||
-  /RoundWinPending/.test(engine) && /commitPicked empty → RoundWinPending/.test(engine);
+  (/commitPicked[\s\S]{0,400}RoundWinPending/.test(engine) &&
+    /commitPicked empty → RoundWinPending/.test(engine));
 
-if (engine.includes('collectRedeal') || engine.includes('CollectRedeal') ||
-    engine.includes('enterHandEmptyGate') || engine.includes('HandEmptyGate') ||
-    engine.includes('applyShoot') || engine.includes('RevolverGun')) {
-  pass('engine references CollectRedeal / HandEmptyGate / shoot / RevolverGun (wiring in progress)');
+const hasRevolverPrimary =
+  engine.includes('enterHandEmptyGate') &&
+  (engine.includes('collectRedeal') || engine.includes('CollectRedeal')) &&
+  engine.includes('applyShoot') &&
+  engine.includes('RevolverGun');
+
+if (hasRevolverPrimary && !emptySetsRoundWin) {
+  pass('engine HandEmptyGate + CollectRedeal + shoot; no RoundWin-on-empty primary');
+} else if (emptySetsRoundWin) {
+  fail('engine still sets RoundWinPending on empty as primary');
 } else {
-  // Soft until MatchEngine commit lands; still fail if RoundWin remains sole empty path.
-  if (emptySetsRoundWin) {
-    fail('engine still sets RoundWinPending on empty as primary');
-  } else {
-    pass('engine no longer documents RoundWinPending-on-empty as sole path');
-  }
+  fail('engine missing CollectRedeal / HandEmptyGate / shoot primary wiring');
+}
+
+if (engine.includes('beginRoundWin') && engine.includes('ignored (revolver') &&
+    engine.includes('redealAll') && engine.includes('CollectRedeal only after shot')) {
+  pass('beginRoundWin/redealAll deprecated stubs');
+} else {
+  fail('RoundWin APIs not gated as deprecated stubs');
 }
 
 if (layout.includes('HAND_RING_GAP_PCT: number = 24')) {
