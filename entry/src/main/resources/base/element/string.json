@@ -483,6 +483,14 @@
     {
       "name": "lb_str_still_one_life_elim",
       "value": "仍1命即死"
+    },
+    {
+      "name": "lb_str_open_not_three_candles",
+      "value": "开局不是三烛"
+    },
+    {
+      "name": "lb_str_all_out_not_eliminated",
+      "value": "熄尽未淘汰"
     }
   ]
 }
