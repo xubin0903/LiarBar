@@ -419,6 +419,10 @@
     {
       "name": "lb_str_doubt_no_reveal",
       "value": "质疑未揭牌"
+    },
+    {
+      "name": "lb_str_revolver_as_lives",
+      "value": "左轮膛位当命数主读"
     }
   ]
 }
