@@ -1,5 +1,6 @@
 /**
- * Keys must match docs/02-游戏设计/数值与牌堆配置.md verbatim.
+ * Keys must match docs/02-游戏设计/数值与牌堆配置.md + 左轮对局-状态机 v1.1.1.
+ * lives_default is alive-token (1) for candle slot — not 3-life win formula.
  * Do not alias lives_default → hp, etc.
  */
 export interface MatchDefaults {
@@ -7,7 +8,12 @@ export interface MatchDefaults {
   min_players: number;
   max_players: number;
   default_players: number;
+  /** Alive token for UI candles (1=alive). Not 3-life match end. */
   lives_default: number;
+  /** R3: revolver chamber count (locked 6). */
+  revolver_chambers: number;
+  /** R3: live bullets in cylinder (locked 1). */
+  revolver_live: number;
   hand_size_default: number;
   max_play_cards: number;
   min_play_cards: number;

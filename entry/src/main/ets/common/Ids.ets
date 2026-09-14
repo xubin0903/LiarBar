@@ -21,11 +21,9 @@ export class OverlayIds {
   static readonly PEEK_MASK: string = 'lb_cmp_peek_mask';
   static readonly SHEET_PLAY: string = 'lb_sheet_play';
   static readonly PRIVACY_ON: string = 'lb_privacy_on';
-  /** Locked overlay id (docs 08/09). Not a fifth lb_scr_*. */
   static readonly MATCH_LOAD: string = 'lb_ovl_match_load';
 }
 
-/** Reusable card-face layers. Instance .id stays lb_cmp_card_{0-4}. */
 export class CardFaceIds {
   static readonly FACE: string = 'lb_card_face';
   static readonly BACK: string = 'lb_card_face_back';
@@ -75,7 +73,6 @@ export class ControlIds {
   static readonly SEAT_P1: string = 'lb_cmp_seat_p1';
   static readonly SEAT_P2: string = 'lb_cmp_seat_p2';
   static readonly SEAT_P3: string = 'lb_cmp_seat_p3';
-  /** 14 / 14b · selfDock 近旁生命组（主读烛；废当面数字） */
   static readonly LIFE_SELF: string = 'lb_cmp_life_self';
   static readonly LIFE_SEAT_P1: string = 'lb_cmp_life_seat_p1';
   static readonly LIFE_SEAT_P2: string = 'lb_cmp_life_seat_p2';
@@ -83,34 +80,21 @@ export class ControlIds {
   static readonly LIFE_PIP_0: string = 'lb_cmp_life_pip_0';
   static readonly LIFE_PIP_1: string = 'lb_cmp_life_pip_1';
   static readonly LIFE_PIP_2: string = 'lb_cmp_life_pip_2';
-  /** 14b · 废主路径。当面不得挂可见 Text。 */
   static readonly TXT_LIFE_SELF: string = 'lb_txt_life_self';
-  /** 14b R-LIFE-5 · debug/dev only. Release hides via DebugBuild. */
   static readonly DEBUG_OPEN: string = 'lb_btn_debug_open';
   static readonly DEBUG_LIFE: string = 'lb_cmp_debug_life';
   static readonly DEBUG_LIFE_DEC: string = 'lb_btn_debug_life_dec';
-  /** EXP 1 · debug/dev only. Mute/restore table AVPlayer BGM (SFX stay). */
   static readonly DEBUG_BGM_MUTE: string = 'lb_btn_debug_bgm_mute';
-  /** EXP 3 · debug/dev only. A/B AudioRenderer vs SoundPool (hang points stay). */
   static readonly DEBUG_SFX_PATH: string = 'lb_btn_debug_sfx_path';
-  /** EXP 5 · debug/dev only. A/B touch-down earlier arm vs playFlip-only. */
   static readonly DEBUG_SFX_ARM: string = 'lb_btn_debug_sfx_arm';
-  /** 15 · 桌上确认条（合法选中才出；主提交） */
   static readonly PLAY_CONFIRM_BAR: string = 'lb_cmp_play_confirm_bar';
   static readonly PLAY_CONFIRM: string = 'lb_btn_play_confirm';
-  /** 16 · PlayLaunch overlay. Not DealFx.flyOn. */
   static readonly PLAY_FLY: string = 'lb_cmp_play_fly';
-  /** 16 · PlayLanded fan. This-round this-hand only. */
   static readonly PLAY_FRONT_PILE: string = 'lb_cmp_play_front_pile';
-  /** 16 v0.2.0 · pool-bound back-fan (not seat front_pile main read). */
   static readonly PLAY_POOL_HAND: string = 'lb_cmp_pool_hand';
-  /** 18 · ack-after reveal stage (pool center down). Not old reveal_row. */
   static readonly REVEAL_STAGE: string = 'lb_cmp_reveal_stage';
-  /** 16 · Whole-match RankSettle when exactly 1 seat has lives>0. */
   static readonly RANK_SETTLE: string = 'lb_cmp_rank_settle';
-  /** U03b · RoundWin tip after land when hand==0. Not AwaitChallenge. */
   static readonly ROUND_WIN: string = 'lb_cmp_round_win';
-  /** 17 / C2 · in-table AwaitChallenge overlay (not lb_scr_challenge). */
   static readonly CHALLENGE_AWAIT: string = 'lb_cmp_challenge_await';
   static readonly CHALLENGE_ENTRY: string = 'lb_cmp_challenge_entry';
   static readonly CHALLENGE_TRUE: string = 'lb_btn_challenge_true';
@@ -118,20 +102,25 @@ export class ControlIds {
   static readonly CHALLENGE_PASS: string = 'lb_btn_challenge_pass';
   static readonly CHALLENGE_TIMER: string = 'lb_cmp_challenge_timer';
   static readonly CHALLENGE_RING: string = 'lb_cmp_challenge_ring';
-  /** Hang: dealer enter line near banner when AwaitChallenge. */
   static readonly CHALLENGE_DEALER_ENTER: string = 'lb_txt_challenge_dealer_enter';
-  /** Hang: NPC seat bubble thinking / true / false. */
   static readonly NPC_CHALLENGE_BUBBLE: string = 'lb_cmp_npc_challenge_bubble';
-  /** Debug/dev only. Authority-reject after optimistic fly (C1-6). */
+  /**
+   * #166 / 20 EmptySafe3 · ≥3 二选（你 / 上家）。
+   * Locked container: lb_cmp_empty_target_choice (NOT lb_cmp_empty_safe_entry).
+   * Buttons: lb_btn_challenge_you / lb_btn_challenge_prev — do not invent lb_btn_empty_*.
+   * Art: art_btn_challenge_you / art_btn_challenge_prev (+ _on).
+   * =2 ForceChallenge: hide this entry.
+   */
+  static readonly EMPTY_TARGET_CHOICE: string = 'lb_cmp_empty_target_choice';
+  static readonly CHALLENGE_YOU: string = 'lb_btn_challenge_you';
+  static readonly CHALLENGE_PREV: string = 'lb_btn_challenge_prev';
   static readonly DEBUG_PLAY_REJECT: string = 'lb_btn_debug_play_reject';
-  /** Debug/dev only. Authority-reject next 假 (C2-7). */
   static readonly DEBUG_CHALLENGE_REJECT: string = 'lb_btn_debug_challenge_reject';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
 }
 
-/** Program call-site ids. Audio files live under rawfile/audio/, not art_*. */
 export class SfxIds {
   static readonly BGM_LOBBY_NIGHT: string = 'lb_bgm_lobby_night';
   static readonly AMB_TAVERN: string = 'lb_sfx_amb_tavern';
@@ -149,23 +138,15 @@ export class SfxIds {
   static readonly NAMED_STARE: string = 'lb_sfx_named_stare';
   static readonly RESULT_WIN: string = 'lb_sfx_result_win';
   static readonly RESULT_LOSE: string = 'lb_sfx_result_lose';
-  /** Call slot. Disk file may be sfx_card_flip.wav — do not rename this id. */
   static readonly CARD_FLIP: string = 'lb_sfx_card_flip';
   static readonly CARD_SELECT: string = 'lb_sfx_card_select';
   static readonly PLAY_CONFIRM: string = 'lb_sfx_play_confirm';
-  /** 16 · PlayLaunch onset. Disk: sfx_play_launch.wav. Never flip. */
   static readonly PLAY_LAUNCH: string = 'lb_sfx_play_launch';
-  /** 16 · PlayLanded onset. Disk: sfx_play_land.wav. Never flip. */
   static readonly PLAY_LAND: string = 'lb_sfx_play_land';
-  /** 17 · AwaitChallenge onEnter. Disk: sfx_challenge_enter.wav. Never flip/launch/land. */
   static readonly CHALLENGE_ENTER: string = 'lb_sfx_challenge_enter';
-  /** 17 · 真/假 press. Disk: sfx_challenge_commit.wav. Pass has no slot. */
   static readonly CHALLENGE_COMMIT: string = 'lb_sfx_challenge_commit';
-  /** 18 · RevealDraw onset. Disk: sfx_reveal_draw.wav. Never flip/launch/land/enter/commit. */
   static readonly REVEAL_DRAW: string = 'lb_sfx_reveal_draw';
-  /** 18 · RevealFlip onset. Disk: sfx_reveal_flip.wav. Never card_flip. */
   static readonly REVEAL_FLIP: string = 'lb_sfx_reveal_flip';
-  /** Call slot. Disk file may be sfx_life_extinguish.wav — do not rename this id. */
   static readonly LIFE_EXTINGUISH: string = 'lb_sfx_life_extinguish';
 }
 
