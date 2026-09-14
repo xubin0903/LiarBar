@@ -1,37 +1,50 @@
 import { ControlIds } from '../../../common/Ids';
 
 /**
- * ≥3 hand-empty: 你 / 上家 (EmptySafe3).
- * Overlay in ring–hand GAP. Does not raise padB / GAP.
+ * #166 / EmptySafe3 · ≥3 二选：你 / 上家.
+ * Locked: lb_btn_challenge_you / lb_btn_challenge_prev.
+ * Art: art_btn_challenge_you / art_btn_challenge_prev (+ _on).
+ * =2 ForceChallenge: caller must NOT show this entry.
  */
 @Component
 export struct EmptySafeEntry {
   @Prop visible: boolean = false;
   @Prop onYou: () => void = () => {};
-  @Prop onShangjia: () => void = () => {};
+  @Prop onPrev: () => void = () => {};
 
   build() {
     Row({ space: 12 }) {
-      Text($r('app.string.lb_str_empty_safe_you'))
-        .id(ControlIds.EMPTY_SAFE_YOU)
-        .fontColor($r('app.color.tavern_shadow'))
-        .fontSize($r('app.float.page_text_size'))
-        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-        .backgroundColor($r('app.color.tavern_accent'))
-        .borderRadius(8)
-        .onClick(() => {
-          this.onYou();
-        })
-      Text($r('app.string.lb_str_empty_safe_shangjia'))
-        .id(ControlIds.EMPTY_SAFE_SHANGJIA)
-        .fontColor($r('app.color.tavern_paper'))
-        .fontSize($r('app.float.page_text_size'))
-        .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-        .backgroundColor($r('app.color.tavern_panel'))
-        .borderRadius(8)
-        .onClick(() => {
-          this.onShangjia();
-        })
+      Column() {
+        Image($r('app.media.art_btn_challenge_you'))
+          .width(72)
+          .height(40)
+          .objectFit(ImageFit.Contain)
+        Text($r('app.string.lb_str_challenge_you'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .margin({ top: 2 })
+      }
+      .id(ControlIds.CHALLENGE_YOU)
+      .padding(6)
+      .onClick(() => {
+        this.onYou();
+      })
+
+      Column() {
+        Image($r('app.media.art_btn_challenge_prev'))
+          .width(72)
+          .height(40)
+          .objectFit(ImageFit.Contain)
+        Text($r('app.string.lb_str_challenge_prev'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .margin({ top: 2 })
+      }
+      .id(ControlIds.CHALLENGE_PREV)
+      .padding(6)
+      .onClick(() => {
+        this.onPrev();
+      })
     }
     .id(ControlIds.EMPTY_SAFE_ENTRY)
     .justifyContent(FlexAlign.Center)
