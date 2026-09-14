@@ -119,4 +119,34 @@
 
 ---
 
-*维护人：美术 / 音频岗 · 2026-09-10 · 2026-09-12 增补生命烛 Foley 程序化署名 · 2026-09-13 翻牌同槽短促起势覆盖 · 2026-09-13 增补出牌飞出 launch/land 两槽 · 2026-09-13 增补质疑 enter/commit 两槽 · 2026-09-14 reveal draw/flip*
+## 左轮 · click / shot / spin（程序化 Foley · 无第三方源）
+
+本批 **未** 嵌入 CC0 / 商用库采样。三槽均为仓内脚本合成，**原作 · 程序化** · **CC0-equivalent**。跨 [#164](https://github.com/xubin0903/LiarBar/pull/164) 左轮规则锁；只交资产。
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_revolver_click.wav` |
+| 媒体 id / 调用 | `sfx_revolver_click` · `lb_sfx_revolver_click` |
+| 许可 / 来源 | **原作程序化**（`scripts/gen_revolver_sfx.py` · 空膛金属咔哒；非 beep / 非正弦 tip；seed `20260914`） |
+| 实测 | 48 kHz mono PCM16 · **0.080s** · peak **−9.50 dBFS** · 头静音 **0.000 ms** · 7724 字节 · 质心约 **6595 Hz** |
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_revolver_shot.wav` |
+| 媒体 id / 调用 | `sfx_revolver_shot` · `lb_sfx_revolver_shot` |
+| 许可 / 来源 | **原作程序化**（同脚本 · 闷酒馆枪声；非卡通 beep；seed `20260915`） |
+| 实测 | 48 kHz mono PCM16 · **0.160s** · peak **−9.00 dBFS** · 头静音 **0.000 ms** · 15404 字节 · 质心约 **3302 Hz** |
+
+| 项 | 内容 |
+|----|------|
+| 仓内文件 | `entry/src/main/resources/rawfile/audio/sfx/sfx_revolver_spin.wav` |
+| 媒体 id / 调用 | `sfx_revolver_spin` · `lb_sfx_revolver_spin` |
+| 许可 / 来源 | **原作程序化**（同脚本 · 短筒旋 / 收牌重发提示；seed `20260916`） |
+| 实测 | 48 kHz mono PCM16 · **0.200s** · peak **−10.00 dBFS** · 头静音 **0.000 ms** · 19244 字节 · 质心约 **6537 Hz** |
+
+**未** 改 `sfx_card_flip` / `sfx_life_extinguish` / `sfx_play_launch` / `sfx_play_land` / `sfx_challenge_*` / `sfx_reveal_*`。  
+交件见 [左轮与你上家键-资产交件.md](./左轮与你上家键-资产交件.md)。
+
+---
+
+*维护人：美术 / 音频岗 · 2026-09-10 · 2026-09-12 增补生命烛 Foley 程序化署名 · 2026-09-13 翻牌同槽短促起势覆盖 · 2026-09-13 增补出牌飞出 launch/land 两槽 · 2026-09-13 增补质疑 enter/commit 两槽 · 2026-09-14 reveal draw/flip · 2026-09-14 增补左轮 click/shot/spin*
