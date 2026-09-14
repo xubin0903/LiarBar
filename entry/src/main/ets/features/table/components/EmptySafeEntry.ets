@@ -1,22 +1,24 @@
 import { ControlIds } from '../../../common/Ids';
 
 /**
- * #166 / EmptySafe3 · ≥3 二选：你 / 上家.
- * Locked: lb_btn_challenge_you / lb_btn_challenge_prev.
+ * #166 / 20 EmptySafe3 · ≥3 二选：你 / 上家.
+ * Locked container: lb_cmp_empty_target_choice.
+ * Locked buttons: lb_btn_challenge_you / lb_btn_challenge_prev.
  * Text stub OK for engine-first ship; art_btn_challenge_you/prev lands via art PR.
  * =2 ForceChallenge: caller must NOT show this entry.
  */
 @Component
 export struct EmptySafeEntry {
   @Prop visible: boolean = false;
-  @Prop onYou: () => void = () => {};
-  @Prop onPrev: () => void = () => {};
+  onYou: () => void = () => {};
+  onPrev: () => void = () => {};
 
   build() {
     Row({ space: 12 }) {
       Button($r('app.string.lb_str_challenge_you'))
         .id(ControlIds.CHALLENGE_YOU)
-        .height(40)
+        .constraintSize({ minWidth: 44, minHeight: 44 })
+        .height(44)
         .padding({ left: 12, right: 12 })
         .fontSize($r('app.float.caption_text_size'))
         .backgroundColor($r('app.color.tavern_accent'))
@@ -27,7 +29,8 @@ export struct EmptySafeEntry {
 
       Button($r('app.string.lb_str_challenge_prev'))
         .id(ControlIds.CHALLENGE_PREV)
-        .height(40)
+        .constraintSize({ minWidth: 44, minHeight: 44 })
+        .height(44)
         .padding({ left: 12, right: 12 })
         .fontSize($r('app.float.caption_text_size'))
         .backgroundColor($r('app.color.tavern_panel'))
@@ -36,7 +39,7 @@ export struct EmptySafeEntry {
           this.onPrev();
         })
     }
-    .id(ControlIds.EMPTY_SAFE_ENTRY)
+    .id(ControlIds.EMPTY_TARGET_CHOICE)
     .justifyContent(FlexAlign.Center)
     .width('100%')
     .visibility(this.visible ? Visibility.Visible : Visibility.None)

@@ -13,6 +13,7 @@ import { SoundPlayer } from '../features/table/SoundPlayer';
 import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
 import { ChallengeEntry } from '../features/table/components/ChallengeEntry';
+import { EmptySafeEntry } from '../features/table/components/EmptySafeEntry';
 import { PlayFly } from '../features/table/components/PlayFly';
 import { PlayFrontPile } from '../features/table/components/PlayFrontPile';
 import { RevealStage } from '../features/table/components/RevealStage';
@@ -108,6 +109,8 @@ struct Table {
   /** 17 · in-table AwaitChallenge. Not a new engine phase. */
   @State challengeEntryOn: boolean = false;
   @State challengeCommitBusy: boolean = false;
+  /** 20 / #166 · ≥3 EmptySafe3 你/上家. Mutually exclusive with ChallengeEntry. */
+  @State emptySafeEntryOn: boolean = false;
   @State challengeRemainSec: number = 10;
   @State challengeTargetPlayId: string = '';
   /** Hang: lb_str_challenge_dealer_enter near dealer banner when AwaitChallenge. */
@@ -366,7 +369,7 @@ struct Table {
         // Does not change padB / HAND_RING_GAP.
         Stack({ alignContent: Alignment.BottomEnd }) {
           PlayConfirmBar({
-            visible: this.confirmBarOn && !this.challengeEntryOn,
+            visible: this.confirmBarOn && !this.challengeEntryOn && !this.emptySafeEntryOn,
             confirmEnabled: this.confirmEnabled && !this.confirmBusy,
             onConfirm: () => {
               this.confirmTablePlay();
@@ -402,6 +405,25 @@ struct Table {
         .hitTestBehavior(HitTestMode.Transparent)
         .visibility(this.challengeEntryOn && !this.challengeCommitBusy ?
           Visibility.Visible : Visibility.None)
+
+        // 20 / #166 EmptySafe3: self-front band (same family as ChallengeEntry).
+        // Overlay ≠ handPin. ≥3 only; =2 ForceChallenge hides this.
+        Stack({ alignContent: Alignment.Bottom }) {
+          EmptySafeEntry({
+            visible: this.emptySafeEntryOn,
+            onYou: () => {
+              this.onChooseEmptyYou();
+            },
+            onPrev: () => {
+              this.onChooseEmptyShangjia();
+            }
+          })
+            .margin({ bottom: this.challengeFrontLiftVp() })
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+        .visibility(this.emptySafeEntryOn ? Visibility.Visible : Visibility.None)
 
         // Hang: NPC challenge bubble (thinking/true/false). Stub until copy polish.
         if (this.npcChallengeBubble.length > 0) {
@@ -1057,7 +1079,7 @@ struct Table {
             AppRuntime.engine.skip();
             this.pull();
           })
-      } else if (!this.showPlay && !this.challengeEntryOn) {
+      } else if (!this.showPlay && !this.challengeEntryOn && !this.emptySafeEntryOn) {
         Text($r('app.string.lb_str_play'))
           .id(ControlIds.PLAY)
           .fontColor($r('app.color.tavern_mute'))
@@ -1411,8 +1433,9 @@ struct Table {
       return;
     }
     this.applyTimer(snap);
-    // Land may share the in-flight stamp; still (re)gate AwaitChallenge.
+    // Land may share the in-flight stamp; still (re)gate AwaitChallenge / EmptySafe.
     if (snap.phase === Phase.TURN) {
+      this.syncEmptySafeEntry(snap);
       this.syncChallengeEntry(snap);
     }
     if (stamp === this.lastHudStamp) {
@@ -1489,7 +1512,10 @@ struct Table {
     const nextPlay: boolean = humanTurn && snap.hasCards &&
       (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF) &&
       snap.turnWindow !== TurnWindow.CHALLENGE_ONLY &&
-      !this.challengeEntryOn && !this.challengeCommitBusy;
+      snap.turnWindow !== TurnWindow.EMPTY_SAFE &&
+      snap.turnWindow !== TurnWindow.FORCE_CHALLENGE &&
+      !this.challengeEntryOn && !this.challengeCommitBusy &&
+      !this.emptySafeEntryOn;
     if (this.playEnabled !== nextPlay) {
       this.playEnabled = nextPlay;
     }
@@ -1531,9 +1557,12 @@ struct Table {
       seats = `${seats}${s.seatId}:${s.nickname}:${s.status}:${s.lives}:${s.handCount};`;
     }
     const human: boolean = this.isHumanTurn(snap);
+    const emptySafe: string = snap.emptySafePending === true ? '1' : '0';
+    const forceEmpty: string = snap.forceChallengeEmpty === true ? '1' : '0';
     return `${snap.phase}|${snap.turnWindow}|${snap.roundIndex}|${snap.playIndexInRound}|` +
       `${snap.currentSeatId}|${snap.canChallenge}|${snap.hasCards}|${snap.silentMode}|` +
-      `${snap.dealerLine}|${snap.dealerKey}|${claim}|${pool}|${called}|${human}|${hand}|${seats}`;
+      `${snap.dealerLine}|${snap.dealerKey}|${claim}|${pool}|${called}|${human}|` +
+      `${emptySafe}|${forceEmpty}|${hand}|${seats}`;
   }
 
   private applyTimer(snap: MatchSnapshot): void {
@@ -1738,6 +1767,7 @@ struct Table {
     }
     const barOn: boolean = ok && !this.showPlay && !this.confirmBusy &&
       !this.challengeEntryOn && !this.challengeCommitBusy &&
+      !this.emptySafeEntryOn &&
       snap.phase === Phase.TURN;
     if (this.confirmBarOn !== barOn) {
       this.confirmBarOn = barOn;
@@ -1766,7 +1796,8 @@ struct Table {
    */
   private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
-    if (snap === null || this.confirmBusy || this.challengeEntryOn || this.challengeCommitBusy) {
+    if (snap === null || this.confirmBusy || this.challengeEntryOn || this.challengeCommitBusy ||
+      this.emptySafeEntryOn) {
       return;
     }
     if (!this.playEnabled) {
@@ -1805,7 +1836,8 @@ struct Table {
   }
 
   private openSecondaryPlaySheet(): void {
-    if (!this.playEnabled || this.challengeEntryOn || this.challengeCommitBusy) {
+    if (!this.playEnabled || this.challengeEntryOn || this.challengeCommitBusy ||
+      this.emptySafeEntryOn) {
       return;
     }
     AppRuntime.engine.intentPlay();
@@ -1849,7 +1881,7 @@ struct Table {
 
   private onCardTap(idx: number): void {
     if (this.dealPlaying || this.showPeek || this.confirmBusy ||
-      this.challengeEntryOn || this.challengeCommitBusy) {
+      this.challengeEntryOn || this.challengeCommitBusy || this.emptySafeEntryOn) {
       return;
     }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
@@ -1908,7 +1940,7 @@ struct Table {
       return false;
     }
     if (this.dealPlaying || this.showPeek || this.confirmBusy ||
-      this.challengeEntryOn || this.challengeCommitBusy) {
+      this.challengeEntryOn || this.challengeCommitBusy || this.emptySafeEntryOn) {
       return false;
     }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
@@ -1996,6 +2028,9 @@ struct Table {
       this.challengeEnabled = false;
     }
     this.closeChallengeEntry(false);
+    if (this.emptySafeEntryOn) {
+      this.emptySafeEntryOn = false;
+    }
     if (this.playEnabled) {
       this.playEnabled = false;
     }
@@ -2158,8 +2193,13 @@ struct Table {
     if (snap !== null) {
       const left: number = this.handCountOf(snap.seats, this.playFlySeat);
       if (left === 0) {
-        // U03b: RoundWin tip → RedealAll. Ban AwaitChallenge / RankSettle-on-empty.
-        this.startRoundWin();
+        // HandEmptyGate primary: EmptySafeEntry (≥3) / FORCE_CHALLENGE (=2).
+        // RoundWin→RedealAll is NOT primary (废旧 L7 / #164).
+        this.closeChallengeEntry(false);
+        this.syncEmptySafeEntry(snap);
+        if (this.isForceChallengeEmpty(snap)) {
+          this.syncChallengeEntry(snap);
+        }
       } else {
         this.refreshPlayMeta(snap);
         // Challenger seat front: self = ChallengeEntry in ring–hand GAP when canChallenge.
@@ -2167,7 +2207,7 @@ struct Table {
       }
     }
     this.pull();
-    if (!this.roundWinOn) {
+    if (!this.roundWinOn && !this.emptySafeEntryOn) {
       this.flushQueuedPlay();
     }
   }
@@ -2315,6 +2355,7 @@ struct Table {
     this.hiddenCardIds = [];
     this.cancelRoundWinTimer();
     this.roundWinOn = false;
+    this.emptySafeEntryOn = false;
     this.playFlyPlayId = '';
     this.queuedPlayId = '';
     this.confirmBusy = false;
@@ -2427,19 +2468,103 @@ struct Table {
     Logger.info(TAG, 'debug challenge reject armed');
   }
 
+  private isEmptySafePending(snap: MatchSnapshot): boolean {
+    return snap.emptySafePending === true;
+  }
+
+  private isForceChallengeEmpty(snap: MatchSnapshot): boolean {
+    return snap.forceChallengeEmpty === true;
+  }
+
+  /**
+   * 20 / #166: mount EmptySafeEntry when ≥3 emptySafePending ∧ human chooser.
+   * Mutually exclusive with ChallengeEntry 真/假. =2 must NOT show this.
+   */
+  private syncEmptySafeEntry(snap: MatchSnapshot): void {
+    const want: boolean = this.isEmptySafePending(snap) &&
+      !this.isForceChallengeEmpty(snap) &&
+      this.isHumanTurn(snap) &&
+      snap.phase === Phase.TURN &&
+      !this.playFlyOn &&
+      !this.confirmBusy &&
+      !this.revealOn &&
+      !this.roundWinOn;
+    if (this.emptySafeEntryOn !== want) {
+      this.emptySafeEntryOn = want;
+    }
+    if (want && this.challengeEntryOn) {
+      this.closeChallengeEntry(false);
+    }
+    if (want && this.confirmBarOn) {
+      this.confirmBarOn = false;
+    }
+    if (want && this.playEnabled) {
+      this.playEnabled = false;
+    }
+  }
+
+  /** ≥3 · 质疑你 → engine chooseEmptyYou → RevealEmptyLast. */
+  private onChooseEmptyYou(): void {
+    if (!this.emptySafeEntryOn) {
+      return;
+    }
+    this.emptySafeEntryOn = false;
+    const ok: boolean = AppRuntime.engine.chooseEmptyYou();
+    if (!ok) {
+      Logger.warn(TAG, 'chooseEmptyYou rejected');
+      this.pull();
+      return;
+    }
+    Logger.info(TAG, 'EmptySafe3 chooseEmptyYou');
+    const after: MatchSnapshot | null = AppRuntime.engine.current();
+    if (after !== null &&
+      (after.phase === Phase.CHALLENGE_RITUAL || after.phase === Phase.JUDGE)) {
+      // Stay on table; reveal after ACK (same as ChallengeCommit).
+      this.beginRevealAfterAck(after);
+      return;
+    }
+    this.pull();
+  }
+
+  /** ≥3 · 上家 / 不质疑你 → engine chooseEmptyShangjia → RoundSafeWait. */
+  private onChooseEmptyShangjia(): void {
+    if (!this.emptySafeEntryOn) {
+      return;
+    }
+    this.emptySafeEntryOn = false;
+    const ok: boolean = AppRuntime.engine.chooseEmptyShangjia();
+    if (!ok) {
+      Logger.warn(TAG, 'chooseEmptyShangjia rejected');
+    } else {
+      Logger.info(TAG, 'EmptySafe3 chooseEmptyShangjia');
+    }
+    this.pull();
+  }
+
   /**
    * Q03: PlayLanded ∧ hand>0 ∧ not first hand ∧ canChallenge ∧ human.
    * Zero entry during PlayLaunch / confirmBusy / RoundWin / first hand.
+   * ForceChallenge2 (=2 empty): allow even when actor emptied.
    */
   private shouldShowChallengeEntry(snap: MatchSnapshot): boolean {
     if (this.playFlyOn || this.confirmBusy || this.roundWinOn || this.challengeCommitBusy ||
-      this.revealOn) {
+      this.revealOn || this.emptySafeEntryOn) {
+      return false;
+    }
+    // ≥3 EmptySafe3: you/prev entry owns the gate — hide 17 真/假.
+    if (this.isEmptySafePending(snap)) {
       return false;
     }
     if (snap.phase !== Phase.TURN) {
       return false;
     }
-    if (!this.isHumanTurn(snap) || !snap.hasCards) {
+    const force2: boolean = this.isForceChallengeEmpty(snap);
+    // =2 ForceChallenge: must challenge emptier last hand even if actor emptied.
+    // Normal: need cards; force2 may still have cards.
+    if (!this.isHumanTurn(snap)) {
+      return false;
+    }
+    if (!force2 && !snap.hasCards) {
       return false;
     }
     if (snap.lastPlay === null || snap.lastPlay.isFirstOfRound) {
@@ -2448,7 +2573,7 @@ struct Table {
     if (!snap.canChallenge) {
       return false;
     }
-    if (this.actorEmptied(snap)) {
+    if (!force2 && this.actorEmptied(snap)) {
       return false;
     }
     if (snap.lastPlay.playId === this.challengeResolvedPlayId) {
@@ -2567,7 +2692,10 @@ struct Table {
     const humanTurn: boolean = this.isHumanTurn(snap);
     const nextPlay: boolean = humanTurn && snap.hasCards &&
       (snap.phase === Phase.TURN || snap.phase === Phase.PLAY_REVEAL_SELF) &&
-      snap.turnWindow !== TurnWindow.CHALLENGE_ONLY;
+      snap.turnWindow !== TurnWindow.CHALLENGE_ONLY &&
+      snap.turnWindow !== TurnWindow.EMPTY_SAFE &&
+      snap.turnWindow !== TurnWindow.FORCE_CHALLENGE &&
+      !this.emptySafeEntryOn;
     if (this.playEnabled !== nextPlay) {
       this.playEnabled = nextPlay;
     }
@@ -2756,6 +2884,13 @@ struct Table {
       return;
     }
     if (this.challengeCommitBusy) {
+      return;
+    }
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    // =2 ForceChallenge: no Pass / Trust — timeout forces commit instead.
+    if (snap !== null && this.isForceChallengeEmpty(snap)) {
+      Logger.info(TAG, 'ForceChallenge2: Pass banned → commit');
+      this.commitChallenge(false);
       return;
     }
     Logger.info(TAG, fromTimeout ? 'AwaitChallenge timeout Pass' : 'AwaitChallenge Pass');

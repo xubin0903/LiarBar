@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Spec check: revolver rules v1 (左轮对局-状态机 v1.1.1 / GDD v0.3.0).
- * Deck 20 / hand 5 / chambers 6 / button ids / no RoundWin-on-empty as primary.
+ * Deck 20 / hand 5 / chambers 6 / lb_cmp_empty_target_choice / Table EmptySafeEntry /
+ * chooseEmptyYou / no RoundWin-on-empty as primary.
  * Cloud has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
 import { readFileSync } from 'node:fs';
@@ -88,21 +89,32 @@ if (types.includes('emptySafePending') && types.includes('forceChallengeEmpty') 
   fail('MatchTypes missing revolver snapshot fields');
 }
 
-// Button ids locked (#166).
+// Button + container ids locked (#166 / 20).
 if (ids.includes("CHALLENGE_YOU: string = 'lb_btn_challenge_you'") &&
     ids.includes("CHALLENGE_PREV: string = 'lb_btn_challenge_prev'") &&
-    ids.includes("EMPTY_SAFE_ENTRY: string = 'lb_cmp_empty_safe_entry'")) {
-  pass('Ids lock lb_btn_challenge_you / lb_btn_challenge_prev / lb_cmp_empty_safe_entry');
+    ids.includes("EMPTY_TARGET_CHOICE: string = 'lb_cmp_empty_target_choice'") &&
+    !ids.includes("'lb_cmp_empty_safe_entry'")) {
+  pass('Ids lock lb_btn_challenge_you / lb_btn_challenge_prev / lb_cmp_empty_target_choice');
 } else {
-  fail('Ids missing CHALLENGE_YOU / CHALLENGE_PREV / EMPTY_SAFE_ENTRY');
+  fail('Ids missing CHALLENGE_YOU / CHALLENGE_PREV / EMPTY_TARGET_CHOICE (or still empty_safe_entry)');
 }
 
 if (emptyEntry.includes('ControlIds.CHALLENGE_YOU') &&
     emptyEntry.includes('ControlIds.CHALLENGE_PREV') &&
-    emptyEntry.includes('ControlIds.EMPTY_SAFE_ENTRY')) {
-  pass('EmptySafeEntry binds locked button ids');
+    emptyEntry.includes('ControlIds.EMPTY_TARGET_CHOICE') &&
+    !emptyEntry.includes('lb_cmp_empty_safe_entry')) {
+  pass('EmptySafeEntry binds locked you/prev + EMPTY_TARGET_CHOICE');
 } else {
   fail('EmptySafeEntry missing locked id binds');
+}
+
+const strings = src('entry/src/main/resources/base/element/string.json');
+const prevMatch = strings.match(/"name":\s*"lb_str_challenge_prev"\s*,\s*"value":\s*"([^"]+)"/);
+const prevVal = prevMatch ? prevMatch[1] : '';
+if ((prevVal === '上家' || prevVal === '不质疑你') && prevVal !== '质疑上家') {
+  pass('lb_str_challenge_prev is 上家 or 不质疑你 (not 质疑上家)');
+} else {
+  fail(`lb_str_challenge_prev must be 「上家」 or 「不质疑你」, not 「质疑上家」 (got ${JSON.stringify(prevVal)})`);
 }
 
 // Primary path must not be RoundWin-on-empty.
@@ -130,6 +142,38 @@ if (engine.includes('beginRoundWin') && engine.includes('ignored (revolver') &&
   pass('beginRoundWin/redealAll deprecated stubs');
 } else {
   fail('RoundWin APIs not gated as deprecated stubs');
+}
+
+// Table hangpoints: EmptySafeEntry mounted; chooseEmptyYou/Shangjia; no RoundWin-on-empty primary.
+const tableImportsEmpty = table.includes("EmptySafeEntry") &&
+  table.includes("features/table/components/EmptySafeEntry");
+const tableMountsEmpty = table.includes('EmptySafeEntry({') &&
+  (table.includes('onChooseEmptyYou') || table.includes('chooseEmptyYou'));
+const tableWiresChoose =
+  table.includes('AppRuntime.engine.chooseEmptyYou()') &&
+  table.includes('AppRuntime.engine.chooseEmptyShangjia()');
+const tableSyncsEmpty =
+  table.includes('syncEmptySafeEntry') &&
+  table.includes('emptySafePending') &&
+  table.includes('forceChallengeEmpty');
+const tableNoRoundWinPrimary =
+  !/left\s*===\s*0[\s\S]{0,280}startRoundWin\s*\(/.test(table) &&
+  table.includes('HandEmptyGate primary');
+const tableUsesTargetChoiceId =
+  ids.includes("'lb_cmp_empty_target_choice'") &&
+  emptyEntry.includes('ControlIds.EMPTY_TARGET_CHOICE');
+
+if (tableImportsEmpty && tableMountsEmpty && tableWiresChoose &&
+    tableSyncsEmpty && tableNoRoundWinPrimary && tableUsesTargetChoiceId) {
+  pass('Table hangpoints: EmptySafeEntry / empty_target_choice / chooseEmptyYou / no RoundWin-on-empty primary');
+} else {
+  fail('Table missing EmptySafeEntry hangpoints or still RoundWin-on-empty primary');
+  if (!tableImportsEmpty) fail('  · import/mount EmptySafeEntry');
+  if (!tableMountsEmpty) fail('  · EmptySafeEntry({...}) / onChooseEmptyYou');
+  if (!tableWiresChoose) fail('  · engine chooseEmptyYou / chooseEmptyShangjia');
+  if (!tableSyncsEmpty) fail('  · syncEmptySafeEntry / emptySafePending / forceChallengeEmpty');
+  if (!tableNoRoundWinPrimary) fail('  · still startRoundWin on left===0 primary');
+  if (!tableUsesTargetChoiceId) fail('  · lb_cmp_empty_target_choice not locked');
 }
 
 if (layout.includes('HAND_RING_GAP_PCT: number = 24')) {

@@ -105,12 +105,13 @@ export class ControlIds {
   static readonly CHALLENGE_DEALER_ENTER: string = 'lb_txt_challenge_dealer_enter';
   static readonly NPC_CHALLENGE_BUBBLE: string = 'lb_cmp_npc_challenge_bubble';
   /**
-   * #166 / EmptySafe3 · ≥3 二选（你 / 上家）。
-   * Locked — do not invent lb_btn_empty_* aliases.
+   * #166 / 20 EmptySafe3 · ≥3 二选（你 / 上家）。
+   * Locked container: lb_cmp_empty_target_choice (NOT lb_cmp_empty_safe_entry).
+   * Buttons: lb_btn_challenge_you / lb_btn_challenge_prev — do not invent lb_btn_empty_*.
    * Art: art_btn_challenge_you / art_btn_challenge_prev (+ _on).
    * =2 ForceChallenge: hide this entry.
    */
-  static readonly EMPTY_SAFE_ENTRY: string = 'lb_cmp_empty_safe_entry';
+  static readonly EMPTY_TARGET_CHOICE: string = 'lb_cmp_empty_target_choice';
   static readonly CHALLENGE_YOU: string = 'lb_btn_challenge_you';
   static readonly CHALLENGE_PREV: string = 'lb_btn_challenge_prev';
   static readonly DEBUG_PLAY_REJECT: string = 'lb_btn_debug_play_reject';
