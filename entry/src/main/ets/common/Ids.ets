@@ -148,6 +148,12 @@ export class SfxIds {
   static readonly REVEAL_DRAW: string = 'lb_sfx_reveal_draw';
   static readonly REVEAL_FLIP: string = 'lb_sfx_reveal_flip';
   static readonly LIFE_EXTINGUISH: string = 'lb_sfx_life_extinguish';
+  /** #168 · EmptySafe you/prev press. Disk: sfx_revolver_click.wav. Never flip/launch/land. */
+  static readonly REVOLVER_CLICK: string = 'lb_sfx_revolver_click';
+  /** #168 · Engine applyShoot. Disk: sfx_revolver_shot.wav. Never flip/launch/land. */
+  static readonly REVOLVER_SHOT: string = 'lb_sfx_revolver_shot';
+  /** #168 · CollectRedeal / chamber advance. Disk: sfx_revolver_spin.wav. Never flip/launch/land. */
+  static readonly REVOLVER_SPIN: string = 'lb_sfx_revolver_spin';
 }
 
 export class PersistNs {

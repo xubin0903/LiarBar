@@ -23,7 +23,7 @@ import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/t
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
 import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
-import { Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
+import { EventKind, Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
 
 const TAG = 'Table';
 /**
@@ -207,6 +207,9 @@ struct Table {
   private winRef: window.Window | null = null;
   private avoidBound: boolean = false;
   private heardPlayId: string = '';
+  /** #168 · cursor into snap.eventLog for revolver shot/spin hangpoints. */
+  private heardEventCount: number = 0;
+  private heardMatchId: string = '';
   private playFlyPlayId: string = '';
   private playFlyTimer: number = -1;
   private revealTimer: number = -1;
@@ -1424,6 +1427,7 @@ struct Table {
     DealAudio.setSilent(snap.silentMode);
     TableAudio.setSilent(snap.silentMode);
     SoundPlayer.setSilent(snap.silentMode);
+    this.hearRevolverEvents(snap);
     if (snap.phase === Phase.DEAL) {
       if (stamp !== this.lastHudStamp) {
         this.lastHudStamp = stamp;
@@ -2090,6 +2094,38 @@ struct Table {
     }
   }
 
+  /**
+   * #168 · revolver SFX hangpoints from engine eventLog.
+   * SHOOT → shot; COLLECT_REDEAL → spin (chamber advance / redeal).
+   * Does not invent gameplay — only mirrors engine events.
+   */
+  private hearRevolverEvents(snap: MatchSnapshot): void {
+    if (snap.matchId !== this.heardMatchId) {
+      this.heardMatchId = snap.matchId;
+      this.heardEventCount = 0;
+    }
+    const log = snap.eventLog;
+    if (log === null || log === undefined) {
+      return;
+    }
+    let i: number = this.heardEventCount;
+    if (i > log.length) {
+      i = 0;
+    }
+    while (i < log.length) {
+      const kind = log[i].kind;
+      if (kind === EventKind.SHOOT) {
+        TableAudio.playRevolverShot();
+        Logger.info(TAG, `${SfxIds.REVOLVER_SHOT} eventLog`);
+      } else if (kind === EventKind.COLLECT_REDEAL) {
+        TableAudio.playRevolverSpin();
+        Logger.info(TAG, `${SfxIds.REVOLVER_SPIN} eventLog`);
+      }
+      i++;
+    }
+    this.heardEventCount = i;
+  }
+
   @Builder
   playFlyLayer() {
     Stack() {
@@ -2509,6 +2545,7 @@ struct Table {
       return;
     }
     this.emptySafeEntryOn = false;
+    TableAudio.playRevolverClick();
     const ok: boolean = AppRuntime.engine.chooseEmptyYou();
     if (!ok) {
       Logger.warn(TAG, 'chooseEmptyYou rejected');
@@ -2532,6 +2569,7 @@ struct Table {
       return;
     }
     this.emptySafeEntryOn = false;
+    TableAudio.playRevolverClick();
     const ok: boolean = AppRuntime.engine.chooseEmptyShangjia();
     if (!ok) {
       Logger.warn(TAG, 'chooseEmptyShangjia rejected');
