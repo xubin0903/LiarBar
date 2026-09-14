@@ -140,9 +140,9 @@ if (table.includes('lastPlay.isFirstOfRound') &&
 if (table.includes('snap.lastPlay.playId') &&
     table.includes('challengeTargetPlayId') &&
     table.includes('intentChallenge()') &&
-    !table.includes('lastPlayRanks') &&
     pile.includes('art_card_back') &&
-    !pile.includes('Text(')) {
+    !pile.includes('Text(') &&
+    !table.includes('revealOpen = true')) {
   pass('C2-3/7: target=lastPlay; pile stays backs (no local-first open)');
 } else {
   fail('target / no-local-open incomplete');
@@ -198,12 +198,12 @@ const commitBody = commitFn.split('private rejectChallengeRestore')[0];
 if (commitBody.includes('playChallengeCommit') &&
     commitBody.includes('intentChallenge') &&
     commitBody.includes('rejectChallengeRestore') &&
-    commitBody.includes('RevealAfterAck stub') &&
+    commitBody.includes('beginRevealAfterAck') &&
     commitBody.includes('closeChallengeEntry(false)') &&
     !commitBody.includes('closeChallengeEntry(true)') &&
-    !commitBody.includes('lastPlayRanks') &&
+    !commitBody.includes('LbRouter.toChallenge') &&
     !commitBody.includes('revealOpen')) {
-  pass('真/假 share ChallengeCommit → ACK → stub reveal; no local-first open');
+  pass('真/假 share ChallengeCommit → ACK → beginRevealAfterAck; no local-first / old page');
 } else {
   fail('shared ChallengeCommit ACK path');
 }

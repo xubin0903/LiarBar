@@ -102,6 +102,10 @@ export class ControlIds {
   static readonly PLAY_FLY: string = 'lb_cmp_play_fly';
   /** 16 · PlayLanded fan. This-round this-hand only. */
   static readonly PLAY_FRONT_PILE: string = 'lb_cmp_play_front_pile';
+  /** 16 v0.2.0 · pool-bound back-fan (not seat front_pile main read). */
+  static readonly PLAY_POOL_HAND: string = 'lb_cmp_pool_hand';
+  /** 18 · ack-after reveal stage (pool center down). Not old reveal_row. */
+  static readonly REVEAL_STAGE: string = 'lb_cmp_reveal_stage';
   /** 16 · RankSettle gate after land when hand==0. Not AwaitChallenge. */
   static readonly RANK_SETTLE: string = 'lb_cmp_rank_settle';
   /** 17 / C2 · in-table AwaitChallenge overlay (not lb_scr_challenge). */
@@ -151,6 +155,10 @@ export class SfxIds {
   static readonly CHALLENGE_ENTER: string = 'lb_sfx_challenge_enter';
   /** 17 · 真/假 press. Disk: sfx_challenge_commit.wav. Pass has no slot. */
   static readonly CHALLENGE_COMMIT: string = 'lb_sfx_challenge_commit';
+  /** 18 · RevealDraw onset. Disk: sfx_reveal_draw.wav. Never flip/launch/land/enter/commit. */
+  static readonly REVEAL_DRAW: string = 'lb_sfx_reveal_draw';
+  /** 18 · RevealFlip onset. Disk: sfx_reveal_flip.wav. Never card_flip. */
+  static readonly REVEAL_FLIP: string = 'lb_sfx_reveal_flip';
   /** Call slot. Disk file may be sfx_life_extinguish.wav — do not rename this id. */
   static readonly LIFE_EXTINGUISH: string = 'lb_sfx_life_extinguish';
 }
