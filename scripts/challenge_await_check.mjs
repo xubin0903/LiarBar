@@ -144,7 +144,7 @@ if (fx.includes('AWAIT_MS: number = 10000') &&
 if (table.includes('lastPlay.isFirstOfRound') &&
     table.includes('shouldShowChallengeEntry') &&
     table.includes('actorEmptied') &&
-    table.includes('this.playFlyOn || this.confirmBusy || this.rankSettleOn')) {
+    table.includes('this.playFlyOn || this.confirmBusy || this.roundWinOn')) {
   pass('C2-1/4/5: first-hand / emptied / fly+busy gates');
 } else {
   fail('entry gates incomplete');

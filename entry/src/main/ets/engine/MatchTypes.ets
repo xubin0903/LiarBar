@@ -94,8 +94,10 @@ export interface MatchSnapshot {
   currentSeatId: number;
   currentClaim: ClaimModel | null;
   lastPlay: PlayModel | null;
-  /** Aron L7: seats that emptied after a successful play, first-empty = 1st. */
+  /** Round-win contributors this land (hand==0). Not whole-match place. */
   emptyOrder: number[];
+  /** U03b: PlayLanded∧hand==0 pending RoundWin→RedealAll. Not a Phase. */
+  roundWinPending: boolean;
   lastPenalizedSeatId: number;
   roundIndex: number;
   playIndexInRound: number;

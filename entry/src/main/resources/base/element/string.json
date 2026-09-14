@@ -14,6 +14,7 @@
     { "name": "lb_str_play_over_select", "value": "超选" },
     { "name": "lb_str_play_rollback", "value": "出牌未生效 / 张数已纠正" },
     { "name": "lb_str_rank_settle", "value": "打光入席" },
+    { "name": "lb_str_round_win", "value": "本轮胜" },
     { "name": "lb_str_debug_play_reject", "value": "拒" },
     { "name": "lb_str_challenge", "value": "质疑" },
     { "name": "lb_str_challenge_disabled_first", "value": "第一手还没人出过牌" },
