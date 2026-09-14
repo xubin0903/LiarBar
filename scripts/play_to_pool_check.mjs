@@ -226,8 +226,8 @@ if (table.includes('beginHumanPlay') &&
     table.includes('onPlayLanded') &&
     table.includes('TableAudio.playPlayLand()') &&
     table.includes('onPlayRollback') &&
-    table.includes('rankSettleOn')) {
-  pass('optimistic fly + launch/land + rollback + RankSettle kept');
+    table.includes('roundWinOn')) {
+  pass('optimistic fly + launch/land + rollback + RoundWin kept');
 } else {
   fail('Section 1 path regressed');
 }

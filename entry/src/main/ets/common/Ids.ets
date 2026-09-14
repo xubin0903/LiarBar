@@ -106,8 +106,10 @@ export class ControlIds {
   static readonly PLAY_POOL_HAND: string = 'lb_cmp_pool_hand';
   /** 18 · ack-after reveal stage (pool center down). Not old reveal_row. */
   static readonly REVEAL_STAGE: string = 'lb_cmp_reveal_stage';
-  /** 16 · RankSettle gate after land when hand==0. Not AwaitChallenge. */
+  /** 16 · Whole-match RankSettle when exactly 1 seat has lives>0. */
   static readonly RANK_SETTLE: string = 'lb_cmp_rank_settle';
+  /** U03b · RoundWin tip after land when hand==0. Not AwaitChallenge. */
+  static readonly ROUND_WIN: string = 'lb_cmp_round_win';
   /** 17 / C2 · in-table AwaitChallenge overlay (not lb_scr_challenge). */
   static readonly CHALLENGE_AWAIT: string = 'lb_cmp_challenge_await';
   static readonly CHALLENGE_ENTRY: string = 'lb_cmp_challenge_entry';

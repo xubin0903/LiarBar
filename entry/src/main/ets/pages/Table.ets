@@ -134,8 +134,9 @@ struct Table {
   @State pileX3: number = 0;
   @State pileY3: number = 0;
   @State hiddenCardIds: string[] = [];
-  @State rankSettleOn: boolean = false;
-  @State rankSettlePlace: number = 0;
+  /** U03b RoundWin tip (hand==0). Not whole-match RankSettle. */
+  @State roundWinOn: boolean = false;
+  private roundWinTimer: number = -1;
   /** 18 · reveal stage after challenge ACK. */
   @State revealOn: boolean = false;
   @State revealFaceUp: boolean = false;
@@ -277,6 +278,7 @@ struct Table {
     }
     this.cancelDealTimers();
     this.cancelPlayFlyTimer();
+    this.cancelRoundWinTimer();
     this.cancelRevealTimer();
     this.cancelChallengeTimer();
     AppRuntime.director.playBusy = false;
@@ -419,8 +421,8 @@ struct Table {
           this.playHintToast()
         }
 
-        if (this.rankSettleOn) {
-          this.rankSettleBanner()
+        if (this.roundWinOn) {
+          this.roundWinBanner()
         }
 
         if (DebugBuild.lifeDecShown()) {
@@ -1434,7 +1436,7 @@ struct Table {
     }
     // Pool round-hand persists across seat rotation until challenge/reveal
     // clears it. Do NOT clear on playIndexInRound===0 alone (fires too early).
-    if (snap.lastPlay === null && !this.playFlyOn && !this.revealOn) {
+    if (snap.lastPlay === null && !this.playFlyOn && !this.revealOn && !this.roundWinOn) {
       this.clearAllPiles();
       this.challengeResolvedPlayId = '';
       this.challengeEnterPlayId = '';
@@ -1457,7 +1459,7 @@ struct Table {
       this.takePeekRanks(this.ranksOf(snap.selfHand));
       this.takeCardBacks(snap.selfHand.length);
     }
-    const emptyHand: boolean = snap.selfHand.length === 0 && !this.rankSettleOn;
+    const emptyHand: boolean = snap.selfHand.length === 0 && !this.roundWinOn;
     if (this.handEmpty !== emptyHand) {
       this.handEmpty = emptyHand;
     }
@@ -1779,7 +1781,8 @@ struct Table {
     this.confirmBusy = true;
     AppRuntime.director.playBusy = true;
     this.confirmBarOn = false;
-    this.rankSettleOn = false;
+    this.cancelRoundWinTimer();
+    this.roundWinOn = false;
     this.rollbackHand = this.copyCards(this.selfCards);
     this.rollbackSelected = this.copyIds(this.selectedIds);
     this.hiddenCardIds = this.copyIds(this.selectedIds);
@@ -2096,16 +2099,13 @@ struct Table {
   }
 
   @Builder
-  rankSettleBanner() {
+  roundWinBanner() {
     Column() {
-      Text($r('app.string.lb_str_rank_settle'))
+      Text($r('app.string.lb_str_round_win'))
         .fontColor($r('app.color.tavern_candle'))
         .fontSize($r('app.float.page_text_size'))
-      Text(`第${this.rankSettlePlace}`)
-        .fontColor($r('app.color.tavern_paper'))
-        .fontSize($r('app.float.caption_text_size'))
     }
-    .id(ControlIds.RANK_SETTLE)
+    .id(ControlIds.ROUND_WIN)
     .padding({
       left: 16,
       right: 16,
@@ -2158,15 +2158,18 @@ struct Table {
     if (snap !== null) {
       const left: number = this.handCountOf(snap.seats, this.playFlySeat);
       if (left === 0) {
-        this.rankSettleOn = true;
-        this.rankSettlePlace = this.placeOf(snap.emptyOrder, this.playFlySeat);
+        // U03b: RoundWin tip → RedealAll. Ban AwaitChallenge / RankSettle-on-empty.
+        this.startRoundWin();
+      } else {
+        this.refreshPlayMeta(snap);
+        // Challenger seat front: self = ChallengeEntry in ring–hand GAP when canChallenge.
+        this.syncChallengeEntry(snap);
       }
-      this.refreshPlayMeta(snap);
-      // Challenger seat front: self = ChallengeEntry in ring–hand GAP when canChallenge.
-      this.syncChallengeEntry(snap);
     }
     this.pull();
-    this.flushQueuedPlay();
+    if (!this.roundWinOn) {
+      this.flushQueuedPlay();
+    }
   }
 
   /** 16 onPlayRollback: drop fly + pile, restore hand, one key toast. */
@@ -2174,7 +2177,8 @@ struct Table {
     this.cancelPlayFlyTimer();
     this.playFlyOn = false;
     this.clearPile(this.playFlySeat);
-    this.rankSettleOn = false;
+    this.cancelRoundWinTimer();
+    this.roundWinOn = false;
     this.takeSelfHand(this.rollbackHand);
     this.takePeekRanks(this.ranksOf(this.rollbackHand));
     this.takeCardBacks(this.rollbackHand.length);
@@ -2216,7 +2220,8 @@ struct Table {
     this.playFlyPlayId = snap.lastPlay.playId;
     this.playFlyCount = snap.lastPlay.count;
     this.playFlySeat = snap.lastPlay.actorSeatId;
-    this.rankSettleOn = false;
+    this.cancelRoundWinTimer();
+    this.roundWinOn = false;
     TableAudio.playPlayLaunch();
     this.kickPlayFly(snap.lastPlay.actorSeatId, snap.lastPlay.count);
   }
@@ -2308,7 +2313,8 @@ struct Table {
     this.playFlyOn = false;
     this.clearAllPiles();
     this.hiddenCardIds = [];
-    this.rankSettleOn = false;
+    this.cancelRoundWinTimer();
+    this.roundWinOn = false;
     this.playFlyPlayId = '';
     this.queuedPlayId = '';
     this.confirmBusy = false;
@@ -2322,6 +2328,35 @@ struct Table {
       clearTimeout(this.playFlyTimer);
       this.playFlyTimer = -1;
     }
+  }
+
+  private cancelRoundWinTimer(): void {
+    if (this.roundWinTimer >= 0) {
+      clearTimeout(this.roundWinTimer);
+      this.roundWinTimer = -1;
+    }
+  }
+
+  /** U03b: visible RoundWin tip (1.0s, not skippable) then RedealAll. */
+  private startRoundWin(): void {
+    this.cancelRoundWinTimer();
+    this.roundWinOn = true;
+    this.queuedPlayId = '';
+    this.closeChallengeEntry(false);
+    AppRuntime.engine.beginRoundWin();
+    Logger.info(TAG, `RoundWin tip ${PlayFlyFx.ROUND_WIN_MS}ms`);
+    this.roundWinTimer = setTimeout((): void => {
+      this.roundWinTimer = -1;
+      this.finishRoundWin();
+    }, PlayFlyFx.ROUND_WIN_MS);
+  }
+
+  private finishRoundWin(): void {
+    this.roundWinOn = false;
+    // Clear pool hand + fly UI before RedealAll deal show.
+    this.resetPlayFlyUi();
+    AppRuntime.engine.redealAll();
+    this.pull();
   }
 
   private cancelRevealTimer(): void {
@@ -2354,15 +2389,6 @@ struct Table {
       }
     }
     return false;
-  }
-
-  private placeOf(order: number[], seatId: number): number {
-    for (let i = 0; i < order.length; i++) {
-      if (order[i] === seatId) {
-        return i + 1;
-      }
-    }
-    return 1;
   }
 
   private copyIds(src: string[]): string[] {
@@ -2403,10 +2429,10 @@ struct Table {
 
   /**
    * Q03: PlayLanded ∧ hand>0 ∧ not first hand ∧ canChallenge ∧ human.
-   * Zero entry during PlayLaunch / confirmBusy / RankSettle / first hand.
+   * Zero entry during PlayLaunch / confirmBusy / RoundWin / first hand.
    */
   private shouldShowChallengeEntry(snap: MatchSnapshot): boolean {
-    if (this.playFlyOn || this.confirmBusy || this.rankSettleOn || this.challengeCommitBusy ||
+    if (this.playFlyOn || this.confirmBusy || this.roundWinOn || this.challengeCommitBusy ||
       this.revealOn) {
       return false;
     }

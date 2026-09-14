@@ -9,6 +9,10 @@ export class PlayFlyFx {
   static readonly FLY_MS: number = 320;
   static readonly FLY_MS_MIN: number = 280;
   static readonly FLY_MS_MAX: number = 400;
+  /** U03b RoundWin tip: 1.0s, window 0.8～1.2, not skippable. */
+  static readonly ROUND_WIN_MS: number = 1000;
+  static readonly ROUND_WIN_MS_MIN: number = 800;
+  static readonly ROUND_WIN_MS_MAX: number = 1200;
   static readonly EDGE_VP: number = 10;
   static readonly CARD_W: number = 56;
   static readonly CARD_H: number = 78;

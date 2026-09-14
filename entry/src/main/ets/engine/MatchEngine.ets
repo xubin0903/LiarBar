@@ -105,8 +105,10 @@ export class MatchEngine {
   private challengeHits: number[] = [];
   private tableMode: TableMode = TableMode.SOCIAL;
   private skipDepth: number = 0;
-  /** Aron L7 · first empty = 1st. UI RankSettle after PlayLanded. */
+  /** Round-win contributors this land (hand==0). Not whole-match place. */
   private emptyOrder: number[] = [];
+  /** U03b pending: RoundWin tip then RedealAll. UI beat, not Phase. */
+  private roundWinPending: boolean = false;
   /** Cards of the last committed play — rollbackLastPlay puts them back. */
   private lastPicked: CardModel[] = [];
 
@@ -130,6 +132,10 @@ export class MatchEngine {
   pulse(nowMs: number): boolean {
     this.nowMs = nowMs;
     if (this.cfg === null) {
+      return false;
+    }
+    // RoundWin tip window: no timeout / auto-play until RedealAll.
+    if (this.roundWinPending) {
       return false;
     }
     if (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF) {
@@ -200,6 +206,7 @@ export class MatchEngine {
     this.lastPlay = null;
     this.lastPlayRanks = [];
     this.emptyOrder = [];
+    this.roundWinPending = false;
     this.lastPicked = [];
     this.discard = [];
     this.challenge = null;
@@ -258,6 +265,7 @@ export class MatchEngine {
     this.currentClaim = null;
     this.lastPlay = null;
     this.emptyOrder = [];
+    this.roundWinPending = false;
     this.lastPicked = [];
     this.challenge = null;
     this.winnerSeatId = -1;
@@ -340,7 +348,7 @@ export class MatchEngine {
   /**
    * Authority reject after an optimistic submit (16 onPlayRollback).
    * Restores lastPicked to the actor, pops emptyOrder if this play emptied,
-   * returns the seat to TURN. No AwaitChallenge / RankSettle.
+   * clears roundWinPending. No AwaitChallenge / RoundWin / RankSettle.
    */
   rollbackLastPlay(): boolean {
     if (this.lastPlay === null || this.lastPicked.length === 0) {
@@ -356,6 +364,7 @@ export class MatchEngine {
       }
       this.emptyOrder = kept;
     }
+    this.roundWinPending = false;
     this.playIndexInRound = this.playIndexInRound - 1;
     if (this.playIndexInRound < 0) {
       this.playIndexInRound = 0;
@@ -370,6 +379,59 @@ export class MatchEngine {
     this.phase = Phase.TURN;
     this.enterTurn();
     Logger.info(TAG, `rollbackLastPlay actor=${actor} → TURN`);
+    return true;
+  }
+
+  /**
+   * U03b RoundWin gate (UI tip). Clears lastPlay as challenge target.
+   * Table shows RoundWin ~1000ms then calls redealAll().
+   */
+  beginRoundWin(): boolean {
+    if (!this.roundWinPending && this.emptyOrder.length === 0) {
+      return false;
+    }
+    this.roundWinPending = true;
+    this.lastPlay = null;
+    this.lastPlayRanks = [];
+    this.lastPicked = [];
+    this.turnEndsAtMs = 0;
+    let winSeats: string = '';
+    for (let i = 0; i < this.emptyOrder.length; i++) {
+      if (i > 0) {
+        winSeats = `${winSeats},`;
+      }
+      winSeats = `${winSeats}${this.emptyOrder[i]}`;
+    }
+    Logger.info(TAG, `beginRoundWin seats=${winSeats}`);
+    return true;
+  }
+
+  /**
+   * U03b RedealAll: all lives>0 (ALIVE) reseated; ghosts skip.
+   * Whole-match RankSettle only if exactly 1 alive.
+   */
+  redealAll(): boolean {
+    if (!this.roundWinPending && this.emptyOrder.length === 0) {
+      return false;
+    }
+    this.roundWinPending = false;
+    this.emptyOrder = [];
+    this.lastPlay = null;
+    this.lastPlayRanks = [];
+    this.lastPicked = [];
+    this.challenge = null;
+    this.revealOpen = false;
+    this.judged = false;
+    const live: number = aliveCount(this.seats);
+    if (live <= 1) {
+      this.toRecap();
+      Logger.info(TAG, 'redealAll → RankSettle (1 alive)');
+      return true;
+    }
+    this.dealerKey = 'lb_str_dlr_deal';
+    this.phase = Phase.DEAL;
+    this.dealFresh(false);
+    Logger.info(TAG, 'redealAll → DEAL (RoundWin path)');
     return true;
   }
 
@@ -931,8 +993,11 @@ export class MatchEngine {
     for (let i = 0; i < picked.length; i++) {
       this.lastPicked.push({ cardId: picked[i].cardId, rank: picked[i].rank });
     }
-    if (this.handOf(actor).length === 0) {
+    const emptied: boolean = this.handOf(actor).length === 0;
+    if (emptied) {
+      // Round-win contributor (may tie if multi-empty same land).
       this.emptyOrder.push(actor);
+      this.roundWinPending = true;
     }
     this.playIndexInRound = this.playIndexInRound + 1;
     this.stallSkipCount = 0;
@@ -953,6 +1018,16 @@ export class MatchEngine {
       this.dealerKey = 'lb_str_dlr_play';
     }
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
+    // U03b: hand==0 → hold for RoundWin tip; keep lastPlay until beginRoundWin.
+    // Ban AwaitChallenge via emptyOrder / roundWinPending. No RankSettle-on-empty.
+    if (emptied) {
+      this.currentSeatId = actor;
+      this.phase = Phase.TURN;
+      this.turnEndsAtMs = 0;
+      this.turnWindow = TurnWindow.NORMAL;
+      Logger.info(TAG, `commitPicked empty → RoundWinPending actor=${actor}`);
+      return;
+    }
     this.currentSeatId = nextAlive(this.seats, actor);
     this.phase = Phase.TURN;
     this.enterTurn();
@@ -1212,6 +1287,9 @@ export class MatchEngine {
   }
 
   private canChallengeNow(): boolean {
+    if (this.roundWinPending) {
+      return false;
+    }
     const seat = seatById(this.seats, this.currentSeatId);
     if (seat === null || seat.status !== SeatStatus.ALIVE) {
       return false;
@@ -1350,6 +1428,7 @@ export class MatchEngine {
       currentClaim: this.currentClaim,
       lastPlay: this.lastPlay,
       emptyOrder: this.copyIds(this.emptyOrder),
+      roundWinPending: this.roundWinPending,
       lastPenalizedSeatId: this.lastPenalizedSeatId,
       roundIndex: this.roundIndex,
       playIndexInRound: this.playIndexInRound,

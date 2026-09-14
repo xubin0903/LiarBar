@@ -163,14 +163,15 @@ if (table.includes('this.hearLastPlay(snap)') &&
   fail('hearLastPlay still on commit/pull');
 }
 
-if (table.includes('rankSettleOn') &&
-    table.includes('ControlIds.RANK_SETTLE') &&
+if (table.includes('roundWinOn') &&
+    table.includes('ControlIds.ROUND_WIN') &&
+    table.includes('startRoundWin') &&
     table.includes('emptyOrder') &&
     table.includes('challengeEnabled = false') &&
     !table.includes('LbRouter.toChallenge()')) {
-  pass('hand==0 RankSettle gate; old toChallenge frozen');
+  pass('hand==0 RoundWin gate; old toChallenge frozen');
 } else {
-  fail('RankSettle / challenge freeze');
+  fail('RoundWin / challenge freeze');
 }
 
 if (table.includes('maybeOtherPlayFly') &&
