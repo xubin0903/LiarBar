@@ -234,7 +234,7 @@
     },
     {
       "name": "lb_str_privacy_on",
-      "value": "防窥已开"
+      "value": "防瞥已开"
     },
     {
       "name": "lb_str_nick_ph",
@@ -258,7 +258,7 @@
     },
     {
       "name": "lb_str_silent_hint",
-      "value": "静默局：关催促、强震和嘲讽音。防窥和实况窗仍开。"
+      "value": "静默局：关催促、强震和嘲讽音。防瞥和实况窗仍开。"
     },
     {
       "name": "lb_str_lv_turn_you",
@@ -422,7 +422,67 @@
     },
     {
       "name": "lb_str_revolver_as_lives",
-      "value": "左轮膛位当命数主读"
+      "value": "左轮膖位当命数主读"
+    },
+    {
+      "name": "lb_str_penalty_no_redeal",
+      "value": "揭牌结算后未收牌重发"
+    },
+    {
+      "name": "lb_str_judge_reversed",
+      "value": "真假裁定反了"
+    },
+    {
+      "name": "lb_str_out_still_act",
+      "value": "出局仍发牌/仍出/仍质疑"
+    },
+    {
+      "name": "lb_str_trust_revealed",
+      "value": "相信路径仍进揭牌"
+    },
+    {
+      "name": "lb_str_old_lives_or_roundwin",
+      "value": "仍走旧左轮或RoundWin"
+    },
+    {
+      "name": "lb_str_first_hand_challenge",
+      "value": "第一手仍可质疑"
+    },
+    {
+      "name": "lb_str_deck_not_20",
+      "value": "牌堆不是20构成"
+    },
+    {
+      "name": "lb_str_empty_force_ge3",
+      "value": "≥3仍强制质疑"
+    },
+    {
+      "name": "lb_str_empty_skip_eq2",
+      "value": "=2仍可跳过"
+    },
+    {
+      "name": "lb_str_empty_still_roundwin",
+      "value": "打光仍走RoundWin"
+    },
+    {
+      "name": "lb_str_empty_shot_unasked",
+      "value": "未被质疑却被罚"
+    },
+    {
+      "name": "lb_str_empty_joker_misjudge",
+      "value": "Joker未除外"
+    },
+    {
+      "name": "lb_str_still_revolver_shoot",
+      "value": "仍走左轮开枪"
+    },
+    {
+      "name": "lb_str_loser_no_extinguish",
+      "value": "揭牌输家未熏烛"
+    },
+    {
+      "name": "lb_str_still_one_life_elim",
+      "value": "仍1命即死"
     }
   ]
 }
