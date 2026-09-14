@@ -1,9 +1,9 @@
 {
-  "schema_version": "0.3.0",
+  "schema_version": "0.4.0",
   "min_players": 3,
   "max_players": 6,
   "default_players": 4,
-  "lives_default": 1,
+  "lives_default": 3,
   "revolver_chambers": 6,
   "revolver_live": 1,
   "hand_size_default": 5,

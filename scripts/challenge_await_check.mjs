@@ -31,11 +31,11 @@ const layout = src('entry/src/main/ets/features/table/TableLayout.ets');
 const pile = src('entry/src/main/ets/features/table/components/PlayFrontPile.ets');
 const match = JSON.parse(src('entry/src/main/resources/rawfile/config/match_defaults.json'));
 
-// Revolver v1 (#164/#167): lives_default=1 is the alive token (not 3-life win).
-if (match.lives_default === 1 || match.lives_default === 3) {
-  pass(`C2 hard lock: lives_default=${match.lives_default} (1=revolver alive token / 3=legacy)`);
+// 对局-状态机 v2.0.0: lives_default=3 candle lives (废左轮 / 废 alive-token=1).
+if (match.lives_default === 3) {
+  pass('C2 hard lock: lives_default=3 (candle; abolish 1)');
 } else {
-  fail(`lives_default drifted to ${match.lives_default}`);
+  fail(`lives_default must be 3, got ${match.lives_default}`);
 }
 if (match.max_play_cards === 3) {
   pass('C2 hard lock: MAX_PLAY still 3');

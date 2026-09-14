@@ -34,7 +34,6 @@ import {
 } from './Phase';
 import { SeededRng } from './SeededRng';
 import { aliveCount, nextAlive, seatById } from './SeatUtil';
-import { RevolverGun } from './RevolverGun';
 import { allOtherAliveEmpty, classifyEmptyGate, EmptyGateKind } from './HandEmptyGate';
 
 const TAG = 'MatchEngine';
@@ -46,9 +45,9 @@ export interface StartMatchOpts {
 }
 
 /**
- * Revolver v1 state machine (左轮对局-状态机 v1.1.1 / GDD v0.3.0).
- * Win = one ALIVE remains. Any shot → CollectRedeal. HandEmpty ≥3/=2.
- * Abolish 3-life primary and RoundWin→RedealAll.
+ * 对局-状态机 v2.0.0 / GDD v0.4.0 — 废左轮 · lives_default=3.
+ * Reveal → PenaltyExtinguish1 (−1 candle) → CollectRedeal (不绑枪).
+ * Win = one ALIVE remains. HandEmpty ≥3/=2. No RevolverGun primary path.
  */
 export class MatchEngine {
   private snapshot: MatchSnapshot | null = null;
@@ -107,17 +106,20 @@ export class MatchEngine {
   private tableMode: TableMode = TableMode.SOCIAL;
   private skipDepth: number = 0;
   private emptyOrder: number[] = [];
-  /** Always false under revolver v1 (RoundWin abolished). */
+  /** Always false (RoundWin abolished). */
   private roundWinPending: boolean = false;
   private lastPicked: CardModel[] = [];
-  private gun: RevolverGun = new RevolverGun();
   private emptySafePending: boolean = false;
   private forceChallengeEmpty: boolean = false;
   private emptyHandSeatId: number = -1;
   private roundSafeWaitSeats: number[] = [];
-  private lastShotLive: boolean = false;
-  private lastShooterSeatId: number = -1;
-  private shotPending: boolean = false;
+  /** Last PenaltyExtinguish1 eliminated the seat (lives→0). */
+  private lastEliminated: boolean = false;
+  /** Seat that just took PenaltyExtinguish1 (−1 none). */
+  private lastExtinguishSeatId: number = -1;
+  /** Reveal loser awaiting PenaltyExtinguish1 in PENALTY window. */
+  private extinguishPending: boolean = false;
+  private lastLoserReason: LifeReason = LifeReason.NONE;
 
   current(): MatchSnapshot | null {
     if (this.snapshot === null && this.cfg === null) {
@@ -221,16 +223,14 @@ export class MatchEngine {
     this.skipDepth = 0;
     this.clearEmptyGate();
     this.roundSafeWaitSeats = [];
-    this.lastShotLive = false;
-    this.lastShooterSeatId = -1;
-    this.shotPending = false;
-    const chambers: number = cfg.revolver_chambers > 0 ? cfg.revolver_chambers : 6;
-    const live: number = cfg.revolver_live > 0 ? cfg.revolver_live : 1;
-    this.gun.reset(chambers, live, this.rng);
+    this.lastEliminated = false;
+    this.lastExtinguishSeatId = -1;
+    this.extinguishPending = false;
+    this.lastLoserReason = LifeReason.NONE;
     this.buildSeats(opts);
     this.phase = Phase.DEAL;
     this.dealFresh(false);
-    Logger.info(TAG, `T01 START_MATCH → DEAL matchId=${this.matchId} seed=${this.seed} n=${opts.playerCount} chambers=${chambers}`);
+    Logger.info(TAG, `T01 START_MATCH → DEAL matchId=${this.matchId} seed=${this.seed} n=${opts.playerCount} lives=${cfg.lives_default}`);
     return true;
   }
 
@@ -379,14 +379,14 @@ export class MatchEngine {
 
   /** Deprecated RoundWin API — always false (废 RoundWin). */
   beginRoundWin(): boolean {
-    Logger.info(TAG, 'beginRoundWin ignored (revolver: HandEmptyGate, not RoundWin)');
+    Logger.info(TAG, 'beginRoundWin ignored (HandEmptyGate, not RoundWin)');
     this.roundWinPending = false;
     return false;
   }
 
-  /** Deprecated RoundWin RedealAll — use collectRedeal after shot / safe-wait settle. */
+  /** Deprecated RoundWin RedealAll — use collectRedeal after PenaltyExtinguish1 / safe-wait. */
   redealAll(): boolean {
-    Logger.info(TAG, 'redealAll ignored (revolver: CollectRedeal only after shot/settle)');
+    Logger.info(TAG, 'redealAll ignored (CollectRedeal only after PenaltyExtinguish1/settle)');
     this.roundWinPending = false;
     return false;
   }
@@ -534,7 +534,11 @@ export class MatchEngine {
       this.applyJudged();
     }
     this.phase = Phase.PENALTY;
-    this.shotPending = true;
+    // PenaltyExtinguish1 at PENALTY enter so candle UI can play during window.
+    if (this.extinguishPending) {
+      this.applyPenaltyExtinguish1(this.lastLoserSeatId, this.lastLoserReason);
+      this.extinguishPending = false;
+    }
     if (this.cfg !== null) {
       this.penaltyEndsAtMs = this.nowMs + this.cfg.challenge_bet_seconds * 1000;
     }
@@ -570,7 +574,7 @@ export class MatchEngine {
     return true;
   }
 
-  /** Debug: force live eliminate via shoot (replaces 3-life dec). */
+  /** Debug: extinguish 1 candle (3-life). Ghost at 0. No revolver. */
   debugDecLife(seatId: number): boolean {
     if (this.cfg === null || this.seats.length === 0) {
       return false;
@@ -579,32 +583,25 @@ export class MatchEngine {
     if (seat === null || seat.status !== SeatStatus.ALIVE) {
       return false;
     }
-    this.lastShooterSeatId = seatId;
-    this.lastShotLive = true;
-    seat.lives = 0;
-    seat.lastDelta = -1;
-    seat.lastReason = LifeReason.SHOOT_LIVE;
-    seat.status = SeatStatus.GHOST;
-    this.hands[seatId] = [];
-    this.pushEvent(EventKind.SHOOT, seatId, 'LIVE|DEBUG');
-    this.pushEvent(EventKind.OUT, seatId, 'GHOST');
-    Logger.info(TAG, `debugDecLife → eliminate seat=${seatId}`);
-    return this.collectRedeal();
+    this.applyPenaltyExtinguish1(seatId, LifeReason.NONE);
+    Logger.info(TAG, `debugDecLife → lives=${seat.lives} seat=${seatId}`);
+    return true;
   }
 
-  /** Shoot window done → fire chamber → CollectRedeal (U09). */
+  /** PENALTY window done → CollectRedeal (U09). Extinguish already applied on enter. */
   penaltyDone(): boolean {
     if (this.phase !== Phase.PENALTY) {
       return false;
     }
-    if (this.shotPending) {
-      this.applyShoot(this.lastLoserSeatId);
-      this.shotPending = false;
+    // Safety: if somehow still pending, extinguish before redeal.
+    if (this.extinguishPending) {
+      this.applyPenaltyExtinguish1(this.lastLoserSeatId, this.lastLoserReason);
+      this.extinguishPending = false;
     }
     return this.collectRedeal();
   }
 
-  /** CollectRedeal: any shot or RoundSafeWait settle → redeal alive + new claim. */
+  /** CollectRedeal: after PenaltyExtinguish1 or RoundSafeWait settle → redeal (不绑枪). */
   collectRedeal(): boolean {
     this.clearEmptyGate();
     this.roundSafeWaitSeats = [];
@@ -618,7 +615,7 @@ export class MatchEngine {
     this.judged = false;
     this.playIndexInRound = 0;
     this.stallSkipCount = 0;
-    this.lastPenalizedSeatId = this.lastShooterSeatId >= 0 ? this.lastShooterSeatId : this.lastLoserSeatId;
+    this.lastPenalizedSeatId = this.lastExtinguishSeatId >= 0 ? this.lastExtinguishSeatId : this.lastLoserSeatId;
     this.pushEvent(EventKind.COLLECT_REDEAL, this.lastPenalizedSeatId, 'redeal');
     const live: number = aliveCount(this.seats);
     if (live <= 1) {
@@ -774,30 +771,32 @@ export class MatchEngine {
     }
   }
 
-  private applyShoot(seatId: number): void {
+  /** PenaltyExtinguish1: loser lives−1; 0 → ghost. No chamber / live-or-blank. */
+  private applyPenaltyExtinguish1(seatId: number, reason: LifeReason): void {
     const seat = seatById(this.seats, seatId);
     if (seat === null || seat.status !== SeatStatus.ALIVE) {
-      this.lastShooterSeatId = seatId;
-      this.lastShotLive = false;
+      this.lastExtinguishSeatId = seatId;
+      this.lastEliminated = false;
       return;
     }
-    const live: boolean = this.gun.fire();
-    this.lastShooterSeatId = seatId;
-    this.lastShotLive = live;
-    if (live) {
-      seat.lives = 0;
-      seat.lastDelta = -1;
-      seat.lastReason = LifeReason.SHOOT_LIVE;
+    let next: number = seat.lives - 1;
+    if (next < 0) {
+      next = 0;
+    }
+    seat.lives = next;
+    seat.lastDelta = -1;
+    seat.lastReason = reason;
+    this.lastExtinguishSeatId = seatId;
+    this.pushEvent(EventKind.LIFE_CHANGE, seatId, `EXTINGUISH1|lives=${next}`);
+    if (next <= 0) {
       seat.status = SeatStatus.GHOST;
       this.hands[seatId] = [];
-      this.pushEvent(EventKind.SHOOT, seatId, `LIVE|ch=${this.gun.cursor}`);
+      this.lastEliminated = true;
       this.pushEvent(EventKind.OUT, seatId, 'GHOST');
-      Logger.info(TAG, `applyShoot LIVE seat=${seatId}`);
+      Logger.info(TAG, `PenaltyExtinguish1 OUT seat=${seatId}`);
     } else {
-      seat.lastDelta = 0;
-      seat.lastReason = LifeReason.SHOOT_BLANK;
-      this.pushEvent(EventKind.SHOOT, seatId, `BLANK|ch=${this.gun.cursor}`);
-      Logger.info(TAG, `applyShoot BLANK seat=${seatId}`);
+      this.lastEliminated = false;
+      Logger.info(TAG, `PenaltyExtinguish1 seat=${seatId} lives=${next}`);
     }
   }
 
@@ -815,7 +814,7 @@ export class MatchEngine {
     if (nick.length === 0) {
       nick = '你';
     }
-    const aliveToken: number = this.cfg.lives_default > 0 ? this.cfg.lives_default : 1;
+    const startLives: number = this.cfg.lives_default > 0 ? this.cfg.lives_default : 3;
     for (let i = 0; i < opts.playerCount; i++) {
       let role: SeatRole = SeatRole.AI;
       let persona: string = '';
@@ -836,7 +835,7 @@ export class MatchEngine {
         status: SeatStatus.ALIVE,
         isHost: i === 0,
         faceScore: 0,
-        lives: aliveToken,
+        lives: startLives,
         lastDelta: 0,
         lastReason: LifeReason.NONE,
         handCount: 0,
@@ -1255,12 +1254,12 @@ export class MatchEngine {
     this.challenge.judgedAt = Date.now();
     this.revealOpen = true;
     this.judged = true;
-    // success = claim was FALSE → previous (actor) shoots; fail = TRUE → challenger shoots.
-    let shooter: number = this.challenge.challengerSeatId;
+    // success = claim FALSE → actor (liar) extinguish1; fail = TRUE → challenger extinguish1.
+    let loser: number = this.challenge.challengerSeatId;
     let reason: LifeReason = LifeReason.CHALLENGE_FAIL_ON_SELF;
     if (success) {
       this.challenge.result = ChallengeResult.SUCCESS;
-      shooter = this.lastPlay.actorSeatId;
+      loser = this.lastPlay.actorSeatId;
       reason = LifeReason.CHALLENGE_SUCCESS_ON_TARGET;
       this.challengeHits[this.challenge.challengerSeatId] =
         this.challengeHits[this.challenge.challengerSeatId] + 1;
@@ -1269,10 +1268,12 @@ export class MatchEngine {
       this.challenge.result = ChallengeResult.FAIL;
       this.dealerKey = 'lb_str_dlr_judge_fail';
     }
-    this.lastLoserSeatId = shooter;
-    // Shoot deferred to penaltyDone (PENALTY window = shoot feedback).
+    this.lastLoserSeatId = loser;
+    this.lastLoserReason = reason;
+    this.extinguishPending = true;
+    // PenaltyExtinguish1 applied on PENALTY enter (ritualDone).
     this.settleBets(success);
-    this.pushEvent(EventKind.JUDGE, shooter, `${this.challenge.result}|${fake}|shoot`);
+    this.pushEvent(EventKind.JUDGE, loser, `${this.challenge.result}|${fake}|extinguish1`);
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
     this.phase = Phase.JUDGE;
     this.phase = Phase.CHALLENGE_RITUAL;
@@ -1298,7 +1299,7 @@ export class MatchEngine {
   }
 
   private refreshPenaltyBanner(): void {
-    this.dealerKey = this.lastShotLive ? 'lb_str_dlr_penalty_out' : 'lb_str_dlr_penalty_life';
+    this.dealerKey = this.lastEliminated ? 'lb_str_dlr_penalty_out' : 'lb_str_dlr_penalty_life';
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
   }
 
@@ -1497,10 +1498,10 @@ export class MatchEngine {
       forceChallengeEmpty: this.forceChallengeEmpty,
       emptyHandSeatId: this.emptyHandSeatId,
       roundSafeWaitSeats: this.copyIds(this.roundSafeWaitSeats),
-      chamberIndex: this.gun.cursor,
-      liveChamberIndex: this.gun.primaryLiveIndex(),
-      lastShotLive: this.lastShotLive,
-      lastShooterSeatId: this.lastShooterSeatId,
+      chamberIndex: -1,
+      liveChamberIndex: -1,
+      lastShotLive: this.lastEliminated,
+      lastShooterSeatId: this.lastExtinguishSeatId,
       lastPenalizedSeatId: this.lastPenalizedSeatId,
       roundIndex: this.roundIndex,
       playIndexInRound: this.playIndexInRound,
