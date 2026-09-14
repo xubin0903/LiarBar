@@ -231,11 +231,14 @@ if (doubtBody.includes('this.commitChallenge()') && !doubtBody.includes('closeCh
 
 const commitFn = table.split('private commitChallenge')[1] || '';
 const commitBody = commitFn.split('private rejectChallengeRestore')[0];
+// F2: closeChallengeEntryChrome() preferred — closeChallengeEntry(false) wiped dealer/NPC broadcast.
+const closedEntry = commitBody.includes('closeChallengeEntryChrome()') ||
+  commitBody.includes('closeChallengeEntry(false)');
 if (commitBody.includes('playChallengeCommit') &&
     commitBody.includes('intentChallenge') &&
     commitBody.includes('rejectChallengeRestore') &&
     commitBody.includes('beginRevealAfterAck') &&
-    commitBody.includes('closeChallengeEntry(false)') &&
+    closedEntry &&
     !commitBody.includes('closeChallengeEntry(true)') &&
     !commitBody.includes('LbRouter.toChallenge') &&
     !commitBody.includes('revealOpen')) {

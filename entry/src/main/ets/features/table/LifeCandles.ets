@@ -57,6 +57,7 @@ export struct LifeCandles {
     .id(this.groupId)
     .opacity(this.lives <= 0 ? 0.42 : 1)
     .hitTestBehavior(HitTestMode.None)
+    .clip(false)
     .constraintSize({ maxWidth: '100%' })
     .accessibilityText(this.lifeA11y())
   }
@@ -87,6 +88,7 @@ export struct LifeCandles {
     .id(this.pipId(index))
     .width(this.pipVp())
     .height(this.pipVp())
+    .clip(false)
   }
 
   @Builder
