@@ -16,6 +16,7 @@ export class LbRouter {
     LbRouter.push(PageUrls.REPORT);
   }
 
+  /** F3: table → lobby. replaceUrl; fall back to back() inside replace(). */
   static toLobby(): void {
     LbRouter.replace(PageUrls.LOBBY);
   }

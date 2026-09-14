@@ -216,6 +216,13 @@ def main() -> None:
     if "toRecap" in dec or "intentChallenge" in dec:
         raise SystemExit("debugDecLife must not jump to recap or unfreeze challenge")
 
+    # F1 Rebuild: seat candles must bind this.life1/2/3 (not @Builder life param).
+    if "life: number, id: string" in table or "lives: life," in table:
+        raise SystemExit("F1: seatBlock still passes builder life param to LifeCandles")
+    if "TableCompass.RIGHT ? this.life1" not in table:
+        raise SystemExit("F1: seat LifeCandles must bind this.life1/2/3 directly")
+    if "// F1: still sync seat.lives" not in table:
+        raise SystemExit("F1: ritual/judge pull must still fillSeats")
     print("R-LIFE-1..6 static gates + flip SoundPlayer + locks OK")
 
 
