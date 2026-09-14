@@ -81,6 +81,10 @@
       "value": "第一手还没人出过牌"
     },
     {
+      "name": "_comment_lb_str_challenge_disabled_first",
+      "value": "Value=第一手还没人出过牌. MUST NOT be in-table tip primary (old tip-deleted lock). Button/disabled affordance only."
+    },
+    {
       "name": "lb_str_challenge_reject",
       "value": "质疑未生效"
     },
@@ -362,30 +366,46 @@
     },
     {
       "name": "lb_str_npc_challenge_true",
-      "value": "选了质疑"
+      "value": "选了真"
     },
     {
       "name": "lb_str_npc_challenge_false",
-      "value": "选了相信"
+      "value": "选了假"
+    },
+    {
+      "name": "_comment_npc_challenge_true_false",
+      "value": "DEPRECATED for entry NPC feedback. Entry NPC uses lb_str_npc_challenge_doubt / lb_str_npc_challenge_believe. Keep true/false present."
+    },
+    {
+      "name": "lb_str_challenge_true",
+      "value": "真"
+    },
+    {
+      "name": "lb_str_challenge_false",
+      "value": "假"
+    },
+    {
+      "name": "_comment_lb_str_challenge_true_false",
+      "value": "DEPRECATED for entry button labels (PM 2026-09-14 lock). Keep present for reveal-layer / placeholder. Entry MUST use lb_str_challenge_doubt / lb_str_challenge_believe. Do NOT delete."
     },
     {
       "name": "_comment_challenge_entry_abolished",
-      "value": "PM 2026-09-14: 入口废真/假主读；按钮=质疑|相信（lb_str_challenge_commit/trust）。真/假仅揭牌裁定结果，不作入口按钮。旧 lb_str_challenge_true/false 不得当入口标签。"
+      "value": "PM 2026-09-14 reject lock: entry = 质疑|相信. Locked copy: lb_str_challenge_doubt=质疑 · lb_str_challenge_believe=相信. Buttons: lb_btn_challenge_doubt / lb_btn_challenge_believe. Art: art_btn_challenge_doubt/_on · art_btn_challenge_believe/_on. SFX: lb_sfx_challenge_enter / lb_sfx_challenge_commit (commit SFX only on 质疑). ABOLISH entry use of true/false/pass. ABOLISH design draft copy keys lb_str_challenge_commit / lb_str_challenge_trust (clash with SFX commit). true/false strings kept deprecated for reveal only. lb_str_challenge_disabled_first=第一手还没人出过牌 MUST NOT be in-table tip primary."
     },
     {
-      "name": "lb_str_challenge_commit",
+      "name": "lb_str_challenge_doubt",
       "value": "质疑"
     },
     {
-      "name": "lb_str_challenge_trust",
+      "name": "lb_str_challenge_believe",
       "value": "相信"
     },
     {
-      "name": "lb_str_npc_challenge_commit",
+      "name": "lb_str_npc_challenge_doubt",
       "value": "选了质疑"
     },
     {
-      "name": "lb_str_npc_challenge_trust",
+      "name": "lb_str_npc_challenge_believe",
       "value": "选了相信"
     },
     {
@@ -393,11 +413,11 @@
       "value": "入口仍真假主读"
     },
     {
-      "name": "lb_str_trust_still_blocked",
+      "name": "lb_str_believe_still_blocked",
       "value": "相信后仍不可出"
     },
     {
-      "name": "lb_str_challenge_no_reveal",
+      "name": "lb_str_doubt_no_reveal",
       "value": "质疑未揭牌"
     }
   ]
