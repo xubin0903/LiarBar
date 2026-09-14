@@ -15,6 +15,7 @@ import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
 import { ChallengeEntry } from '../features/table/components/ChallengeEntry';
 import { PlayFly } from '../features/table/components/PlayFly';
 import { PlayFrontPile } from '../features/table/components/PlayFrontPile';
+import { RevealStage } from '../features/table/components/RevealStage';
 import { ChallengeFx } from '../features/table/ChallengeFx';
 import { PlayFlyFx } from '../features/table/PlayFlyFx';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
@@ -131,6 +132,12 @@ struct Table {
   @State hiddenCardIds: string[] = [];
   @State rankSettleOn: boolean = false;
   @State rankSettlePlace: number = 0;
+  /** 18 · reveal stage after challenge ACK. */
+  @State revealOn: boolean = false;
+  @State revealFaceUp: boolean = false;
+  @State revealRanks: string[] = [];
+  @State revealX: number = 0;
+  @State revealY: number = 0;
   @State hintKind: number = 0;
   @State failIdx: number = -1;
   @State failGen: number = 0;
@@ -194,6 +201,7 @@ struct Table {
   private heardPlayId: string = '';
   private playFlyPlayId: string = '';
   private playFlyTimer: number = -1;
+  private revealTimer: number = -1;
   private challengeTickId: number = -1;
   private challengeDeadlineMs: number = 0;
   private challengeEnterPlayId: string = '';
@@ -265,6 +273,7 @@ struct Table {
     }
     this.cancelDealTimers();
     this.cancelPlayFlyTimer();
+    this.cancelRevealTimer();
     this.cancelChallengeTimer();
     AppRuntime.director.playBusy = false;
     if (this.hintTimer >= 0) {
@@ -339,9 +348,12 @@ struct Table {
           this.captureFlushPin(area);
         })
 
-        // 16 play fly + front piles. Above heart, below confirm bar.
+        // 16 play fly + pool hand. Above heart, below confirm bar.
         // Separate from DealFx.flyOn. Do not raise padB / GAP.
         this.playFlyLayer()
+
+        // 18 reveal dim (bg only) + stage. Same overlay band as play fly.
+        this.revealLayer()
 
         // 15 confirm bar: sibling overlay, BottomEnd, tappable only.
         // Must NOT live in handPin (that would grow the hug and lift cards).
@@ -603,10 +615,7 @@ struct Table {
       .onAreaChange((_old: Area, area: Area) => {
         this.capturePile(area);
       })
-      Text(this.poolText)
-        .fontColor($r('app.color.tavern_paper'))
-        .fontSize($r('app.float.caption_text_size'))
-        .maxLines(1)
+      // F16-2: ban count digits next to pool (edge-fan reads 1/2/3).
     }
     .width('100%')
     .height('100%')
@@ -1400,10 +1409,8 @@ struct Table {
     if (this.calledSeat !== called) {
       this.calledSeat = called;
     }
-    let nextPool: string = '';
-    if (snap.lastPlay !== null) {
-      nextPool = `${snap.lastPlay.count}`;
-    }
+    // F16-2: never bind count digits to poolText.
+    const nextPool: string = '';
     if (this.poolText !== nextPool) {
       this.poolText = nextPool;
     }
@@ -1986,49 +1993,52 @@ struct Table {
   @Builder
   playFlyLayer() {
     Stack() {
-    PlayFrontPile({
-      visible: this.pileN0 > 0,
-      count: this.pileN0,
-      seatId: TableCompass.BOTTOM,
-      x: this.pileX0,
-      y: this.pileY0,
-      instanceId: ControlIds.PLAY_FRONT_PILE
-    })
-    PlayFrontPile({
-      visible: this.pileN1 > 0,
-      count: this.pileN1,
-      seatId: TableCompass.RIGHT,
-      x: this.pileX1,
-      y: this.pileY1,
-      instanceId: `${ControlIds.PLAY_FRONT_PILE}_p1`
-    })
-    PlayFrontPile({
-      visible: this.pileN2 > 0,
-      count: this.pileN2,
-      seatId: TableCompass.TOP,
-      x: this.pileX2,
-      y: this.pileY2,
-      instanceId: `${ControlIds.PLAY_FRONT_PILE}_p2`
-    })
-    PlayFrontPile({
-      visible: this.pileN3 > 0,
-      count: this.pileN3,
-      seatId: TableCompass.LEFT,
-      x: this.pileX3,
-      y: this.pileY3,
-      instanceId: `${ControlIds.PLAY_FRONT_PILE}_p3`
-    })
-    PlayFly({
-      visible: this.playFlyOn,
-      count: this.playFlyCount,
-      x: this.playFlyX,
-      y: this.playFlyY,
-      flyScale: this.playFlyScale
-    })
+      // 16 v0.2.0: one pool-bound back-fan. Seat front_pile abolished as main read.
+      PlayFrontPile({
+        visible: this.pileN0 > 0,
+        count: this.pileN0,
+        seatId: TableCompass.BOTTOM,
+        x: this.pileX0,
+        y: this.pileY0,
+        instanceId: ControlIds.PLAY_POOL_HAND
+      })
+      PlayFly({
+        visible: this.playFlyOn,
+        count: this.playFlyCount,
+        x: this.playFlyX,
+        y: this.playFlyY,
+        flyScale: this.playFlyScale
+      })
     }
     .width('100%')
     .height('100%')
     .hitTestBehavior(this.playFlyOn ? HitTestMode.Default : HitTestMode.Transparent)
+  }
+
+  @Builder
+  revealLayer() {
+    Stack() {
+      if (this.revealOn) {
+        // Dim + blur BACKGROUND only — not applied to RevealStage cards.
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor('rgba(0, 0, 0, 0.40)')
+          .blur(PlayFlyFx.REVEAL_BLUR_VP)
+          .hitTestBehavior(HitTestMode.None)
+        RevealStage({
+          visible: this.revealOn,
+          ranks: this.revealRanks,
+          faceUp: this.revealFaceUp,
+          x: this.revealX,
+          y: this.revealY,
+          revealScale: PlayFlyFx.REVEAL_SCALE
+        })
+      }
+    }
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.Transparent)
   }
 
   @Builder
@@ -2056,6 +2066,8 @@ struct Table {
 
   private kickPlayFly(seatId: number, count: number): void {
     this.cancelPlayFlyTimer();
+    // Pool = this-round this-hand only; clear prior fan before new launch.
+    this.pileN0 = 0;
     const start: number[] = this.playOriginOf(seatId);
     const dest: number[] = this.playDestOf(seatId, count);
     this.playFlySeat = seatId;
@@ -2184,60 +2196,34 @@ struct Table {
     return [this.seatXs[seatId], this.seatYs[seatId]];
   }
 
-  private playDestOf(seatId: number, count: number): number[] {
+  /**
+   * 16 v0.2.0: land at lb_cmp_pool center. Ignore seat front destinations.
+   * Uses pile measured coords like capturePile / flyFromPile.
+   */
+  private playDestOf(_seatId: number, count: number): number[] {
     const w: number = PlayFlyFx.pileWidth(count);
     const h: number = PlayFlyFx.pileHeight();
-    if (seatId === TableCompass.BOTTOM) {
-      const cx: number = TableBreakpoints.handBandCenterX(this.padL, this.padR, this.stackW);
-      let x: number = cx - w / 2;
-      if (this.stackW <= 0) {
-        x = this.handX + this.handW / 2 - w / 2;
-      }
-      let y: number = this.handY - h - PlayFlyFx.SELF_GAP_VP;
-      if (y < this.padT + 8) {
-        y = this.padT + 8;
-      }
-      return [x, y];
+    let cx: number = this.pileX + this.pileW / 2;
+    let cy: number = this.pileY + this.pileH / 2;
+    if (this.pileMeasured) {
+      cx = this.pileGX - this.stackGX + this.pileW / 2;
+      cy = this.pileGY - this.stackGY + this.pileH / 2;
     }
-    const sx: number = this.seatXs[seatId];
-    const sy: number = this.seatYs[seatId];
-    const sw: number = this.seatWs[seatId];
-    const sh: number = this.seatHs[seatId];
-    if (seatId === TableCompass.RIGHT) {
-      return [sx - w - PlayFlyFx.INSET_VP, sy + sh / 2 - h / 2];
-    }
-    if (seatId === TableCompass.TOP) {
-      return [sx + sw / 2 - w / 2, sy + sh + PlayFlyFx.INSET_VP];
-    }
-    return [sx + sw + PlayFlyFx.INSET_VP, sy + sh / 2 - h / 2];
+    return [cx - w / 2, cy - h / 2];
   }
 
-  private setPile(seatId: number, count: number, x: number, y: number): void {
-    if (seatId === TableCompass.RIGHT) {
-      this.pileN1 = count;
-      this.pileX1 = x;
-      this.pileY1 = y;
-      return;
-    }
-    if (seatId === TableCompass.TOP) {
-      this.pileN2 = count;
-      this.pileX2 = x;
-      this.pileY2 = y;
-      return;
-    }
-    if (seatId === TableCompass.LEFT) {
-      this.pileN3 = count;
-      this.pileX3 = x;
-      this.pileY3 = y;
-      return;
-    }
+  /** 16 v0.2.0: single pool hand at pileN0; zero seat piles. */
+  private setPile(_seatId: number, count: number, x: number, y: number): void {
     this.pileN0 = count;
     this.pileX0 = x;
     this.pileY0 = y;
+    this.pileN1 = 0;
+    this.pileN2 = 0;
+    this.pileN3 = 0;
   }
 
-  private clearPile(seatId: number): void {
-    this.setPile(seatId, 0, 0, 0);
+  private clearPile(_seatId: number): void {
+    this.clearAllPiles();
   }
 
   private clearAllPiles(): void {
@@ -2245,10 +2231,13 @@ struct Table {
     this.pileN1 = 0;
     this.pileN2 = 0;
     this.pileN3 = 0;
+    this.pileX0 = 0;
+    this.pileY0 = 0;
   }
 
   private resetPlayFlyUi(): void {
     this.cancelPlayFlyTimer();
+    this.cancelRevealTimer();
     this.playFlyOn = false;
     this.clearAllPiles();
     this.hiddenCardIds = [];
@@ -2257,6 +2246,7 @@ struct Table {
     this.queuedPlayId = '';
     this.confirmBusy = false;
     AppRuntime.director.playBusy = false;
+    this.resetRevealUi();
     this.closeChallengeEntry(false);
   }
 
@@ -2265,6 +2255,22 @@ struct Table {
       clearTimeout(this.playFlyTimer);
       this.playFlyTimer = -1;
     }
+  }
+
+  private cancelRevealTimer(): void {
+    if (this.revealTimer >= 0) {
+      clearTimeout(this.revealTimer);
+      this.revealTimer = -1;
+    }
+  }
+
+  private resetRevealUi(): void {
+    this.cancelRevealTimer();
+    this.revealOn = false;
+    this.revealFaceUp = false;
+    this.revealRanks = [];
+    this.revealX = 0;
+    this.revealY = 0;
   }
 
   private cardHiddenAt(idx: number): boolean {
@@ -2333,7 +2339,8 @@ struct Table {
    * Zero entry during PlayLaunch / confirmBusy / RankSettle / first hand.
    */
   private shouldShowChallengeEntry(snap: MatchSnapshot): boolean {
-    if (this.playFlyOn || this.confirmBusy || this.rankSettleOn || this.challengeCommitBusy) {
+    if (this.playFlyOn || this.confirmBusy || this.rankSettleOn || this.challengeCommitBusy ||
+      this.revealOn) {
       return false;
     }
     if (snap.phase !== Phase.TURN) {
@@ -2471,8 +2478,8 @@ struct Table {
 
   /**
    * Q04: 真 / 假 both ChallengeCommit + lb_sfx_challenge_commit.
-   * Wait authority ACK before pile reveal (C2-7 / #141).
-   * Guess right/wrong + life deduct = Section 3. This PR stubs RevealAfterAck.
+   * Wait authority ACK before reveal (C2-7 / #141).
+   * ACK → beginRevealAfterAck (18). Full life/judge = Section 3 minimal stub.
    */
   private commitChallenge(guessTrue: boolean): void {
     if (!this.challengeEntryOn || this.challengeCommitBusy) {
@@ -2503,10 +2510,79 @@ struct Table {
       this.rejectChallengeRestore();
       return;
     }
-    // ACK accepted. Pile stays backs. Section 3 owns flip / judge / lives.
-    Logger.info(TAG, `RevealAfterAck stub guess=${guess} target=${target}`);
+    // ACK accepted. Open 18 reveal stage (not old lb_scr_challenge).
+    this.challengeResolvedPlayId = target;
     this.closeChallengeEntry(false);
-    this.pull();
+    const after: MatchSnapshot | null = AppRuntime.engine.current();
+    if (after !== null) {
+      this.beginRevealAfterAck(after);
+    } else {
+      this.pull();
+    }
+  }
+
+  /**
+   * 18: after challenge ACK — lift pool hand to reveal stage, draw→flip SFX.
+   * Stage center = pool center + (0, REVEAL_DOWN_VP). Dim/blur on bg only.
+   * Life/judge stub: hold after flip then pull(). Do not open Challenge page.
+   */
+  private beginRevealAfterAck(snap: MatchSnapshot): void {
+    this.cancelRevealTimer();
+    // Cards lift off pool → clear pool hand fan.
+    this.pileN0 = 0;
+    const ranks: string[] = this.ranksForReveal(snap);
+    const n: number = ranks.length > 0 ? ranks.length : 1;
+    const w: number = PlayFlyFx.pileWidth(n);
+    const h: number = PlayFlyFx.pileHeight();
+    let cx: number = this.pileX + this.pileW / 2;
+    let cy: number = this.pileY + this.pileH / 2;
+    if (this.pileMeasured) {
+      cx = this.pileGX - this.stackGX + this.pileW / 2;
+      cy = this.pileGY - this.stackGY + this.pileH / 2;
+    }
+    cy = cy + PlayFlyFx.REVEAL_DOWN_VP;
+    this.revealX = cx - w / 2;
+    this.revealY = cy - h / 2;
+    this.revealRanks = ranks;
+    this.revealFaceUp = false;
+    this.revealOn = true;
+    TableAudio.playRevealDraw();
+    Logger.info(TAG, `${SfxIds.REVEAL_DRAW} beginRevealAfterAck n=${ranks.length}`);
+    this.revealTimer = setTimeout((): void => {
+      this.revealTimer = -1;
+      this.revealFaceUp = true;
+      TableAudio.playRevealFlip();
+      Logger.info(TAG, `${SfxIds.REVEAL_FLIP} faceUp`);
+      this.revealTimer = setTimeout((): void => {
+        this.revealTimer = -1;
+        // Minimal Section 3: hold then pull. Full judge/life later.
+        this.resetRevealUi();
+        this.pull();
+      }, PlayFlyFx.REVEAL_HOLD_MS);
+    }, PlayFlyFx.DRAW_TO_FLIP_MS);
+  }
+
+  /** Prefer snap.lastPlayRanks; if engine still gates them, size from lastPlay. */
+  private ranksForReveal(snap: MatchSnapshot): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < snap.lastPlayRanks.length; i++) {
+      out.push(snap.lastPlayRanks[i]);
+    }
+    if (out.length > 0) {
+      return out;
+    }
+    if (snap.lastPlay === null) {
+      return out;
+    }
+    let claim: string = 'A';
+    if (snap.currentClaim !== null) {
+      claim = snap.currentClaim.rank;
+    }
+    const n: number = PlayFlyFx.clampCount(snap.lastPlay.count);
+    for (let i = 0; i < n; i++) {
+      out.push(claim);
+    }
+    return out;
   }
 
   private rejectChallengeRestore(): void {

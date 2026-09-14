@@ -1,8 +1,9 @@
 import { TableCompass } from './TableLayout';
 
 /**
- * 16 §2 play-fly numbers (v0.1.3). Separate from DealFx — never reuse flyOn/pull().
+ * 16 §2 play-fly numbers (v0.2.0 land→pool). Separate from DealFx — never reuse flyOn/pull().
  * PlayLaunch / PlayLanded are UI beats, not a new engine phase.
+ * Land dest is pool center (16 v0.2.0). Reveal constants from 18 v0.1.0.
  */
 export class PlayFlyFx {
   static readonly FLY_MS: number = 320;
@@ -17,6 +18,15 @@ export class PlayFlyFx {
   /** Sit in the ring–hand gap above lb_cmp_hand. Not a padB lift. */
   static readonly SELF_GAP_VP: number = 8;
   static readonly INSET_VP: number = 8;
+  /** 16 v0.2.0: PlayLanded dest = pool center (lb_cmp_pool), not seat front. */
+  /** 18 · reveal stage center = pool center + (0, DOWN). */
+  static readonly REVEAL_DOWN_VP: number = 56;
+  static readonly REVEAL_SCALE: number = 0.90;
+  static readonly REVEAL_DIM: number = 0.40;
+  static readonly REVEAL_BLUR_VP: number = 6;
+  static readonly DRAW_TO_FLIP_MS: number = 160;
+  /** Brief hold after flip before pull / minimal judge stub. */
+  static readonly REVEAL_HOLD_MS: number = 600;
 
   static clampCount(n: number): number {
     if (n < 1) {

@@ -67,10 +67,10 @@ if (flyFx.includes('FLY_MS: number = 320') &&
 if (existsSync(join(root, 'entry/src/main/ets/features/table/components/PlayFly.ets')) &&
     existsSync(join(root, 'entry/src/main/ets/features/table/components/PlayFrontPile.ets')) &&
     playFly.includes("PLAY_FLY") &&
-    pile.includes("PLAY_FRONT_PILE") &&
     pile.includes('HitTestMode.None') &&
-    !pile.includes('Text(')) {
-  pass('lb_cmp_play_fly / lb_cmp_play_front_pile exist; pile HitTest None, no count Text');
+    !pile.includes('Text(') &&
+    (table.includes('PLAY_POOL_HAND') || table.includes('PLAY_FRONT_PILE'))) {
+  pass('lb_cmp_play_fly + pool/front pile component; HitTest None, no count Text');
 } else {
   fail('play fly / front pile components');
 }
@@ -89,8 +89,10 @@ if (playFly.includes('@Prop flyScale') &&
 if (ids.includes("PLAY_FLY: string = 'lb_cmp_play_fly'") &&
     ids.includes("PLAY_FRONT_PILE: string = 'lb_cmp_play_front_pile'") &&
     ids.includes("PLAY_LAUNCH: string = 'lb_sfx_play_launch'") &&
-    ids.includes("PLAY_LAND: string = 'lb_sfx_play_land'")) {
-  pass('Ids: fly / pile / launch / land');
+    ids.includes("PLAY_LAND: string = 'lb_sfx_play_land'") &&
+    (ids.includes("PLAY_POOL_HAND: string = 'lb_cmp_pool_hand'") ||
+     table.includes('PLAY_POOL_HAND'))) {
+  pass('Ids: fly / pile / pool_hand / launch / land');
 } else {
   fail('Ids missing play-fly slots');
 }
@@ -212,6 +214,27 @@ if (table.includes('PlayFlyFx.FLY_MS') && table.includes('Curve.EaseOut')) {
   pass('fly window 320ms ease-out');
 } else {
   fail('fly duration / curve');
+}
+
+
+// 16 v0.2.0: land dest is pool center (not seat front as sole path)
+const destFn = table.split('private playDestOf')[1] || '';
+const destBody = destFn.split('private setPile')[0] || destFn.slice(0, 1200);
+if (destBody.includes('pileGX') || destBody.includes('pileX')) {
+  if (!destBody.includes('handBandCenterX') && !destBody.includes('seatXs[')) {
+    pass('playDestOf uses pool coords (16 v0.2.0)');
+  } else {
+    fail('playDestOf still seat-front primary');
+  }
+} else {
+  fail('playDestOf missing pool land');
+}
+
+if (!table.includes('Text(this.poolText)') ||
+    table.includes("const nextPool: string = ''")) {
+  pass('poolText digits banned or never set to count');
+} else {
+  fail('poolText digit Text still bound to count');
 }
 
 console.log(process.exitCode ? 'play-fly check FAILED' : 'play-fly check OK');
