@@ -97,8 +97,19 @@ export class ControlIds {
   static readonly ROUND_WIN: string = 'lb_cmp_round_win';
   static readonly CHALLENGE_AWAIT: string = 'lb_cmp_challenge_await';
   static readonly CHALLENGE_ENTRY: string = 'lb_cmp_challenge_entry';
+  /**
+   * 17 v0.3.0 · AwaitChallenge entry = 质疑|相信.
+   * Locked: lb_btn_challenge_doubt / lb_btn_challenge_believe.
+   * Art: art_btn_challenge_doubt / art_btn_challenge_believe (+ _on).
+   * ABOLISH entry use of TRUE/FALSE/PASS (kept below for reveal/judgment only).
+   */
+  static readonly CHALLENGE_DOUBT: string = 'lb_btn_challenge_doubt';
+  static readonly CHALLENGE_BELIEVE: string = 'lb_btn_challenge_believe';
+  /** @deprecated entry — reveal/judgment only. Do NOT bind on ChallengeEntry. */
   static readonly CHALLENGE_TRUE: string = 'lb_btn_challenge_true';
+  /** @deprecated entry — reveal/judgment only. Do NOT bind on ChallengeEntry. */
   static readonly CHALLENGE_FALSE: string = 'lb_btn_challenge_false';
+  /** @deprecated entry — abolished third key. Trust = CHALLENGE_BELIEVE. */
   static readonly CHALLENGE_PASS: string = 'lb_btn_challenge_pass';
   static readonly CHALLENGE_TIMER: string = 'lb_cmp_challenge_timer';
   static readonly CHALLENGE_RING: string = 'lb_cmp_challenge_ring';

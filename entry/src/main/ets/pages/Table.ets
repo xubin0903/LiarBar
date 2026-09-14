@@ -390,14 +390,11 @@ struct Table {
           ChallengeEntry({
             visible: this.challengeEntryOn && !this.challengeCommitBusy,
             remainSec: this.challengeRemainSec,
-            onTrue: () => {
-              this.onChallengeTrue();
+            onDoubt: () => {
+              this.onChallengeDoubt();
             },
-            onFalse: () => {
-              this.onChallengeFalse();
-            },
-            onPass: () => {
-              this.onChallengePass(false);
+            onBelieve: () => {
+              this.onChallengeBelieve(false);
             }
           })
             .margin({ bottom: this.challengeFrontLiftVp() })
@@ -2514,7 +2511,7 @@ struct Table {
 
   /**
    * 20 / #166: mount EmptySafeEntry when ≥3 emptySafePending ∧ human chooser.
-   * Mutually exclusive with ChallengeEntry 真/假. =2 must NOT show this.
+   * Mutually exclusive with ChallengeEntry 质疑|相信. =2 must NOT show this.
    */
   private syncEmptySafeEntry(snap: MatchSnapshot): void {
     const want: boolean = this.isEmptySafePending(snap) &&
@@ -2659,7 +2656,7 @@ struct Table {
     this.confirmBarOn = false;
     // #158: lb_str_challenge_dealer_enter from string.json.
     this.challengeDealerEnter = this.readChallengeDealerEnter();
-    // Hang stub: NPC bubble thinking key while AwaitChallenge (true/false on commit).
+    // Hang stub: NPC bubble thinking key while AwaitChallenge (doubt/believe on resolve).
     this.npcChallengeBubble = this.readNpcChallengeThinking();
     if (this.playEnabled) {
       this.playEnabled = false;
@@ -2685,14 +2682,24 @@ struct Table {
     return this.readLbString('lb_str_npc_challenge_thinking');
   }
 
-  /** Bind lb_str_npc_challenge_true from string.json (#158 / 11b). */
+  /** Bind lb_str_npc_challenge_true from string.json (#158 / 11b). Reveal/judgment only. */
   private readNpcChallengeTrue(): string {
     return this.readLbString('lb_str_npc_challenge_true');
   }
 
-  /** Bind lb_str_npc_challenge_false from string.json (#158 / 11b). */
+  /** Bind lb_str_npc_challenge_false from string.json (#158 / 11b). Reveal/judgment only. */
   private readNpcChallengeFalse(): string {
     return this.readLbString('lb_str_npc_challenge_false');
+  }
+
+  /** Bind lb_str_npc_challenge_doubt from string.json (17 v0.3.0 entry). */
+  private readNpcChallengeDoubt(): string {
+    return this.readLbString('lb_str_npc_challenge_doubt');
+  }
+
+  /** Bind lb_str_npc_challenge_believe from string.json (17 v0.3.0 entry). */
+  private readNpcChallengeBelieve(): string {
+    return this.readLbString('lb_str_npc_challenge_believe');
   }
 
   /** Load app.string.* by name into @State string (Resource cannot assign to string State). */
@@ -2754,7 +2761,7 @@ struct Table {
         this.challengeRemainSec = sec;
       }
       if (left <= 0) {
-        this.onChallengePass(true);
+        this.onChallengeBelieve(true);
       }
     }, ChallengeFx.TICK_MS);
   }
@@ -2766,22 +2773,18 @@ struct Table {
     }
   }
 
-  /** 真 = ChallengeCommit. Same ACK path as 假. Not a disguised Pass. */
-  private onChallengeTrue(): void {
-    this.commitChallenge(true);
-  }
-
-  /** 假 = ChallengeCommit. Same ACK path as 真. */
-  private onChallengeFalse(): void {
-    this.commitChallenge(false);
+  /** 质疑 = ChallengeCommit → intentChallenge ACK → reveal. Not Trust/Pass. */
+  private onChallengeDoubt(): void {
+    this.commitChallenge();
   }
 
   /**
-   * Q04: 真 / 假 both ChallengeCommit + lb_sfx_challenge_commit.
+   * Q04 / 17 v0.3.0: 质疑 = ChallengeCommit + lb_sfx_challenge_commit.
    * Wait authority ACK before reveal (C2-7 / #141).
    * ACK → beginRevealAfterAck (18). Full life/judge = Section 3 minimal stub.
+   * Commit SFX only on 质疑 (believe/Trust is silent).
    */
-  private commitChallenge(guessTrue: boolean): void {
+  private commitChallenge(): void {
     if (!this.challengeEntryOn || this.challengeCommitBusy) {
       return;
     }
@@ -2794,8 +2797,7 @@ struct Table {
       target = snap.lastPlay.playId;
       this.challengeTargetPlayId = target;
     }
-    const guess: string = guessTrue ? 'true' : 'false';
-    Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} ${guess} target=${target}`);
+    Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} doubt target=${target}`);
     if (this.challengeDebugReject) {
       this.challengeDebugReject = false;
       this.rejectChallengeRestore();
@@ -2813,9 +2815,9 @@ struct Table {
     // ACK accepted. Open 18 reveal stage (not old lb_scr_challenge).
     this.challengeResolvedPlayId = target;
     this.closeChallengeEntry(false);
-    // Hang stub: NPC bubble resolve uses true/false keys when commit fires (#158 / 11b).
+    // Hang stub: NPC bubble resolve uses doubt key when commit fires (17 v0.3.0).
     // Set after close so closeChallengeEntry clear does not wipe the resolve copy.
-    this.npcChallengeBubble = guessTrue ? this.readNpcChallengeTrue() : this.readNpcChallengeFalse();
+    this.npcChallengeBubble = this.readNpcChallengeDoubt();
     const after: MatchSnapshot | null = AppRuntime.engine.current();
     if (after !== null) {
       this.beginRevealAfterAck(after);
@@ -2911,13 +2913,13 @@ struct Table {
         this.challengeRemainSec = sec;
       }
       if (left <= 0) {
-        this.onChallengePass(true);
+        this.onChallengeBelieve(true);
       }
     }, ChallengeFx.TICK_MS);
   }
 
-  /** 过 / timeout: silent. No enter / commit / flip / launch / land. */
-  private onChallengePass(fromTimeout: boolean): void {
+  /** 相信 / timeout: Trust/Pass silent. No enter / commit / flip / launch / land. No reveal. */
+  private onChallengeBelieve(fromTimeout: boolean): void {
     if (!this.challengeEntryOn && !fromTimeout) {
       return;
     }
@@ -2925,13 +2927,13 @@ struct Table {
       return;
     }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
-    // =2 ForceChallenge: no Pass / Trust — timeout forces commit instead.
+    // =2 ForceChallenge: no Pass / Trust — timeout forces commit (质疑) instead.
     if (snap !== null && this.isForceChallengeEmpty(snap)) {
-      Logger.info(TAG, 'ForceChallenge2: Pass banned → commit');
-      this.commitChallenge(false);
+      Logger.info(TAG, 'ForceChallenge2: Believe/Pass banned → commit');
+      this.commitChallenge();
       return;
     }
-    Logger.info(TAG, fromTimeout ? 'AwaitChallenge timeout Pass' : 'AwaitChallenge Pass');
+    Logger.info(TAG, fromTimeout ? 'AwaitChallenge timeout Believe' : 'AwaitChallenge Believe');
     this.challengeResolvedPlayId = this.challengeTargetPlayId;
     this.closeChallengeEntry(true);
   }

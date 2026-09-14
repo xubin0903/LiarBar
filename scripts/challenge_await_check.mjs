@@ -55,18 +55,37 @@ if (table.includes('nextB: number = this.insetVp(box.bottom)') &&
 }
 
 if (existsSync(join(root, 'entry/src/main/ets/features/table/components/ChallengeEntry.ets')) &&
-    entry.includes("CHALLENGE_TRUE") &&
-    entry.includes("CHALLENGE_FALSE") &&
-    entry.includes("CHALLENGE_PASS") &&
+    entry.includes("CHALLENGE_DOUBT") &&
+    entry.includes("CHALLENGE_BELIEVE") &&
     entry.includes("CHALLENGE_ENTRY") &&
     entry.includes("CHALLENGE_TIMER") &&
     entry.includes("CHALLENGE_RING") &&
-    /Button\('真'\)/.test(entry) &&
-    /Button\('假'\)/.test(entry) &&
-    /Button\('过'\)/.test(entry)) {
-  pass('C2-2: 真/假 same-layer + 过 on lb_cmp_challenge_entry');
+    entry.includes("art_btn_challenge_doubt") &&
+    entry.includes("art_btn_challenge_believe") &&
+    entry.includes("lb_str_challenge_doubt") &&
+    entry.includes("lb_str_challenge_believe") &&
+    !entry.includes("CHALLENGE_TRUE") &&
+    !entry.includes("CHALLENGE_FALSE") &&
+    !entry.includes("CHALLENGE_PASS") &&
+    !/Button\('真'\)/.test(entry) &&
+    !/Button\('假'\)/.test(entry) &&
+    !/Button\('过'\)/.test(entry)) {
+  pass('C2-2: 质疑|相信 same-layer on lb_cmp_challenge_entry (no 真/假/过)');
 } else {
-  fail('ChallengeEntry missing same-layer 真/假/过');
+  fail('ChallengeEntry missing doubt/believe or still binds true/false/pass entry');
+}
+
+if (ids.includes("CHALLENGE_DOUBT: string = 'lb_btn_challenge_doubt'") &&
+    ids.includes("CHALLENGE_BELIEVE: string = 'lb_btn_challenge_believe'") &&
+    strings.includes('lb_str_challenge_doubt') &&
+    strings.includes('"value": "质疑"') &&
+    strings.includes('lb_str_challenge_believe') &&
+    strings.includes('"value": "相信"') &&
+    strings.includes('lb_str_challenge_true') &&
+    strings.includes('lb_str_challenge_false')) {
+  pass('Ids+strings: doubt/believe locked; true/false strings kept (reveal only)');
+} else {
+  fail('Ids/strings doubt/believe lock or true/false reveal keys missing');
 }
 
 /**
@@ -135,11 +154,11 @@ if (fx.includes('AWAIT_MS: number = 10000') &&
     fx.includes('AWAIT_MS_MAX: number = 12000') &&
     fx.includes('BTN_VP: number = 48') &&
     fx.includes('PASS_VP: number = 44') &&
-    table.includes('onChallengePass(true)') &&
-    table.includes('AwaitChallenge timeout Pass')) {
-  pass('C2-8: 10s (8～12) timeout → Pass');
+    table.includes('onChallengeBelieve(true)') &&
+    (table.includes('AwaitChallenge timeout Believe') || table.includes('AwaitChallenge timeout Pass'))) {
+  pass('C2-8: 10s (8～12) timeout → 相信 (Trust/Pass)');
 } else {
-  fail('timeout window / Pass missing');
+  fail('timeout window / Believe missing');
 }
 
 if (table.includes('lastPlay.isFirstOfRound') &&
@@ -179,32 +198,35 @@ if (ids.includes("CHALLENGE_ENTER: string = 'lb_sfx_challenge_enter'") &&
     audio.includes('sfx_challenge_commit.wav') &&
     table.includes('playChallengeEnter') &&
     table.includes('playChallengeCommit') &&
-    table.includes('onChallengeTrue') &&
-    table.includes('onChallengeFalse') &&
-    table.includes('onChallengePass')) {
-  pass('listen: enter on AwaitChallenge; commit on 真/假');
+    table.includes('onChallengeDoubt') &&
+    table.includes('onChallengeBelieve') &&
+    !table.includes('onChallengeTrue') &&
+    !table.includes('onChallengeFalse') &&
+    !table.includes('onChallengePass')) {
+  pass('listen: enter on AwaitChallenge; commit SFX only on 质疑');
 } else {
-  fail('enter/commit SFX wiring');
+  fail('enter/commit SFX wiring (doubt/believe)');
 }
 
-const passFn = table.split('private onChallengePass')[1] || '';
-const passBody = passFn.split('private ', 1)[0];
-if (passBody.includes('closeChallengeEntry(true)') &&
-    !passBody.includes('playChallenge') &&
-    !passBody.includes('CARD_FLIP') &&
-    !passBody.includes('playPlayLaunch') &&
-    !passBody.includes('playPlayLand')) {
-  pass('C2-2 listen: Pass silent (no enter/commit/flip/launch/land)');
+const believeFn = table.split('private onChallengeBelieve')[1] || '';
+const believeBody = believeFn.split('private ', 1)[0];
+if (believeBody.includes('closeChallengeEntry(true)') &&
+    !believeBody.includes('playChallenge') &&
+    !believeBody.includes('CARD_FLIP') &&
+    !believeBody.includes('playPlayLaunch') &&
+    !believeBody.includes('playPlayLand') &&
+    !believeBody.includes('beginRevealAfterAck')) {
+  pass('C2-2 listen: 相信 silent + no reveal (no enter/commit/flip/launch/land)');
 } else {
-  fail('Pass is not silent');
+  fail('Believe is not silent Trust/Pass');
 }
 
-const trueFn = table.split('private onChallengeTrue')[1] || '';
-const trueBody = trueFn.split('private onChallengeFalse')[0];
-if (trueBody.includes('this.commitChallenge(true)') && !trueBody.includes('closeChallengeEntry(true)')) {
-  pass('真 = ChallengeCommit (not disguised Pass / own play)');
+const doubtFn = table.split('private onChallengeDoubt')[1] || '';
+const doubtBody = doubtFn.split('private commitChallenge')[0];
+if (doubtBody.includes('this.commitChallenge()') && !doubtBody.includes('closeChallengeEntry(true)')) {
+  pass('质疑 = ChallengeCommit (not disguised Believe / own play)');
 } else {
-  fail('真 still unloads to own play');
+  fail('质疑 still unloads to own play / Believe');
 }
 
 const commitFn = table.split('private commitChallenge')[1] || '';
@@ -217,16 +239,31 @@ if (commitBody.includes('playChallengeCommit') &&
     !commitBody.includes('closeChallengeEntry(true)') &&
     !commitBody.includes('LbRouter.toChallenge') &&
     !commitBody.includes('revealOpen')) {
-  pass('真/假 share ChallengeCommit → ACK → beginRevealAfterAck; no local-first / old page');
+  pass('质疑 ChallengeCommit → ACK → beginRevealAfterAck; no local-first / old page');
 } else {
-  fail('shared ChallengeCommit ACK path');
+  fail('ChallengeCommit ACK path');
 }
 
-if (table.includes('this.commitChallenge(true)') &&
-    table.includes('this.commitChallenge(false)')) {
-  pass('both 真 and 假 call commitChallenge');
+if (table.includes('this.commitChallenge()') &&
+    table.includes('onChallengeDoubt') &&
+    !table.includes('this.commitChallenge(true)') &&
+    !table.includes('this.commitChallenge(false)')) {
+  pass('质疑 alone calls commitChallenge; 相信 does not');
 } else {
-  fail('真/假 not unified on commitChallenge');
+  fail('commitChallenge still true/false dual or missing doubt');
+}
+
+// Ban entry primary true/false/pass on Table mount
+const entryMount = table.slice(
+  Math.max(0, table.indexOf('ChallengeEntry({')),
+  Math.max(0, table.indexOf('ChallengeEntry({')) + 500
+);
+if (entryMount.includes('onDoubt') && entryMount.includes('onBelieve') &&
+    !entryMount.includes('onTrue') && !entryMount.includes('onFalse') &&
+    !entryMount.includes('onPass')) {
+  pass('Table ChallengeEntry mount wires onDoubt/onBelieve only');
+} else {
+  fail('Table still mounts true/false/pass entry handlers');
 }
 
 if (!table.includes('LbRouter.toChallenge()') &&
@@ -290,22 +327,32 @@ if (stringsHang.includes('lb_str_challenge_dealer_enter') &&
     stringsHang.includes('lb_str_npc_challenge_thinking') &&
     stringsHang.includes('lb_str_npc_challenge_true') &&
     stringsHang.includes('lb_str_npc_challenge_false') &&
+    stringsHang.includes('lb_str_npc_challenge_doubt') &&
+    stringsHang.includes('lb_str_npc_challenge_believe') &&
     table.includes('challengeDealerEnter') &&
     table.includes('npcChallengeBubble') &&
+    table.includes('readNpcChallengeDoubt') &&
     ids.includes('CHALLENGE_DEALER_ENTER') &&
     ids.includes('NPC_CHALLENGE_BUBBLE')) {
-  pass('hang: dealer_enter + npc_challenge_* strings and Table stubs');
+  pass('hang: dealer_enter + npc doubt/believe (+ true/false kept) and Table stubs');
 } else {
   fail('challenge dealer/npc hang slots missing');
 }
 
-// Rebuild: syncChallengeEntry on land so 真/假 show when canChallenge
+// Rebuild: syncChallengeEntry on land so 质疑|相信 show when canChallenge
 const landFn = table.split('private onPlayLanded')[1] || '';
 const landBody = landFn.split('private onPlayRollback')[0] || '';
 if (landBody.includes('this.syncChallengeEntry(snap)')) {
   pass('onPlayLanded syncs AwaitChallenge entry for challenger keys');
 } else {
   fail('onPlayLanded missing syncChallengeEntry');
+}
+
+// Candle lives primary: do not make revolver cylinder the lives primary read in Table
+if (!/revolver.*lives.?primary|cylinder.*lives.?primary|lives.?primary.*cylinder/i.test(table)) {
+  pass('lives UI: no revolver-cylinder-as-lives-primary rewrite');
+} else {
+  fail('revolver cylinder promoted to lives primary');
 }
 
 console.log(process.exitCode ? 'challenge-await check FAILED' : 'challenge-await check OK');

@@ -4,62 +4,35 @@ import { ChallengeFx } from '../ChallengeFx';
 /**
  * lb_cmp_challenge_entry / lb_cmp_challenge_await
  * Self-front overlay in ring–hand HAND_RING_GAP band (above lb_cmp_hand).
- * Same overlay family as confirm bar, but NOT BottomEnd-only corner (17 v0.2.1).
- * Not inside handPin. 真 / 假 same-layer two buttons + 过. Optional countdown ring.
- * Does not change padB / HAND_RING_GAP. Does not cover claim / pile heart / hand row.
+ * Same overlay family as confirm bar, but NOT BottomEnd-only corner (17 v0.3.0).
+ * Not inside handPin. 质疑|相信 same-layer two buttons (abolish 真/假/过 entry).
+ * Chrome: art_btn_challenge_doubt/believe ±_on — wordless; client overlays text.
+ * Optional countdown ring. Does not change padB / HAND_RING_GAP.
+ * Does not cover claim / pile heart / hand row.
  */
+/** 360×144 media → ≥44vp touch; aspect kept. Not padB / GAP. */
+class ChallengeEntryFx {
+  static readonly BTN_W: number = 120;
+  static readonly BTN_H: number = 48;
+}
+
 @Component
 export struct ChallengeEntry {
   @Prop visible: boolean = false;
   @Prop remainSec: number = 10;
-  onTrue: () => void = () => {};
-  onFalse: () => void = () => {};
-  onPass: () => void = () => {};
+  onDoubt: () => void = () => {};
+  onBelieve: () => void = () => {};
+  @State doubtPressed: boolean = false;
+  @State believePressed: boolean = false;
 
   build() {
     if (this.visible) {
       Column({ space: 8 }) {
         this.timerRing()
         Row({ space: 12 }) {
-          Button('真')
-            .id(ControlIds.CHALLENGE_TRUE)
-            .type(ButtonType.Normal)
-            .width(ChallengeFx.BTN_VP)
-            .height(ChallengeFx.BTN_VP)
-            .fontSize($r('app.float.page_text_size'))
-            .fontWeight(FontWeight.Medium)
-            .backgroundColor($r('app.color.tavern_settle_ok'))
-            .fontColor($r('app.color.tavern_paper'))
-            .borderRadius(ChallengeFx.BTN_VP / 2)
-            .onClick(() => {
-              this.onTrue();
-            })
-          Button('假')
-            .id(ControlIds.CHALLENGE_FALSE)
-            .type(ButtonType.Normal)
-            .width(ChallengeFx.BTN_VP)
-            .height(ChallengeFx.BTN_VP)
-            .fontSize($r('app.float.page_text_size'))
-            .fontWeight(FontWeight.Medium)
-            .backgroundColor($r('app.color.tavern_danger'))
-            .fontColor($r('app.color.tavern_paper'))
-            .borderRadius(ChallengeFx.BTN_VP / 2)
-            .onClick(() => {
-              this.onFalse();
-            })
+          this.doubtChrome()
+          this.believeChrome()
         }
-        Button('过')
-          .id(ControlIds.CHALLENGE_PASS)
-          .type(ButtonType.Normal)
-          .width(ChallengeFx.PASS_VP)
-          .height(ChallengeFx.PASS_VP)
-          .fontSize($r('app.float.caption_text_size'))
-          .backgroundColor($r('app.color.tavern_felt'))
-          .fontColor($r('app.color.tavern_mute'))
-          .borderRadius(ChallengeFx.PASS_VP / 2)
-          .onClick(() => {
-            this.onPass();
-          })
       }
       .id(ControlIds.CHALLENGE_ENTRY)
       .padding({
@@ -76,6 +49,88 @@ export struct ChallengeEntry {
       })
       .alignItems(HorizontalAlign.Center)
     }
+  }
+
+  @Builder
+  doubtChrome() {
+    Stack() {
+      if (this.doubtPressed) {
+        Image($r('app.media.art_btn_challenge_doubt_on'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Fill)
+      } else {
+        Image($r('app.media.art_btn_challenge_doubt'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Fill)
+      }
+      Button($r('app.string.lb_str_challenge_doubt'))
+        .id(ControlIds.CHALLENGE_DOUBT)
+        .type(ButtonType.Normal)
+        .width('100%')
+        .height('100%')
+        .constraintSize({ minWidth: 44, minHeight: 44 })
+        .fontSize($r('app.float.caption_text_size'))
+        .fontWeight(FontWeight.Medium)
+        .backgroundColor(Color.Transparent)
+        .fontColor($r('app.color.tavern_paper'))
+        .stateEffect(false)
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.doubtPressed = true;
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.doubtPressed = false;
+          }
+        })
+        .onClick(() => {
+          this.onDoubt();
+        })
+    }
+    .width(ChallengeEntryFx.BTN_W)
+    .height(ChallengeEntryFx.BTN_H)
+    .clip(true)
+  }
+
+  @Builder
+  believeChrome() {
+    Stack() {
+      if (this.believePressed) {
+        Image($r('app.media.art_btn_challenge_believe_on'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Fill)
+      } else {
+        Image($r('app.media.art_btn_challenge_believe'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Fill)
+      }
+      Button($r('app.string.lb_str_challenge_believe'))
+        .id(ControlIds.CHALLENGE_BELIEVE)
+        .type(ButtonType.Normal)
+        .width('100%')
+        .height('100%')
+        .constraintSize({ minWidth: 44, minHeight: 44 })
+        .fontSize($r('app.float.caption_text_size'))
+        .fontWeight(FontWeight.Medium)
+        .backgroundColor(Color.Transparent)
+        .fontColor($r('app.color.tavern_paper'))
+        .stateEffect(false)
+        .onTouch((event: TouchEvent) => {
+          if (event.type === TouchType.Down) {
+            this.believePressed = true;
+          } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+            this.believePressed = false;
+          }
+        })
+        .onClick(() => {
+          this.onBelieve();
+        })
+    }
+    .width(ChallengeEntryFx.BTN_W)
+    .height(ChallengeEntryFx.BTN_H)
+    .clip(true)
   }
 
   @Builder
