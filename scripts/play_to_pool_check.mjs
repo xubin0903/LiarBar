@@ -245,4 +245,61 @@ if (flyFx.includes('FLY_MS: number = 320')) {
   fail('FLY_MS drifted');
 }
 
+
+// Rebuild: pool hand anchored on dealPileAnchor / lb_cmp_pool (stack-local)
+if (table.includes('anchored: true') &&
+    table.includes('dealPileAnchor') &&
+    table.includes('ControlIds.PLAY_POOL_HAND') &&
+    pile.includes('anchored')) {
+  pass('pool hand anchored on dealPileAnchor (not overlay abs primary)');
+} else {
+  fail('pool hand not anchored on pool slot');
+}
+
+// Rebuild: clear only when lastPlay gone (persist across seat rotation)
+if (table.includes('snap.lastPlay === null && !this.playFlyOn && !this.revealOn') &&
+    !table.includes('snap.playIndexInRound === 0 && !this.playFlyOn)')) {
+  pass('clearAllPiles gated on lastPlay===null (not playIndexInRound===0 alone)');
+} else {
+  fail('pile clear still fires on playIndexInRound===0 alone');
+}
+
+// Rebuild: claim/dealer not extreme top-left; DEALER_BANNER near heart
+function braceBlock2(src, from) {
+  if (from < 0 || src[from] !== '{') return '';
+  let depth = 0;
+  for (let i = from; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}') {
+      depth--;
+      if (depth === 0) return src.slice(from, i + 1);
+    }
+  }
+  return '';
+}
+function builderBody2(src, name) {
+  const re = new RegExp(`@Builder\\s+${name}\\(\\)\\s*`);
+  const m = re.exec(src);
+  if (m === null) return '';
+  const braceAt = src.indexOf('{', m.index + m[0].length - 1);
+  return braceBlock2(src, braceAt);
+}
+const topBarBody = builderBody2(table, 'topBar');
+const heartBody = builderBody2(table, 'tableHeart');
+if (topBarBody.length > 0 && !topBarBody.includes('claimText') && !topBarBody.includes('dealerLine') &&
+    heartBody.includes('claimText') && heartBody.includes('DEALER_BANNER') &&
+    heartBody.includes('dealerLine')) {
+  pass('claim/dealer tip near heart DEALER_BANNER (not topBar dead corner)');
+} else {
+  fail('claim/dealer still in topBar or missing from heart');
+}
+
+// playDest uses poolCenterOverlay (pad-corrected)
+if (table.includes('poolCenterOverlay') && table.includes('toPlayOverlay') &&
+    table.includes('this.padL') && table.includes('this.padT')) {
+  pass('playDest/reveal use pad-corrected poolCenterOverlay');
+} else {
+  fail('overlay pad correction missing');
+}
+
 console.log(process.exitCode ? 'play-to-pool check FAILED' : 'play-to-pool check OK');

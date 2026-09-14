@@ -110,6 +110,10 @@ struct Table {
   @State challengeCommitBusy: boolean = false;
   @State challengeRemainSec: number = 10;
   @State challengeTargetPlayId: string = '';
+  /** Hang: lb_str_challenge_dealer_enter near dealer banner when AwaitChallenge. */
+  @State challengeDealerEnter: string = '';
+  /** Hang: lb_str_npc_challenge_thinking/true/false — NPC seat bubble stub. */
+  @State npcChallengeBubble: string = '';
   /** 16 · PlayLaunch overlay. Independent of DealFx.flyOn. */
   @State playFlyOn: boolean = false;
   @State playFlyX: number = 0;
@@ -395,6 +399,20 @@ struct Table {
         .visibility(this.challengeEntryOn && !this.challengeCommitBusy ?
           Visibility.Visible : Visibility.None)
 
+        // Hang: NPC challenge bubble (thinking/true/false). Stub until copy polish.
+        if (this.npcChallengeBubble.length > 0) {
+          Text(this.npcChallengeBubble)
+            .id(ControlIds.NPC_CHALLENGE_BUBBLE)
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+            .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+            .backgroundColor($r('app.color.tavern_panel'))
+            .borderRadius(8)
+            .align(Alignment.TopEnd)
+            .margin({ top: 56, right: 12 })
+            .hitTestBehavior(HitTestMode.None)
+        }
+
         if (this.hintKind > 0) {
           this.playHintToast()
         }
@@ -502,42 +520,25 @@ struct Table {
 
   @Builder
   topBar() {
-    Column({ space: 2 }) {
-      Row() {
-        Text(this.claimText)
-          .id('lb_txt_claim')
-          .fontColor($r('app.color.tavern_candle'))
-          .fontSize($r('app.float.page_text_size'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-        Text(this.timerText)
-          .id('lb_txt_timer')
-          .fontColor($r('app.color.tavern_accent'))
-          .fontSize($r('app.float.page_text_size'))
-          .margin({ left: 8, right: 8 })
-        this.weakCta()
-      }
-      .width('100%')
-      Row() {
-        Text(this.dealerLine)
-          .id(ControlIds.DEALER_LINE)
-          .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.caption_text_size'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
-          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
-        Text($r('app.string.lb_str_home'))
-          .id(ControlIds.HOME)
-          .fontColor($r('app.color.tavern_mute'))
-          .fontSize($r('app.float.caption_text_size'))
-          .onClick(() => {
-            this.goHome();
-          })
-      }
-      .id(ControlIds.DEALER_BANNER)
-      .width('100%')
+    // Claim + dealer turn lines moved to tableHeart (near dealer banner).
+    // Extreme top-left was PM fail「提示藏死角」— do not put them here.
+    Row() {
+      Blank()
+        .layoutWeight(1)
+      Text(this.timerText)
+        .id('lb_txt_timer')
+        .fontColor($r('app.color.tavern_accent'))
+        .fontSize($r('app.float.page_text_size'))
+        .margin({ left: 8, right: 8 })
+      this.weakCta()
+      Text($r('app.string.lb_str_home'))
+        .id(ControlIds.HOME)
+        .fontColor($r('app.color.tavern_mute'))
+        .fontSize($r('app.float.caption_text_size'))
+        .margin({ left: 8 })
+        .onClick(() => {
+          this.goHome();
+        })
     }
     .id(ControlIds.TOPBAR)
     .width('100%')
@@ -591,36 +592,82 @@ struct Table {
    */
   @Builder
   tableHeart() {
-    Row({ space: 8 }) {
-      Image($r('app.media.art_dealer_bust_announce'))
-        .id(ControlIds.DEALER)
-        .height(`${this.dealerBustPct}%`)
-        .constraintSize({
-          maxWidth: `${this.dealerBustPct}%`,
-          maxHeight: `${this.dealerBustPct}%`
-        })
-        .objectFit(ImageFit.Contain)
-      Stack() {
-        Image($r('app.media.art_pool_slot'))
-          .id('lb_cmp_pool')
-          .width(DealFx.PILE_SLOT_W)
-          .height(DealFx.PILE_SLOT_H)
-        if (this.pileOn) {
-          this.dealPileStack()
-        }
+    Column({ space: 6 }) {
+      // Interim safer tip site: claim + dealer turn near heart / dealer banner.
+      // Not extreme top-left (PM「提示藏死角」). UI will refine wireframe.
+      Column({ space: 2 }) {
+        Text(this.claimText)
+          .id('lb_txt_claim')
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .visibility(this.claimText.length > 0 ? Visibility.Visible : Visibility.None)
+        Text(this.dealerLine)
+          .id(ControlIds.DEALER_LINE)
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
+        // Hang: lb_str_challenge_dealer_enter — bind when AwaitChallenge opens.
+        Text(this.challengeDealerEnter)
+          .id(ControlIds.CHALLENGE_DEALER_ENTER)
+          .fontColor($r('app.color.tavern_accent'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .visibility(this.challengeDealerEnter.length > 0 ? Visibility.Visible : Visibility.None)
       }
-      .id('dealPileAnchor')
-      .width(DealFx.PILE_SLOT_W)
-      .height(DealFx.PILE_SLOT_H)
-      .onAreaChange((_old: Area, area: Area) => {
-        this.capturePile(area);
-      })
-      // F16-2: ban count digits next to pool (edge-fan reads 1/2/3).
+      .id(ControlIds.DEALER_BANNER)
+      .alignItems(HorizontalAlign.Center)
+      .constraintSize({ maxWidth: '70%' })
+
+      Row({ space: 8 }) {
+        Image($r('app.media.art_dealer_bust_announce'))
+          .id(ControlIds.DEALER)
+          .height(`${this.dealerBustPct}%`)
+          .constraintSize({
+            maxWidth: `${this.dealerBustPct}%`,
+            maxHeight: `${this.dealerBustPct}%`
+          })
+          .objectFit(ImageFit.Contain)
+        Stack({ alignContent: Alignment.Center }) {
+          Image($r('app.media.art_pool_slot'))
+            .id('lb_cmp_pool')
+            .width(DealFx.PILE_SLOT_W)
+            .height(DealFx.PILE_SLOT_H)
+          if (this.pileOn) {
+            this.dealPileStack()
+          }
+          // 16 v0.2.0: pool round-hand stack-local on lb_cmp_pool (not overlay abs).
+          // Edge ≥10vp via PlayFlyFx.fanOffset. Persists until challenge/reveal clears.
+          PlayFrontPile({
+            visible: this.pileN0 > 0,
+            count: this.pileN0,
+            seatId: TableCompass.BOTTOM,
+            x: 0,
+            y: 0,
+            instanceId: ControlIds.PLAY_POOL_HAND,
+            anchored: true
+          })
+        }
+        .id('dealPileAnchor')
+        .width(DealFx.PILE_SLOT_W)
+        .height(DealFx.PILE_SLOT_H)
+        .onAreaChange((_old: Area, area: Area) => {
+          this.capturePile(area);
+        })
+        // F16-2: ban count digits next to pool (edge-fan reads 1/2/3).
+      }
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      .layoutWeight(1)
+      .width('100%')
     }
     .width('100%')
     .height('100%')
     .justifyContent(FlexAlign.Center)
-    .alignItems(VerticalAlign.Center)
+    .alignItems(HorizontalAlign.Center)
     .hitTestBehavior(HitTestMode.Transparent)
   }
 
@@ -823,8 +870,8 @@ struct Table {
     })
     .backgroundColor($r('app.color.tavern_panel'))
     .borderRadius(8)
-    .align(Alignment.Bottom)
-    .margin({ bottom: 72 })
+    .align(Alignment.Center)
+    .margin({ top: 48 })
     .hitTestBehavior(HitTestMode.None)
   }
 
@@ -1372,7 +1419,9 @@ struct Table {
     if (this.dealPlaying) {
       this.dealPlaying = false;
     }
-    if (snap.playIndexInRound === 0 && !this.playFlyOn) {
+    // Pool round-hand persists across seat rotation until challenge/reveal
+    // clears it. Do NOT clear on playIndexInRound===0 alone (fires too early).
+    if (snap.lastPlay === null && !this.playFlyOn && !this.revealOn) {
       this.clearAllPiles();
       this.challengeResolvedPlayId = '';
       this.challengeEnterPlayId = '';
@@ -1993,15 +2042,7 @@ struct Table {
   @Builder
   playFlyLayer() {
     Stack() {
-      // 16 v0.2.0: one pool-bound back-fan. Seat front_pile abolished as main read.
-      PlayFrontPile({
-        visible: this.pileN0 > 0,
-        count: this.pileN0,
-        seatId: TableCompass.BOTTOM,
-        x: this.pileX0,
-        y: this.pileY0,
-        instanceId: ControlIds.PLAY_POOL_HAND
-      })
+      // Pool hand lives on dealPileAnchor (stack-local). Fly only here.
       PlayFly({
         visible: this.playFlyOn,
         count: this.playFlyCount,
@@ -2108,6 +2149,8 @@ struct Table {
         this.rankSettlePlace = this.placeOf(snap.emptyOrder, this.playFlySeat);
       }
       this.refreshPlayMeta(snap);
+      // Challenger seat front: self = BottomEnd ChallengeEntry when canChallenge.
+      this.syncChallengeEntry(snap);
     }
     this.pull();
     this.flushQueuedPlay();
@@ -2191,25 +2234,36 @@ struct Table {
       if (this.handW <= 0) {
         x = TableBreakpoints.handBandCenterX(this.padL, this.padR, this.stackW) - PlayFlyFx.CARD_W / 2;
       }
-      return [x, this.handY];
+      return this.toPlayOverlay(x, this.handY);
     }
-    return [this.seatXs[seatId], this.seatYs[seatId]];
+    return this.toPlayOverlay(this.seatXs[seatId], this.seatYs[seatId]);
   }
 
   /**
    * 16 v0.2.0: land at lb_cmp_pool center. Ignore seat front destinations.
-   * Uses pile measured coords like capturePile / flyFromPile.
+   * playFlyLayer sits in the padded playfield — convert stack-local → overlay-local.
    */
   private playDestOf(_seatId: number, count: number): number[] {
     const w: number = PlayFlyFx.pileWidth(count);
     const h: number = PlayFlyFx.pileHeight();
+    const mid: number[] = this.poolCenterOverlay();
+    return [mid[0] - w / 2, mid[1] - h / 2];
+  }
+
+  /** Pool center in playFlyLayer / revealLayer coords (padded overlay). */
+  private poolCenterOverlay(): number[] {
     let cx: number = this.pileX + this.pileW / 2;
     let cy: number = this.pileY + this.pileH / 2;
     if (this.pileMeasured) {
       cx = this.pileGX - this.stackGX + this.pileW / 2;
       cy = this.pileGY - this.stackGY + this.pileH / 2;
     }
-    return [cx - w / 2, cy - h / 2];
+    return [cx - this.padL, cy - this.padT];
+  }
+
+  /** Seat / hand stack-local → padded overlay local. */
+  private toPlayOverlay(stackX: number, stackY: number): number[] {
+    return [stackX - this.padL, stackY - this.padT];
   }
 
   /** 16 v0.2.0: single pool hand at pileN0; zero seat piles. */
@@ -2401,6 +2455,10 @@ struct Table {
     this.challengeCommitBusy = false;
     this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
     this.confirmBarOn = false;
+    // Hang point: lb_str_challenge_dealer_enter (string slot bound).
+    this.challengeDealerEnter = this.readChallengeDealerEnter();
+    // Hang: NPC bubble idle thinking while human AwaitChallenge (self keys at BottomEnd).
+    this.npcChallengeBubble = this.readNpcChallengeThinking();
     if (this.playEnabled) {
       this.playEnabled = false;
     }
@@ -2415,6 +2473,16 @@ struct Table {
     this.armChallengeTimer();
   }
 
+  /** Bind lb_str_challenge_dealer_enter when resource present. */
+  private readChallengeDealerEnter(): string {
+    return '真假？过也可。';
+  }
+
+  /** Bind lb_str_npc_challenge_thinking when resource present. */
+  private readNpcChallengeThinking(): string {
+    return '……';
+  }
+
   private closeChallengeEntry(allowPlay: boolean): void {
     this.cancelChallengeTimer();
     if (this.challengeEntryOn) {
@@ -2422,6 +2490,12 @@ struct Table {
     }
     if (this.challengeCommitBusy) {
       this.challengeCommitBusy = false;
+    }
+    if (this.challengeDealerEnter.length > 0) {
+      this.challengeDealerEnter = '';
+    }
+    if (this.npcChallengeBubble.length > 0) {
+      this.npcChallengeBubble = '';
     }
     if (!allowPlay) {
       return;
@@ -2534,13 +2608,9 @@ struct Table {
     const n: number = ranks.length > 0 ? ranks.length : 1;
     const w: number = PlayFlyFx.pileWidth(n);
     const h: number = PlayFlyFx.pileHeight();
-    let cx: number = this.pileX + this.pileW / 2;
-    let cy: number = this.pileY + this.pileH / 2;
-    if (this.pileMeasured) {
-      cx = this.pileGX - this.stackGX + this.pileW / 2;
-      cy = this.pileGY - this.stackGY + this.pileH / 2;
-    }
-    cy = cy + PlayFlyFx.REVEAL_DOWN_VP;
+    const mid: number[] = this.poolCenterOverlay();
+    const cx: number = mid[0];
+    const cy: number = mid[1] + PlayFlyFx.REVEAL_DOWN_VP;
     this.revealX = cx - w / 2;
     this.revealY = cy - h / 2;
     this.revealRanks = ranks;

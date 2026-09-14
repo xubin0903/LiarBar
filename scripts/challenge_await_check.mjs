@@ -269,4 +269,29 @@ if (enterBody.includes('CHALLENGE_ENTER') && !enterBody.includes('PLAY_LAUNCH') 
   fail('challenge SFX methods reuse frozen slots');
 }
 
+
+// Rebuild: hang slots for dealer enter + NPC bubble
+const stringsHang = src('entry/src/main/resources/base/element/string.json');
+if (stringsHang.includes('lb_str_challenge_dealer_enter') &&
+    stringsHang.includes('lb_str_npc_challenge_thinking') &&
+    stringsHang.includes('lb_str_npc_challenge_true') &&
+    stringsHang.includes('lb_str_npc_challenge_false') &&
+    table.includes('challengeDealerEnter') &&
+    table.includes('npcChallengeBubble') &&
+    ids.includes('CHALLENGE_DEALER_ENTER') &&
+    ids.includes('NPC_CHALLENGE_BUBBLE')) {
+  pass('hang: dealer_enter + npc_challenge_* strings and Table stubs');
+} else {
+  fail('challenge dealer/npc hang slots missing');
+}
+
+// Rebuild: syncChallengeEntry on land so 真/假 show when canChallenge
+const landFn = table.split('private onPlayLanded')[1] || '';
+const landBody = landFn.split('private onPlayRollback')[0] || '';
+if (landBody.includes('this.syncChallengeEntry(snap)')) {
+  pass('onPlayLanded syncs AwaitChallenge entry for challenger keys');
+} else {
+  fail('onPlayLanded missing syncChallengeEntry');
+}
+
 console.log(process.exitCode ? 'challenge-await check FAILED' : 'challenge-await check OK');
