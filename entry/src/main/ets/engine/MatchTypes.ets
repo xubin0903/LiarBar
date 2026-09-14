@@ -60,6 +60,7 @@ export interface SeatModel {
   status: SeatStatus;
   isHost: boolean;
   faceScore: number;
+  /** Alive token for candle UI (1/0). Not 3-life formula. */
   lives: number;
   lastDelta: number;
   lastReason: LifeReason;
@@ -94,10 +95,29 @@ export interface MatchSnapshot {
   currentSeatId: number;
   currentClaim: ClaimModel | null;
   lastPlay: PlayModel | null;
-  /** Round-win contributors this land (hand==0). Not whole-match place. */
+  /** Seats that emptied this land (RoundSafeWait contributors). Not whole-match place. */
   emptyOrder: number[];
-  /** U03b: PlayLanded∧hand==0 pending RoundWin→RedealAll. Not a Phase. */
+  /**
+   * Deprecated RoundWin flag — always false under revolver v1.
+   * Kept so older Table builds compile; HandEmptyGate replaces RoundWin→RedealAll.
+   */
   roundWinPending: boolean;
+  /** ≥3 EmptySafe3: next must choose 你/上家. */
+  emptySafePending: boolean;
+  /** =2: force challenge emptier's last hand. */
+  forceChallengeEmpty: boolean;
+  /** Emptier seat for HandEmptyGate. */
+  emptyHandSeatId: number;
+  /** Seats in RoundSafeWait (≥3 不质疑你). */
+  roundSafeWaitSeats: number[];
+  /** Shared revolver cursor 0..chambers-1. */
+  chamberIndex: number;
+  /** Live chamber index (hidden until shot). */
+  liveChamberIndex: number;
+  /** Last shot was live bullet. */
+  lastShotLive: boolean;
+  /** Who just pulled the trigger (−1 none). */
+  lastShooterSeatId: number;
   lastPenalizedSeatId: number;
   roundIndex: number;
   playIndexInRound: number;

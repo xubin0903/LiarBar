@@ -1,5 +1,6 @@
 /**
- * Stage ids from docs/05-技术/02-回合状态机草图.md §1 — no aliases.
+ * Stage ids — 左轮对局-状态机 v1.1.1 + GDD v0.3.0.
+ * PENALTY kept as SHOOT window id for Table compatibility (旧−1命废).
  * UI may have subviews; logs / live window only report these IDs.
  */
 export enum Phase {
@@ -10,6 +11,7 @@ export enum Phase {
   PLAY_REVEAL_SELF = 'PLAY_REVEAL_SELF',
   CHALLENGE_RITUAL = 'CHALLENGE_RITUAL',
   JUDGE = 'JUDGE',
+  /** Shoot window (was life-penalty). Any shot → CollectRedeal. */
   PENALTY = 'PENALTY',
   RECAP = 'RECAP',
   END = 'END'
@@ -19,7 +21,11 @@ export enum Phase {
 export enum TurnWindow {
   NORMAL = 'NORMAL',
   CHALLENGE_ONLY = 'CHALLENGE_ONLY',
-  AUTO_SKIP = 'AUTO_SKIP'
+  AUTO_SKIP = 'AUTO_SKIP',
+  /** ≥3 hand-empty: 你/上家 choice (EmptySafe3). */
+  EMPTY_SAFE = 'EMPTY_SAFE',
+  /** =2 hand-empty: force challenge last hand. */
+  FORCE_CHALLENGE = 'FORCE_CHALLENGE'
 }
 
 export enum SeatRole {
@@ -55,14 +61,18 @@ export enum EventKind {
   EMOTE = 'EMOTE',
   TABLE_ACT = 'TABLE_ACT',
   LIFE_CHANGE = 'LIFE_CHANGE',
+  SHOOT = 'SHOOT',
   OUT = 'OUT',
   SKIP_EMPTY = 'SKIP_EMPTY',
-  REDEAL_STALL = 'REDEAL_STALL'
+  REDEAL_STALL = 'REDEAL_STALL',
+  COLLECT_REDEAL = 'COLLECT_REDEAL'
 }
 
 export enum LifeReason {
   CHALLENGE_SUCCESS_ON_TARGET = 'CHALLENGE_SUCCESS_ON_TARGET',
   CHALLENGE_FAIL_ON_SELF = 'CHALLENGE_FAIL_ON_SELF',
+  SHOOT_LIVE = 'SHOOT_LIVE',
+  SHOOT_BLANK = 'SHOOT_BLANK',
   NONE = ''
 }
 
