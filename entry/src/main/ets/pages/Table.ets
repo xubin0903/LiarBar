@@ -2468,9 +2468,9 @@ struct Table {
     this.challengeCommitBusy = false;
     this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
     this.confirmBarOn = false;
-    // Hang point: lb_str_challenge_dealer_enter (string slot bound).
+    // #158: lb_str_challenge_dealer_enter from string.json.
     this.challengeDealerEnter = this.readChallengeDealerEnter();
-    // Hang: NPC bubble idle thinking while human AwaitChallenge (self keys at seat front).
+    // Hang stub: NPC bubble thinking key while AwaitChallenge (true/false on commit).
     this.npcChallengeBubble = this.readNpcChallengeThinking();
     if (this.playEnabled) {
       this.playEnabled = false;
@@ -2486,14 +2486,35 @@ struct Table {
     this.armChallengeTimer();
   }
 
-  /** Bind lb_str_challenge_dealer_enter when resource present. */
+  /** Bind lb_str_challenge_dealer_enter from string.json (#158 / 11b). */
   private readChallengeDealerEnter(): string {
-    return '真假？过也可。';
+    return this.readLbString('lb_str_challenge_dealer_enter');
   }
 
-  /** Bind lb_str_npc_challenge_thinking when resource present. */
+  /** Bind lb_str_npc_challenge_thinking from string.json (#158 / 11b). */
   private readNpcChallengeThinking(): string {
-    return '……';
+    return this.readLbString('lb_str_npc_challenge_thinking');
+  }
+
+  /** Bind lb_str_npc_challenge_true from string.json (#158 / 11b). */
+  private readNpcChallengeTrue(): string {
+    return this.readLbString('lb_str_npc_challenge_true');
+  }
+
+  /** Bind lb_str_npc_challenge_false from string.json (#158 / 11b). */
+  private readNpcChallengeFalse(): string {
+    return this.readLbString('lb_str_npc_challenge_false');
+  }
+
+  /** Load app.string.* by name into @State string (Resource cannot assign to string State). */
+  private readLbString(name: string): string {
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      return ctx.resourceManager.getStringByNameSync(name);
+    } catch (err) {
+      Logger.warn(TAG, `readLbString miss ${name}`);
+      return '';
+    }
   }
 
   private closeChallengeEntry(allowPlay: boolean): void {
@@ -2600,6 +2621,9 @@ struct Table {
     // ACK accepted. Open 18 reveal stage (not old lb_scr_challenge).
     this.challengeResolvedPlayId = target;
     this.closeChallengeEntry(false);
+    // Hang stub: NPC bubble resolve uses true/false keys when commit fires (#158 / 11b).
+    // Set after close so closeChallengeEntry clear does not wipe the resolve copy.
+    this.npcChallengeBubble = guessTrue ? this.readNpcChallengeTrue() : this.readNpcChallengeFalse();
     const after: MatchSnapshot | null = AppRuntime.engine.current();
     if (after !== null) {
       this.beginRevealAfterAck(after);
