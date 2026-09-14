@@ -107,11 +107,24 @@ const pinNested = /ChallengeEntry|CHALLENGE_AWAIT|CHALLENGE_ENTRY/.test(handPinB
 const pinCallAt = table.indexOf('this.handPin()');
 const entryAt = table.indexOf('ChallengeEntry({');
 const awaitAt = table.indexOf('ControlIds.CHALLENGE_AWAIT');
-const bottomEndAt = table.indexOf('Alignment.BottomEnd');
+// Slice the ChallengeEntry mount Stack (nearest Stack({ before ChallengeEntry({).
+const mountStackAt = entryAt >= 0 ? table.lastIndexOf('Stack({', entryAt) : -1;
+const mountSlice = mountStackAt >= 0 && entryAt > mountStackAt
+  ? table.slice(mountStackAt, Math.min(table.length, entryAt + 900))
+  : '';
 const siblingOverlay = pinCallAt >= 0 && entryAt > pinCallAt && awaitAt > entryAt &&
-  bottomEndAt >= 0 && bottomEndAt < entryAt;
-if (handPinBody.length > 0 && !pinNested && siblingOverlay) {
-  pass('C2 overlay: BottomEnd AwaitChallenge sibling of handPin (not inside @Builder handPin)');
+  handPinBody.length > 0 && !pinNested;
+// 17 v0.2.1: must be self-front / ring–hand GAP — FAIL if ONLY BottomEnd with no seat-front lift.
+const onlyBottomEnd = /alignContent:\s*Alignment\.BottomEnd/.test(mountSlice) &&
+  !/challengeFrontLiftVp|handY|ring–hand|ring-hand|HAND_RING_GAP|self-front|身前|\.position\(/.test(mountSlice);
+const selfFront = /challengeFrontLiftVp|handY|ring–hand|ring-hand|self-front|身前/.test(mountSlice) ||
+  (table.includes('challengeFrontLiftVp') && /HAND_RING_GAP|ring–hand|self-front|身前/.test(table.slice(Math.max(0, entryAt - 400), entryAt + 200)));
+if (onlyBottomEnd) {
+  fail('C2 overlay: ChallengeEntry ONLY BottomEnd — need self-front / ring–hand GAP (17 v0.2.1)');
+} else if (siblingOverlay && selfFront) {
+  pass('C2 overlay: AwaitChallenge self-front sibling of handPin (ring–hand GAP, not BottomEnd-only)');
+} else if (siblingOverlay) {
+  fail('C2 overlay: sibling ok but missing self-front / ring–hand / handY / GAP band positioning');
 } else {
   fail('entry missing or mounted in handPin');
 }

@@ -375,9 +375,10 @@ struct Table {
         .height('100%')
         .hitTestBehavior(HitTestMode.Transparent)
 
-        // 17 AwaitChallenge: same BottomEnd overlay family as confirm bar.
+        // 17 AwaitChallenge: self-front band (ring–hand HAND_RING_GAP), overlay ≠ handPin.
+        // Above lb_cmp_hand inside GAP; NOT BottomEnd-only corner. Align 17 v0.2.1.
         // Must NOT live in handPin (would grow hug / lift cards / raise padB).
-        Stack({ alignContent: Alignment.BottomEnd }) {
+        Stack({ alignContent: Alignment.Bottom }) {
           ChallengeEntry({
             visible: this.challengeEntryOn && !this.challengeCommitBusy,
             remainSec: this.challengeRemainSec,
@@ -391,6 +392,7 @@ struct Table {
               this.onChallengePass(false);
             }
           })
+            .margin({ bottom: this.challengeFrontLiftVp() })
         }
         .id(ControlIds.CHALLENGE_AWAIT)
         .width('100%')
@@ -1273,6 +1275,17 @@ struct Table {
     return TableBreakpoints.handRingGapVp(this.playH, this.stackH, this.padT, this.padB);
   }
 
+  /**
+   * 17 v0.2.1 · lift lb_cmp_challenge_entry into self-front ring–hand GAP band.
+   * Bottom of overlay = hand bottom; marginBottom clears lb_cmp_hand so entry
+   * sits above the hand row (body-front readable). Does not raise padB / change GAP.
+   * Fallback 78vp = card_h when hand not yet measured.
+   */
+  private challengeFrontLiftVp(): number {
+    const handH: number = this.flushHandH > 0 ? this.flushHandH : 78;
+    return handH + 8;
+  }
+
   private insetVp(px: number): number {
     return Math.round(this.pxToVp(px));
   }
@@ -2149,7 +2162,7 @@ struct Table {
         this.rankSettlePlace = this.placeOf(snap.emptyOrder, this.playFlySeat);
       }
       this.refreshPlayMeta(snap);
-      // Challenger seat front: self = BottomEnd ChallengeEntry when canChallenge.
+      // Challenger seat front: self = ChallengeEntry in ring–hand GAP when canChallenge.
       this.syncChallengeEntry(snap);
     }
     this.pull();
@@ -2457,7 +2470,7 @@ struct Table {
     this.confirmBarOn = false;
     // Hang point: lb_str_challenge_dealer_enter (string slot bound).
     this.challengeDealerEnter = this.readChallengeDealerEnter();
-    // Hang: NPC bubble idle thinking while human AwaitChallenge (self keys at BottomEnd).
+    // Hang: NPC bubble idle thinking while human AwaitChallenge (self keys at seat front).
     this.npcChallengeBubble = this.readNpcChallengeThinking();
     if (this.playEnabled) {
       this.playEnabled = false;
