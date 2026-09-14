@@ -491,6 +491,14 @@
     {
       "name": "lb_str_all_out_not_eliminated",
       "value": "熄尽未淘汰"
+    },
+    {
+      "name": "lb_str_challenge_no_broadcast",
+      "value": "质疑无表现"
+    },
+    {
+      "name": "lb_str_reveal_self_only",
+      "value": "揭牌仅自己见"
     }
   ]
 }
