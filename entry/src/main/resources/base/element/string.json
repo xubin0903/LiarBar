@@ -85,9 +85,9 @@
     { "name": "lb_str_debug_sfx_renderer", "value": "低延迟" },
     { "name": "lb_str_debug_sfx_arm_on", "value": "早起" },
     { "name": "lb_str_debug_sfx_arm_off", "value": "同起" },
-    { "name": "lb_str_challenge_dealer_enter", "value": "真假？过也可。" },
-    { "name": "lb_str_npc_challenge_thinking", "value": "……" },
-    { "name": "lb_str_npc_challenge_true", "value": "真！" },
-    { "name": "lb_str_npc_challenge_false", "value": "有假！" }
+    { "name": "lb_str_challenge_dealer_enter", "value": "轮到质疑了——真，还是假？" },
+    { "name": "lb_str_npc_challenge_thinking", "value": "选择真/假…" },
+    { "name": "lb_str_npc_challenge_true", "value": "选了真" },
+    { "name": "lb_str_npc_challenge_false", "value": "选了假" }
   ]
 }
