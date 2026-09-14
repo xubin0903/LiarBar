@@ -4,8 +4,8 @@
 PM lock 2026-09-14: AwaitChallenge entry is 质疑|相信 (not 真|假).
 TRUE/FALSE chrome stays on disk for possible reveal judgment; ENTRY uses this pair.
 
-CHALLENGE (质疑) = cooler/sharper like prior false chrome + slash motif
-TRUST     (相信) = warmer/rounder like prior true chrome + soft check motif
+DOUBT   (质疑) = cooler/sharper like prior false chrome + slash motif
+BELIEVE (相信) = warmer/rounder like prior true chrome + soft check motif
 ON        = pressed/lit of each
 
 WORDLESS: zero Chinese glyphs baked — client overlays 「质疑」/「相信」 Text.
@@ -13,6 +13,8 @@ Shape + chroma channels differ — not hue-only twins. Zero .ets. Zero audio.
 
 Tokens: docs/04-设计/夜半酒馆-风格板.md
 Slots:  docs/04-设计/质疑相信键-无字铬-资产交件.md
+Lock names: art_btn_challenge_doubt / art_btn_challenge_believe (±_on).
+FORBIDDEN resource names: challenge_challenge, trust.
 Mirror: scripts/gen_challenge_true_false_btn_art.py / gen_challenge_you_prev_btn_art.py
 """
 
@@ -61,8 +63,8 @@ def clear_zero_rgb(arr: np.ndarray) -> np.ndarray:
     return arr
 
 
-def grade_trust(im: Image.Image, pressed: bool) -> Image.Image:
-    """Warm trust chrome (相信): felt + brass / candle-gold. Rounded pill + check.
+def grade_believe(im: Image.Image, pressed: bool) -> Image.Image:
+    """Warm believe chrome (相信): felt + brass / candle-gold. Rounded pill + check.
 
     Mirrors prior TRUE chrome — warmer/rounder channel for client overlay 「相信」.
     """
@@ -88,7 +90,7 @@ def grade_trust(im: Image.Image, pressed: bool) -> Image.Image:
     plate = Image.fromarray(out.astype(np.uint8), "RGBA")
 
     w, h = plate.size
-    # Pill radius — distinctly rounder than challenge (质疑).
+    # Pill radius — distinctly rounder than doubt (质疑).
     radius = h // 2 - 2
     overlay = Image.new("RGBA", plate.size, (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
@@ -119,8 +121,8 @@ def grade_trust(im: Image.Image, pressed: bool) -> Image.Image:
     return Image.fromarray(final, "RGBA")
 
 
-def grade_challenge(im: Image.Image, pressed: bool) -> Image.Image:
-    """Cool challenge chrome (质疑): steel/teal + copper edge. Sharper + slash.
+def grade_doubt(im: Image.Image, pressed: bool) -> Image.Image:
+    """Cool doubt chrome (质疑): steel/teal + copper edge. Sharper + slash.
 
     Mirrors prior FALSE chrome — cooler/sharper channel for client overlay 「质疑」.
     """
@@ -147,7 +149,7 @@ def grade_challenge(im: Image.Image, pressed: bool) -> Image.Image:
     plate = Image.fromarray(out.astype(np.uint8), "RGBA")
 
     w, h = plate.size
-    # Sharper / angled corners — shape channel vs trust's pill.
+    # Sharper / angled corners — shape channel vs believe's pill.
     radius = 14
     overlay = Image.new("RGBA", plate.size, (0, 0, 0, 0))
     od = ImageDraw.Draw(overlay)
@@ -191,10 +193,10 @@ def grade_challenge(im: Image.Image, pressed: bool) -> Image.Image:
 def make_btn(kind: str, pressed: bool) -> Image.Image:
     src_name = "src_btn_primary_on.png" if pressed else "src_btn_primary.png"
     chrome = fit_chrome(open_src(src_name), *BTN_SIZE)
-    if kind == "trust":
-        return grade_trust(chrome, pressed)
-    if kind == "challenge":
-        return grade_challenge(chrome, pressed)
+    if kind == "believe":
+        return grade_believe(chrome, pressed)
+    if kind == "doubt":
+        return grade_doubt(chrome, pressed)
     raise ValueError(kind)
 
 
@@ -242,49 +244,49 @@ def assert_no_chinese_glyphs_baked(path: Path) -> None:
         )
 
 
-def assert_shape_differs(trust_path: Path, challenge_path: Path) -> None:
-    """Corners / mask: trust is pillier; challenge sharper — not hue twins."""
+def assert_shape_differs(believe_path: Path, doubt_path: Path) -> None:
+    """Corners / mask: believe is pillier; doubt sharper — not hue twins."""
 
     def corner_fill(path: Path) -> float:
         arr = np.array(Image.open(path).convert("RGBA"))
         patch = arr[2:18, 2:18, 3]
         return float(patch.mean())
 
-    t = corner_fill(trust_path)
-    c = corner_fill(challenge_path)
+    t = corner_fill(believe_path)
+    c = corner_fill(doubt_path)
     if t >= c - 5:
-        ta = np.array(Image.open(trust_path).convert("RGBA"))[..., 3]
-        ca = np.array(Image.open(challenge_path).convert("RGBA"))[..., 3]
+        ta = np.array(Image.open(believe_path).convert("RGBA"))[..., 3]
+        ca = np.array(Image.open(doubt_path).convert("RGBA"))[..., 3]
         t_top = int((ta[3, :] > 40).sum())
         c_top = int((ca[3, :] > 40).sum())
         if abs(t_top - c_top) < 8 and t >= c:
             raise SystemExit(
-                f"trust/challenge corner masks too similar "
+                f"believe/doubt corner masks too similar "
                 f"(t={t:.1f} c={c:.1f} top={t_top}/{c_top})"
             )
-    tm = mean_body_rgb(trust_path)
-    cm = mean_body_rgb(challenge_path)
-    trust_warm = float(tm[0] - tm[2])
-    if trust_warm < 12:
-        raise SystemExit(f"trust not warm enough (R-B={trust_warm:.1f}, mean={tm})")
-    if float(cm[0] - cm[2]) > trust_warm - 4:
+    tm = mean_body_rgb(believe_path)
+    cm = mean_body_rgb(doubt_path)
+    believe_warm = float(tm[0] - tm[2])
+    if believe_warm < 12:
+        raise SystemExit(f"believe not warm enough (R-B={believe_warm:.1f}, mean={tm})")
+    if float(cm[0] - cm[2]) > believe_warm - 4:
         raise SystemExit(
-            f"challenge warmer than trust "
-            f"(trust R-B={trust_warm:.1f} challenge R-B={cm[0]-cm[2]:.1f})"
+            f"doubt warmer than believe "
+            f"(believe R-B={believe_warm:.1f} doubt R-B={cm[0]-cm[2]:.1f})"
         )
     print(
-        f"shape/chroma: trust_corner={t:.1f} challenge_corner={c:.1f} "
-        f"trust_warm={trust_warm:.1f} challenge_RB={cm[0]-cm[2]:.1f}"
+        f"shape/chroma: believe_corner={t:.1f} doubt_corner={c:.1f} "
+        f"believe_warm={believe_warm:.1f} doubt_RB={cm[0]-cm[2]:.1f}"
     )
 
 
 def main() -> None:
     MEDIA.mkdir(parents=True, exist_ok=True)
     outs = {
-        "challenge_off": MEDIA / "art_btn_challenge_challenge.png",
-        "challenge_on": MEDIA / "art_btn_challenge_challenge_on.png",
-        "trust_off": MEDIA / "art_btn_challenge_trust.png",
-        "trust_on": MEDIA / "art_btn_challenge_trust_on.png",
+        "doubt_off": MEDIA / "art_btn_challenge_doubt.png",
+        "doubt_on": MEDIA / "art_btn_challenge_doubt_on.png",
+        "believe_off": MEDIA / "art_btn_challenge_believe.png",
+        "believe_on": MEDIA / "art_btn_challenge_believe_on.png",
     }
     # Keep prior true/false on disk — superseded for ENTRY only; may serve reveal judgment.
     for legacy in (
@@ -297,13 +299,13 @@ def main() -> None:
         if not legacy_path.is_file():
             raise SystemExit(
                 f"missing legacy {legacy} — must remain for possible reveal judgment "
-                "(do NOT delete; ENTRY superseded by challenge/trust)"
+                "(do NOT delete; ENTRY superseded by doubt/believe)"
             )
 
-    save_png(make_btn("challenge", False), outs["challenge_off"])
-    save_png(make_btn("challenge", True), outs["challenge_on"])
-    save_png(make_btn("trust", False), outs["trust_off"])
-    save_png(make_btn("trust", True), outs["trust_on"])
+    save_png(make_btn("doubt", False), outs["doubt_off"])
+    save_png(make_btn("doubt", True), outs["doubt_on"])
+    save_png(make_btn("believe", False), outs["believe_off"])
+    save_png(make_btn("believe", True), outs["believe_on"])
 
     for path in outs.values():
         im = Image.open(path)
@@ -325,12 +327,13 @@ def main() -> None:
             f"bytes={path.stat().st_size} corners=clear wordless=ok"
         )
 
-    assert_shape_differs(outs["trust_off"], outs["challenge_off"])
-    assert_shape_differs(outs["trust_on"], outs["challenge_on"])
+    assert_shape_differs(outs["believe_off"], outs["doubt_off"])
+    assert_shape_differs(outs["believe_on"], outs["doubt_on"])
     print(
-        "challenge trust/believe dual-channel chrome written "
+        "challenge doubt/believe dual-channel chrome written "
         "(质疑 cooler/sharper · 相信 warmer/rounder; "
-        "wordless; not system gray/blue; true/false kept)"
+        "wordless; not system gray/blue; true/false kept; "
+        "FORBIDDEN names challenge_challenge/trust unused)"
     )
 
 
