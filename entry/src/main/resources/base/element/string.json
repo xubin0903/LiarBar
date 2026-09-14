@@ -234,7 +234,7 @@
     },
     {
       "name": "lb_str_privacy_on",
-      "value": "防瞥已开"
+      "value": "防窥已开"
     },
     {
       "name": "lb_str_nick_ph",
@@ -258,7 +258,7 @@
     },
     {
       "name": "lb_str_silent_hint",
-      "value": "静默局：关催促、强震和嘲讽音。防瞥和实况窗仍开。"
+      "value": "静默局：关催促、强震和嘲讽音。防窥和实况窗仍开。"
     },
     {
       "name": "lb_str_lv_turn_you",
@@ -422,7 +422,7 @@
     },
     {
       "name": "lb_str_revolver_as_lives",
-      "value": "左轮膖位当命数主读"
+      "value": "左轮膛位当命数主读"
     },
     {
       "name": "lb_str_penalty_no_redeal",
@@ -478,7 +478,7 @@
     },
     {
       "name": "lb_str_loser_no_extinguish",
-      "value": "揭牌输家未熏烛"
+      "value": "揭牌输家未熄烛"
     },
     {
       "name": "lb_str_still_one_life_elim",
