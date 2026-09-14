@@ -33,7 +33,9 @@ import {
   TurnWindow
 } from './Phase';
 import { SeededRng } from './SeededRng';
-import { aliveCount, nextAlive, nicknameOf, seatById } from './SeatUtil';
+import { aliveCount, nextAlive, seatById } from './SeatUtil';
+import { RevolverGun } from './RevolverGun';
+import { allOtherAliveEmpty, classifyEmptyGate, EmptyGateKind } from './HandEmptyGate';
 
 const TAG = 'MatchEngine';
 
@@ -44,10 +46,9 @@ export interface StartMatchOpts {
 }
 
 /**
- * Pure match state machine (docs/05-技术/02-回合状态机草图.md T01+).
- * No UI / Kit. Win condition is only "one ALIVE seat remains".
- * HUMAN TURN / PLAY_REVEAL_SELF: clock paused; timeout() never auto-acts.
- * AI seats still use turn_seconds + timeout_auto_play / challenge_only skip.
+ * Revolver v1 state machine (左轮对局-状态机 v1.1.1 / GDD v0.3.0).
+ * Win = one ALIVE remains. Any shot → CollectRedeal. HandEmpty ≥3/=2.
+ * Abolish 3-life primary and RoundWin→RedealAll.
  */
 export class MatchEngine {
   private snapshot: MatchSnapshot | null = null;
@@ -105,12 +106,18 @@ export class MatchEngine {
   private challengeHits: number[] = [];
   private tableMode: TableMode = TableMode.SOCIAL;
   private skipDepth: number = 0;
-  /** Round-win contributors this land (hand==0). Not whole-match place. */
   private emptyOrder: number[] = [];
-  /** U03b pending: RoundWin tip then RedealAll. UI beat, not Phase. */
+  /** Always false under revolver v1 (RoundWin abolished). */
   private roundWinPending: boolean = false;
-  /** Cards of the last committed play — rollbackLastPlay puts them back. */
   private lastPicked: CardModel[] = [];
+  private gun: RevolverGun = new RevolverGun();
+  private emptySafePending: boolean = false;
+  private forceChallengeEmpty: boolean = false;
+  private emptyHandSeatId: number = -1;
+  private roundSafeWaitSeats: number[] = [];
+  private lastShotLive: boolean = false;
+  private lastShooterSeatId: number = -1;
+  private shotPending: boolean = false;
 
   current(): MatchSnapshot | null {
     if (this.snapshot === null && this.cfg === null) {
@@ -123,7 +130,6 @@ export class MatchEngine {
     return this.phase;
   }
 
-  /** TURN / PLAY_REVEAL_SELF on a HUMAN seat: director must wait; never timeout-auto. */
   humanMustWait(): boolean {
     return this.currentSeatIsHuman() &&
       (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF);
@@ -132,10 +138,6 @@ export class MatchEngine {
   pulse(nowMs: number): boolean {
     this.nowMs = nowMs;
     if (this.cfg === null) {
-      return false;
-    }
-    // RoundWin tip window: no timeout / auto-play until RedealAll.
-    if (this.roundWinPending) {
       return false;
     }
     if (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF) {
@@ -180,11 +182,7 @@ export class MatchEngine {
     this.deck = JSON.parse(JSON.stringify(ConfigRepository.deck())) as DeckConfig;
     this.demo = JSON.parse(JSON.stringify(ConfigRepository.demo())) as DemoSeedConfig;
     this.demoOn = cfg.demo_seed_enabled;
-    if (this.demoOn) {
-      this.seed = cfg.demo_seed_value;
-    } else {
-      this.seed = Date.now();
-    }
+    this.seed = this.demoOn ? cfg.demo_seed_value : Date.now();
     this.rng = new SeededRng(this.seed);
     this.nowMs = Date.now();
     this.matchId = `m-${this.seed}`;
@@ -221,17 +219,21 @@ export class MatchEngine {
     this.highlightLine = '';
     this.viewerSeatId = 0;
     this.skipDepth = 0;
+    this.clearEmptyGate();
+    this.roundSafeWaitSeats = [];
+    this.lastShotLive = false;
+    this.lastShooterSeatId = -1;
+    this.shotPending = false;
+    const chambers: number = cfg.revolver_chambers > 0 ? cfg.revolver_chambers : 6;
+    const live: number = cfg.revolver_live > 0 ? cfg.revolver_live : 1;
+    this.gun.reset(chambers, live, this.rng);
     this.buildSeats(opts);
     this.phase = Phase.DEAL;
     this.dealFresh(false);
-    Logger.info(TAG, `T01 START_MATCH → DEAL matchId=${this.matchId} seed=${this.seed} n=${opts.playerCount}`);
+    Logger.info(TAG, `T01 START_MATCH → DEAL matchId=${this.matchId} seed=${this.seed} n=${opts.playerCount} chambers=${chambers}`);
     return true;
   }
 
-  /**
-   * T02: last flying card has landed. Logic hands already exist.
-   * Must stay in DEAL until UI calls this — do not skip to CLAIM/TURN mid-show.
-   */
   dealDone(): boolean {
     if (this.phase !== Phase.DEAL) {
       return false;
@@ -249,11 +251,7 @@ export class MatchEngine {
     const cfg: MatchDefaults = ConfigRepository.snapshotMatchDefaults();
     this.cfg = cfg;
     this.demo = ConfigRepository.demo();
-    let seed: number = 0;
-    if (cfg.demo_seed_enabled) {
-      seed = cfg.demo_seed_value;
-    }
-    this.seed = seed;
+    this.seed = cfg.demo_seed_enabled ? cfg.demo_seed_value : 0;
     this.phase = Phase.LOBBY;
     this.turnWindow = TurnWindow.NORMAL;
     this.seats = [];
@@ -269,6 +267,8 @@ export class MatchEngine {
     this.lastPicked = [];
     this.challenge = null;
     this.winnerSeatId = -1;
+    this.clearEmptyGate();
+    this.roundSafeWaitSeats = [];
     this.dealerKey = 'lb_str_dlr_lobby_full';
     this.dealerLine = '本桌四人，酒已满。';
     this.snapshot = this.buildSnapshot();
@@ -276,13 +276,10 @@ export class MatchEngine {
   }
 
   intentPlay(): boolean {
-    if (this.phase !== Phase.TURN) {
+    if (this.phase !== Phase.TURN || !this.hasCardsNow() || this.currentIsGhost()) {
       return false;
     }
-    if (!this.hasCardsNow()) {
-      return false;
-    }
-    if (this.currentIsGhost()) {
+    if (this.turnWindow === TurnWindow.EMPTY_SAFE || this.turnWindow === TurnWindow.FORCE_CHALLENGE) {
       return false;
     }
     this.phase = Phase.PLAY_REVEAL_SELF;
@@ -304,10 +301,10 @@ export class MatchEngine {
     if (this.phase !== Phase.PLAY_REVEAL_SELF && this.phase !== Phase.TURN) {
       return false;
     }
-    if (this.cfg === null) {
+    if (this.cfg === null || this.currentIsGhost()) {
       return false;
     }
-    if (this.currentIsGhost()) {
+    if (this.turnWindow === TurnWindow.EMPTY_SAFE || this.turnWindow === TurnWindow.FORCE_CHALLENGE) {
       return false;
     }
     const hand: CardModel[] = this.handOf(this.currentSeatId);
@@ -345,11 +342,6 @@ export class MatchEngine {
     return true;
   }
 
-  /**
-   * Authority reject after an optimistic submit (16 onPlayRollback).
-   * Restores lastPicked to the actor, pops emptyOrder if this play emptied,
-   * clears roundWinPending. No AwaitChallenge / RoundWin / RankSettle.
-   */
   rollbackLastPlay(): boolean {
     if (this.lastPlay === null || this.lastPicked.length === 0) {
       return false;
@@ -363,6 +355,9 @@ export class MatchEngine {
         kept.push(this.emptyOrder[i]);
       }
       this.emptyOrder = kept;
+    }
+    if (this.emptyHandSeatId === actor) {
+      this.clearEmptyGate();
     }
     this.roundWinPending = false;
     this.playIndexInRound = this.playIndexInRound - 1;
@@ -382,56 +377,51 @@ export class MatchEngine {
     return true;
   }
 
-  /**
-   * U03b RoundWin gate (UI tip). Clears lastPlay as challenge target.
-   * Table shows RoundWin ~1000ms then calls redealAll().
-   */
+  /** Deprecated RoundWin API — always false (废 RoundWin). */
   beginRoundWin(): boolean {
-    if (!this.roundWinPending && this.emptyOrder.length === 0) {
-      return false;
-    }
-    this.roundWinPending = true;
-    this.lastPlay = null;
-    this.lastPlayRanks = [];
-    this.lastPicked = [];
-    this.turnEndsAtMs = 0;
-    let winSeats: string = '';
-    for (let i = 0; i < this.emptyOrder.length; i++) {
-      if (i > 0) {
-        winSeats = `${winSeats},`;
-      }
-      winSeats = `${winSeats}${this.emptyOrder[i]}`;
-    }
-    Logger.info(TAG, `beginRoundWin seats=${winSeats}`);
-    return true;
+    Logger.info(TAG, 'beginRoundWin ignored (revolver: HandEmptyGate, not RoundWin)');
+    this.roundWinPending = false;
+    return false;
   }
 
-  /**
-   * U03b RedealAll: all lives>0 (ALIVE) reseated; ghosts skip.
-   * Whole-match RankSettle only if exactly 1 alive.
-   */
+  /** Deprecated RoundWin RedealAll — use collectRedeal after shot / safe-wait settle. */
   redealAll(): boolean {
-    if (!this.roundWinPending && this.emptyOrder.length === 0) {
+    Logger.info(TAG, 'redealAll ignored (revolver: CollectRedeal only after shot/settle)');
+    this.roundWinPending = false;
+    return false;
+  }
+
+  /** ≥3 EmptySafe3: 质疑你 → challenge emptier last hand. */
+  chooseEmptyYou(): boolean {
+    if (!this.emptySafePending || this.lastPlay === null) {
       return false;
     }
-    this.roundWinPending = false;
-    this.emptyOrder = [];
+    this.emptySafePending = false;
+    this.turnWindow = TurnWindow.NORMAL;
+    Logger.info(TAG, `chooseEmptyYou emptier=${this.emptyHandSeatId}`);
+    return this.intentChallenge();
+  }
+
+  /** ≥3 EmptySafe3: 不质疑你 → RoundSafeWait + continue. */
+  chooseEmptyShangjia(): boolean {
+    if (!this.emptySafePending) {
+      return false;
+    }
+    const emptier: number = this.emptyHandSeatId;
+    this.emptySafePending = false;
+    this.forceChallengeEmpty = false;
+    if (emptier >= 0) {
+      this.roundSafeWaitSeats.push(emptier);
+    }
+    // Do not reveal emptier last hand; clear as challenge target.
     this.lastPlay = null;
     this.lastPlayRanks = [];
     this.lastPicked = [];
-    this.challenge = null;
-    this.revealOpen = false;
-    this.judged = false;
-    const live: number = aliveCount(this.seats);
-    if (live <= 1) {
-      this.toRecap();
-      Logger.info(TAG, 'redealAll → RankSettle (1 alive)');
-      return true;
-    }
-    this.dealerKey = 'lb_str_dlr_deal';
-    this.phase = Phase.DEAL;
-    this.dealFresh(false);
-    Logger.info(TAG, 'redealAll → DEAL (RoundWin path)');
+    this.currentSeatId = nextAlive(this.seats, emptier >= 0 ? emptier : this.currentSeatId);
+    this.phase = Phase.TURN;
+    this.enterTurn();
+    this.maybeSettleRoundSafeWait();
+    Logger.info(TAG, `chooseEmptyShangjia emptier=${emptier} → RoundSafeWait`);
     return true;
   }
 
@@ -442,12 +432,11 @@ export class MatchEngine {
     if (!this.canChallengeNow()) {
       return false;
     }
-    if (this.currentIsGhost()) {
+    if (this.currentIsGhost() || this.lastPlay === null || this.cfg === null) {
       return false;
     }
-    if (this.lastPlay === null || this.cfg === null) {
-      return false;
-    }
+    this.emptySafePending = false;
+    this.forceChallengeEmpty = false;
     this.challengeSeq++;
     this.challenge = {
       challengeId: `ch-${this.challengeSeq}`,
@@ -479,6 +468,12 @@ export class MatchEngine {
     if (this.phase !== Phase.TURN) {
       return false;
     }
+    if (this.turnWindow === TurnWindow.FORCE_CHALLENGE) {
+      return false;
+    }
+    if (this.turnWindow === TurnWindow.EMPTY_SAFE) {
+      return this.chooseEmptyShangjia();
+    }
     if (this.turnWindow !== TurnWindow.CHALLENGE_ONLY && this.hasCardsNow()) {
       return false;
     }
@@ -486,16 +481,15 @@ export class MatchEngine {
     return true;
   }
 
-  /**
-   * AI: CHALLENGE_ONLY → skip; NORMAL + timeout_auto_play → autoPlayOne.
-   * HUMAN: never auto-play / auto-skip. Clock is paused in armTurnClock; wait for tap.
-   */
   timeout(): boolean {
-    if (this.cfg === null) {
+    if (this.cfg === null || this.currentSeatIsHuman()) {
       return false;
     }
-    if (this.currentSeatIsHuman()) {
-      return false;
+    if (this.phase === Phase.TURN && this.turnWindow === TurnWindow.FORCE_CHALLENGE) {
+      return this.intentChallenge();
+    }
+    if (this.phase === Phase.TURN && this.turnWindow === TurnWindow.EMPTY_SAFE) {
+      return this.chooseEmptyShangjia();
     }
     if (this.phase === Phase.TURN && this.turnWindow === TurnWindow.CHALLENGE_ONLY) {
       this.dealerKey = 'lb_str_dlr_chal_only_skip';
@@ -540,6 +534,7 @@ export class MatchEngine {
       this.applyJudged();
     }
     this.phase = Phase.PENALTY;
+    this.shotPending = true;
     if (this.cfg !== null) {
       this.penaltyEndsAtMs = this.nowMs + this.cfg.challenge_bet_seconds * 1000;
     }
@@ -551,10 +546,7 @@ export class MatchEngine {
     if (this.phase !== Phase.CHALLENGE_RITUAL || this.challenge === null || this.cfg === null) {
       return false;
     }
-    if (!this.cfg.face_bet_enabled) {
-      return false;
-    }
-    if (this.challenge.ritualBeat !== ChallengeBeatIds.STANDOFF) {
+    if (!this.cfg.face_bet_enabled || this.challenge.ritualBeat !== ChallengeBeatIds.STANDOFF) {
       return false;
     }
     for (let i = 0; i < this.challenge.bets.length; i++) {
@@ -578,49 +570,66 @@ export class MatchEngine {
     return true;
   }
 
-  /**
-   * 14b R-LIFE-5 debug −1. Same life drop as penalty, no rule rewrite:
-   * lives_default stays 3, max_play frozen, challenge not unfrozen, no recap.
-   */
+  /** Debug: force live eliminate via shoot (replaces 3-life dec). */
   debugDecLife(seatId: number): boolean {
     if (this.cfg === null || this.seats.length === 0) {
       return false;
     }
     const seat = seatById(this.seats, seatId);
-    if (seat === null || seat.lives <= 0) {
+    if (seat === null || seat.status !== SeatStatus.ALIVE) {
       return false;
     }
-    seat.lives = seat.lives - 1;
+    this.lastShooterSeatId = seatId;
+    this.lastShotLive = true;
+    seat.lives = 0;
     seat.lastDelta = -1;
-    seat.lastReason = LifeReason.NONE;
-    this.pushEvent(EventKind.LIFE_CHANGE, seatId, 'DEBUG_DEC');
-    if (seat.lives === 0) {
-      seat.status = SeatStatus.GHOST;
-      this.hands[seatId] = [];
-      this.pushEvent(EventKind.OUT, seatId, 'GHOST');
-    }
-    Logger.info(TAG, `debugDecLife seat=${seatId} lives=${seat.lives}`);
-    return true;
+    seat.lastReason = LifeReason.SHOOT_LIVE;
+    seat.status = SeatStatus.GHOST;
+    this.hands[seatId] = [];
+    this.pushEvent(EventKind.SHOOT, seatId, 'LIVE|DEBUG');
+    this.pushEvent(EventKind.OUT, seatId, 'GHOST');
+    Logger.info(TAG, `debugDecLife → eliminate seat=${seatId}`);
+    return this.collectRedeal();
   }
 
+  /** Shoot window done → fire chamber → CollectRedeal (U09). */
   penaltyDone(): boolean {
     if (this.phase !== Phase.PENALTY) {
       return false;
     }
-    this.lastPenalizedSeatId = this.lastLoserSeatId;
+    if (this.shotPending) {
+      this.applyShoot(this.lastLoserSeatId);
+      this.shotPending = false;
+    }
+    return this.collectRedeal();
+  }
+
+  /** CollectRedeal: any shot or RoundSafeWait settle → redeal alive + new claim. */
+  collectRedeal(): boolean {
+    this.clearEmptyGate();
+    this.roundSafeWaitSeats = [];
+    this.roundWinPending = false;
+    this.emptyOrder = [];
     this.lastPlay = null;
     this.lastPlayRanks = [];
-    this.playIndexInRound = 0;
-    this.stallSkipCount = 0;
+    this.lastPicked = [];
+    this.challenge = null;
     this.revealOpen = false;
     this.judged = false;
+    this.playIndexInRound = 0;
+    this.stallSkipCount = 0;
+    this.lastPenalizedSeatId = this.lastShooterSeatId >= 0 ? this.lastShooterSeatId : this.lastLoserSeatId;
+    this.pushEvent(EventKind.COLLECT_REDEAL, this.lastPenalizedSeatId, 'redeal');
     const live: number = aliveCount(this.seats);
     if (live <= 1) {
       this.toRecap();
+      Logger.info(TAG, 'collectRedeal → MatchEnd (≤1 alive)');
       return true;
     }
-    this.challenge = null;
-    this.announceClaim();
+    this.dealerKey = 'lb_str_dlr_deal';
+    this.phase = Phase.DEAL;
+    this.dealFresh(false);
+    Logger.info(TAG, 'collectRedeal → DEAL');
     return true;
   }
 
@@ -715,6 +724,83 @@ export class MatchEngine {
     return ok;
   }
 
+  private clearEmptyGate(): void {
+    this.emptySafePending = false;
+    this.forceChallengeEmpty = false;
+    this.emptyHandSeatId = -1;
+  }
+
+  private enterHandEmptyGate(emptier: number): void {
+    this.emptyHandSeatId = emptier;
+    this.emptyOrder.push(emptier);
+    this.roundWinPending = false;
+    const kind: EmptyGateKind = classifyEmptyGate(aliveCount(this.seats));
+    const next: number = nextAlive(this.seats, emptier);
+    this.currentSeatId = next;
+    this.phase = Phase.TURN;
+    this.turnEndsAtMs = 0;
+    if (kind === 'force2') {
+      this.forceChallengeEmpty = true;
+      this.emptySafePending = false;
+      this.turnWindow = TurnWindow.FORCE_CHALLENGE;
+      this.armTurnClock(this.cfg !== null ? this.cfg.challenge_only_seconds : 8);
+      this.refreshTurnBanner();
+      Logger.info(TAG, `HandEmptyGate force2 emptier=${emptier} challenger=${next}`);
+      return;
+    }
+    if (kind === 'safe3') {
+      this.emptySafePending = true;
+      this.forceChallengeEmpty = false;
+      this.turnWindow = TurnWindow.EMPTY_SAFE;
+      this.armTurnClock(this.cfg !== null ? this.cfg.challenge_only_seconds : 8);
+      this.refreshTurnBanner();
+      Logger.info(TAG, `HandEmptyGate safe3 emptier=${emptier} chooser=${next}`);
+      return;
+    }
+    this.enterTurn();
+  }
+
+  private maybeSettleRoundSafeWait(): void {
+    if (this.roundSafeWaitSeats.length === 0) {
+      return;
+    }
+    const handLens: number[][] = [];
+    for (let i = 0; i < this.hands.length; i++) {
+      handLens.push(this.hands[i]);
+    }
+    if (allOtherAliveEmpty(this.seats, handLens, this.roundSafeWaitSeats)) {
+      Logger.info(TAG, 'RoundSafeWait settle → CollectRedeal');
+      this.collectRedeal();
+    }
+  }
+
+  private applyShoot(seatId: number): void {
+    const seat = seatById(this.seats, seatId);
+    if (seat === null || seat.status !== SeatStatus.ALIVE) {
+      this.lastShooterSeatId = seatId;
+      this.lastShotLive = false;
+      return;
+    }
+    const live: boolean = this.gun.fire();
+    this.lastShooterSeatId = seatId;
+    this.lastShotLive = live;
+    if (live) {
+      seat.lives = 0;
+      seat.lastDelta = -1;
+      seat.lastReason = LifeReason.SHOOT_LIVE;
+      seat.status = SeatStatus.GHOST;
+      this.hands[seatId] = [];
+      this.pushEvent(EventKind.SHOOT, seatId, `LIVE|ch=${this.gun.cursor}`);
+      this.pushEvent(EventKind.OUT, seatId, 'GHOST');
+      Logger.info(TAG, `applyShoot LIVE seat=${seatId}`);
+    } else {
+      seat.lastDelta = 0;
+      seat.lastReason = LifeReason.SHOOT_BLANK;
+      this.pushEvent(EventKind.SHOOT, seatId, `BLANK|ch=${this.gun.cursor}`);
+      Logger.info(TAG, `applyShoot BLANK seat=${seatId}`);
+    }
+  }
+
   private buildSeats(opts: StartMatchOpts): void {
     if (this.cfg === null) {
       return;
@@ -729,6 +815,7 @@ export class MatchEngine {
     if (nick.length === 0) {
       nick = '你';
     }
+    const aliveToken: number = this.cfg.lives_default > 0 ? this.cfg.lives_default : 1;
     for (let i = 0; i < opts.playerCount; i++) {
       let role: SeatRole = SeatRole.AI;
       let persona: string = '';
@@ -749,7 +836,7 @@ export class MatchEngine {
         status: SeatStatus.ALIVE,
         isHost: i === 0,
         faceScore: 0,
-        lives: this.cfg.lives_default,
+        lives: aliveToken,
         lastDelta: 0,
         lastReason: LifeReason.NONE,
         handCount: 0,
@@ -912,6 +999,11 @@ export class MatchEngine {
       this.redealStall();
       return;
     }
+    if (this.isInRoundSafeWait(this.currentSeatId)) {
+      this.currentSeatId = nextAlive(this.seats, this.currentSeatId);
+      this.enterTurn();
+      return;
+    }
     if (!this.hasCardsNow() && this.canChallengeNow()) {
       this.turnWindow = TurnWindow.CHALLENGE_ONLY;
       this.armTurnClock(this.cfg.challenge_only_seconds);
@@ -930,7 +1022,15 @@ export class MatchEngine {
     this.skipDepth = 0;
   }
 
-  /** AI: `seconds` countdown then timeout(). HUMAN: pause (turnEndsAtMs=0), wait for tap. */
+  private isInRoundSafeWait(seatId: number): boolean {
+    for (let i = 0; i < this.roundSafeWaitSeats.length; i++) {
+      if (this.roundSafeWaitSeats[i] === seatId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private armTurnClock(seconds: number): void {
     if (this.currentSeatIsHuman()) {
       this.turnEndsAtMs = 0;
@@ -949,6 +1049,7 @@ export class MatchEngine {
     }
     this.currentSeatId = nextAlive(this.seats, this.currentSeatId);
     this.enterTurn();
+    this.maybeSettleRoundSafeWait();
   }
 
   private redealStall(): void {
@@ -957,7 +1058,7 @@ export class MatchEngine {
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
     this.phase = Phase.DEAL;
     this.dealFresh(true);
-    Logger.info(TAG, 'T17 REDEAL_STALL → DEAL (rebuild show, no L1)');
+    Logger.info(TAG, 'T17 REDEAL_STALL → DEAL');
   }
 
   private commitPicked(
@@ -994,11 +1095,6 @@ export class MatchEngine {
       this.lastPicked.push({ cardId: picked[i].cardId, rank: picked[i].rank });
     }
     const emptied: boolean = this.handOf(actor).length === 0;
-    if (emptied) {
-      // Round-win contributor (may tie if multi-empty same land).
-      this.emptyOrder.push(actor);
-      this.roundWinPending = true;
-    }
     this.playIndexInRound = this.playIndexInRound + 1;
     this.stallSkipCount = 0;
     this.playCounts[actor] = this.playCounts[actor] + 1;
@@ -1018,26 +1114,20 @@ export class MatchEngine {
       this.dealerKey = 'lb_str_dlr_play';
     }
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
-    // U03b: hand==0 → hold for RoundWin tip; keep lastPlay until beginRoundWin.
-    // Ban AwaitChallenge via emptyOrder / roundWinPending. No RankSettle-on-empty.
+    // HandEmptyGate — never RoundWin→RedealAll.
     if (emptied) {
-      this.currentSeatId = actor;
-      this.phase = Phase.TURN;
-      this.turnEndsAtMs = 0;
-      this.turnWindow = TurnWindow.NORMAL;
-      Logger.info(TAG, `commitPicked empty → RoundWinPending actor=${actor}`);
+      this.enterHandEmptyGate(actor);
+      this.maybeSettleRoundSafeWait();
       return;
     }
     this.currentSeatId = nextAlive(this.seats, actor);
     this.phase = Phase.TURN;
     this.enterTurn();
+    this.maybeSettleRoundSafeWait();
   }
 
   private autoPlayOne(): void {
-    if (this.cfg === null || this.currentClaim === null) {
-      return;
-    }
-    if (this.currentSeatIsHuman()) {
+    if (this.cfg === null || this.currentClaim === null || this.currentSeatIsHuman()) {
       return;
     }
     const hand: CardModel[] = this.handOf(this.currentSeatId);
@@ -1165,11 +1255,12 @@ export class MatchEngine {
     this.challenge.judgedAt = Date.now();
     this.revealOpen = true;
     this.judged = true;
-    let loser: number = this.challenge.challengerSeatId;
+    // success = claim was FALSE → previous (actor) shoots; fail = TRUE → challenger shoots.
+    let shooter: number = this.challenge.challengerSeatId;
     let reason: LifeReason = LifeReason.CHALLENGE_FAIL_ON_SELF;
     if (success) {
       this.challenge.result = ChallengeResult.SUCCESS;
-      loser = this.lastPlay.actorSeatId;
+      shooter = this.lastPlay.actorSeatId;
       reason = LifeReason.CHALLENGE_SUCCESS_ON_TARGET;
       this.challengeHits[this.challenge.challengerSeatId] =
         this.challengeHits[this.challenge.challengerSeatId] + 1;
@@ -1178,31 +1269,13 @@ export class MatchEngine {
       this.challenge.result = ChallengeResult.FAIL;
       this.dealerKey = 'lb_str_dlr_judge_fail';
     }
-    this.lastLoserSeatId = loser;
-    this.applyLifeLoss(loser, reason);
+    this.lastLoserSeatId = shooter;
+    // Shoot deferred to penaltyDone (PENALTY window = shoot feedback).
     this.settleBets(success);
-    this.pushEvent(EventKind.JUDGE, loser, `${this.challenge.result}|${fake}`);
+    this.pushEvent(EventKind.JUDGE, shooter, `${this.challenge.result}|${fake}|shoot`);
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
     this.phase = Phase.JUDGE;
     this.phase = Phase.CHALLENGE_RITUAL;
-  }
-
-  private applyLifeLoss(seatId: number, reason: LifeReason): void {
-    const seat = seatById(this.seats, seatId);
-    if (seat === null) {
-      return;
-    }
-    if (seat.lives > 0) {
-      seat.lives = seat.lives - 1;
-    }
-    seat.lastDelta = -1;
-    seat.lastReason = reason;
-    this.pushEvent(EventKind.LIFE_CHANGE, seatId, reason);
-    if (seat.lives === 0) {
-      seat.status = SeatStatus.GHOST;
-      this.hands[seatId] = [];
-      this.pushEvent(EventKind.OUT, seatId, 'GHOST');
-    }
   }
 
   private settleBets(success: boolean): void {
@@ -1225,15 +1298,7 @@ export class MatchEngine {
   }
 
   private refreshPenaltyBanner(): void {
-    const seat = seatById(this.seats, this.lastLoserSeatId);
-    if (seat === null) {
-      return;
-    }
-    if (seat.status === SeatStatus.GHOST) {
-      this.dealerKey = 'lb_str_dlr_penalty_out';
-    } else {
-      this.dealerKey = 'lb_str_dlr_penalty_life';
-    }
+    this.dealerKey = this.lastShotLive ? 'lb_str_dlr_penalty_out' : 'lb_str_dlr_penalty_life';
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
   }
 
@@ -1287,21 +1352,20 @@ export class MatchEngine {
   }
 
   private canChallengeNow(): boolean {
-    if (this.roundWinPending) {
-      return false;
-    }
     const seat = seatById(this.seats, this.currentSeatId);
     if (seat === null || seat.status !== SeatStatus.ALIVE) {
       return false;
     }
-    if (this.lastPlay === null) {
+    if (this.lastPlay === null || this.playIndexInRound < 1) {
       return false;
     }
-    if (this.playIndexInRound < 1) {
-      return false;
+    // EmptySafe / ForceChallenge: must be able to challenge emptier last hand.
+    if (this.emptySafePending || this.forceChallengeEmpty) {
+      return this.lastPlay.actorSeatId === this.emptyHandSeatId;
     }
-    for (let i = 0; i < this.emptyOrder.length; i++) {
-      if (this.emptyOrder[i] === this.lastPlay.actorSeatId) {
+    // Normal: cannot challenge a RoundSafeWait emptier's sealed last hand.
+    for (let i = 0; i < this.roundSafeWaitSeats.length; i++) {
+      if (this.roundSafeWaitSeats[i] === this.lastPlay.actorSeatId) {
         return false;
       }
     }
@@ -1428,7 +1492,15 @@ export class MatchEngine {
       currentClaim: this.currentClaim,
       lastPlay: this.lastPlay,
       emptyOrder: this.copyIds(this.emptyOrder),
-      roundWinPending: this.roundWinPending,
+      roundWinPending: false,
+      emptySafePending: this.emptySafePending,
+      forceChallengeEmpty: this.forceChallengeEmpty,
+      emptyHandSeatId: this.emptyHandSeatId,
+      roundSafeWaitSeats: this.copyIds(this.roundSafeWaitSeats),
+      chamberIndex: this.gun.cursor,
+      liveChamberIndex: this.gun.primaryLiveIndex(),
+      lastShotLive: this.lastShotLive,
+      lastShooterSeatId: this.lastShooterSeatId,
       lastPenalizedSeatId: this.lastPenalizedSeatId,
       roundIndex: this.roundIndex,
       playIndexInRound: this.playIndexInRound,
