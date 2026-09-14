@@ -57,6 +57,9 @@ export class ControlIds {
   static readonly REVEAL_ROW: string = 'lb_cmp_reveal_row';
   static readonly DEALER_BANNER: string = 'lb_cmp_dealer_banner';
   static readonly DEALER_LINE: string = 'lb_txt_dealer_line';
+  /** F4 · 轮到谁 tip（可复用 dealerLine）；顶栏左上。 */
+  static readonly TABLE_TIP: string = 'lb_cmp_table_tip';
+  static readonly TXT_CLAIM: string = 'lb_txt_claim';
   static readonly PACKET: string = 'lb_cmp_packet';
   static readonly PLAY_CANCEL: string = 'lb_btn_play_cancel';
   static readonly STYLE_SOFT: string = 'lb_btn_style_soft';
@@ -74,6 +77,8 @@ export class ControlIds {
   static readonly SEAT_P2: string = 'lb_cmp_seat_p2';
   static readonly SEAT_P3: string = 'lb_cmp_seat_p3';
   static readonly LIFE_SELF: string = 'lb_cmp_life_self';
+  /** F5 · self 三烛外框；须包住 body+flame。 */
+  static readonly LIFE_SELF_FRAME: string = 'lb_cmp_life_self_frame';
   static readonly LIFE_SEAT_P1: string = 'lb_cmp_life_seat_p1';
   static readonly LIFE_SEAT_P2: string = 'lb_cmp_life_seat_p2';
   static readonly LIFE_SEAT_P3: string = 'lb_cmp_life_seat_p3';

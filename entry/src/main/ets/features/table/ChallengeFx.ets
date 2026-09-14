@@ -24,4 +24,6 @@ export class ChallengeFx {
   static readonly BTN_VP: number = 48;
   static readonly PASS_VP: number = 44;
   static readonly RING_VP: number = 36;
+  /** 17 · NPC 质疑|相信气泡时长（F2 全员层）。 */
+  static readonly NPC_BUBBLE_MS: number = 1000;
 }

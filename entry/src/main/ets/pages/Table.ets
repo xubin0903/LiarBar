@@ -217,6 +217,9 @@ struct Table {
   private challengeDeadlineMs: number = 0;
   private challengeEnterPlayId: string = '';
   private challengeResolvedPlayId: string = '';
+  /** F2: one RevealStage run per challengeId (AI+human; ban restart flash). */
+  private revealForChallengeId: string = '';
+  private npcBubbleTimer: number = -1;
   private challengeDebugReject: boolean = false;
   private rollbackHand: CardModel[] = [];
   private rollbackSelected: string[] = [];
@@ -287,6 +290,7 @@ struct Table {
     this.cancelRoundWinTimer();
     this.cancelRevealTimer();
     this.cancelChallengeTimer();
+    this.cancelNpcBubbleTimer();
     AppRuntime.director.playBusy = false;
     if (this.hintTimer >= 0) {
       clearTimeout(this.hintTimer);
@@ -425,7 +429,7 @@ struct Table {
         .hitTestBehavior(HitTestMode.Transparent)
         .visibility(this.emptySafeEntryOn ? Visibility.Visible : Visibility.None)
 
-        // Hang: NPC challenge bubble (thinking/true/false). Stub until copy polish.
+        // F2: NPC challenge bubble — table-wide shared layer (HitTest None; 自位不用).
         if (this.npcChallengeBubble.length > 0) {
           Text(this.npcChallengeBubble)
             .id(ControlIds.NPC_CHALLENGE_BUBBLE)
@@ -549,11 +553,30 @@ struct Table {
 
   @Builder
   topBar() {
-    // Claim + dealer turn lines moved to tableHeart (near dealer banner).
-    // Extreme top-left was PM fail「提示藏死角」— do not put them here.
+    // F4: 本局宣称 + 轮到谁 → 顶栏左上 TopStart（禁叠桌心/挡池）.
+    // SUPERSEDE v0.2.1「提示迁出左上」仅这两项. F3 home 仍在 homeExitChrome.
     Row() {
-      Blank()
-        .layoutWeight(1)
+      Column({ space: 2 }) {
+        Text(this.claimText)
+          .id(ControlIds.TXT_CLAIM)
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .visibility(this.claimText.length > 0 ? Visibility.Visible : Visibility.None)
+        Text(this.dealerLine)
+          .id(ControlIds.DEALER_LINE)
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.caption_text_size'))
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
+      }
+      .id(ControlIds.TABLE_TIP)
+      .alignItems(HorizontalAlign.Start)
+      .constraintSize({ maxWidth: '42%' })
+      .layoutWeight(1)
+
       Text(this.timerText)
         .id('lb_txt_timer')
         .fontColor($r('app.color.tavern_accent'))
@@ -569,6 +592,7 @@ struct Table {
     .id(ControlIds.TOPBAR)
     .width('100%')
     .constraintSize({ maxHeight: '12%' })
+    .alignItems(VerticalAlign.Top)
   }
 
   /**
@@ -619,24 +643,9 @@ struct Table {
   @Builder
   tableHeart() {
     Column({ space: 6 }) {
-      // Interim safer tip site: claim + dealer turn near heart / dealer banner.
-      // Not extreme top-left (PM「提示藏死角」). UI will refine wireframe.
+      // F4: claim + whose-turn moved to topBar TopStart — ban blocking pool.
+      // F2: challenge dealer-enter cue stays near dealer (table-wide, not pool-cover).
       Column({ space: 2 }) {
-        Text(this.claimText)
-          .id('lb_txt_claim')
-          .fontColor($r('app.color.tavern_candle'))
-          .fontSize($r('app.float.page_text_size'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .visibility(this.claimText.length > 0 ? Visibility.Visible : Visibility.None)
-        Text(this.dealerLine)
-          .id(ControlIds.DEALER_LINE)
-          .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.caption_text_size'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
-        // Hang: lb_str_challenge_dealer_enter — bind when AwaitChallenge opens.
         Text(this.challengeDealerEnter)
           .id(ControlIds.CHALLENGE_DEALER_ENTER)
           .fontColor($r('app.color.tavern_accent'))
@@ -840,12 +849,23 @@ struct Table {
           .fontSize($r('app.float.caption_text_size'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        LifeCandles({
-          lives: this.life0,
-          groupId: ControlIds.LIFE_SELF,
-          compact: false,
-          small: this.compactLife
+        // F5: lb_cmp_life_self_frame must fully enclose 3 candles incl. flames.
+        Column() {
+          LifeCandles({
+            lives: this.life0,
+            groupId: ControlIds.LIFE_SELF,
+            compact: false,
+            small: this.compactLife
+          })
+        }
+        .id(ControlIds.LIFE_SELF_FRAME)
+        .padding({ left: 4, right: 4, top: 8, bottom: 3 })
+        .border({
+          width: 1,
+          color: $r('app.color.tavern_paper')
         })
+        .borderRadius(6)
+        .clip(false)
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
@@ -1440,6 +1460,7 @@ struct Table {
   private goHome(): void {
     this.resetPlayFlyUi();
     this.resetRevealUi();
+    this.revealForChallengeId = '';
     this.closeChallengeEntry(false);
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
@@ -1478,10 +1499,13 @@ struct Table {
     }
     if (snap.phase === Phase.CHALLENGE_RITUAL || snap.phase === Phase.JUDGE) {
       // C2-6 / C2-7: stay on table. No lb_scr_challenge. No local pile flip.
-      this.closeChallengeEntry(false);
+      // F2: close entry chrome only — do NOT wipe dealer/NPC/reveal broadcast.
+      this.closeChallengeEntryChrome();
       this.pushedChallenge = false;
       // F1: still sync seat.lives → candles (AI/human ritual must not freeze HUD).
       this.fillSeats(snap.seats);
+      // F2: table-wide dealer announce + NPC doubt bubble + shared RevealStage.
+      this.syncChallengeRitualBroadcast(snap);
       return;
     }
     if (snap.phase === Phase.RECAP || snap.phase === Phase.END) {
@@ -1507,6 +1531,9 @@ struct Table {
     if (snap.phase === Phase.TURN) {
       this.syncEmptySafeEntry(snap);
       this.syncChallengeEntry(snap);
+      // F2: AI TrustOrChallenge — dealer enter + thinking bubble table-wide.
+      this.syncNpcChallengeAwaitBroadcast(snap);
+      this.maybeClearChallengeBroadcast(snap);
     }
     if (stamp === this.lastHudStamp) {
       return;
@@ -1533,6 +1560,8 @@ struct Table {
       this.clearAllPiles();
       this.challengeResolvedPlayId = '';
       this.challengeEnterPlayId = '';
+      this.revealForChallengeId = '';
+      this.clearChallengeBroadcast();
       if (this.hiddenCardIds.length > 0) {
         this.hiddenCardIds = [];
       }
@@ -2191,6 +2220,7 @@ struct Table {
 
   @Builder
   revealLayer() {
+    // F2 / 18: lb_cmp_reveal_stage = table-wide shared overlay (ban actor-only flash).
     Stack() {
       if (this.revealOn) {
         // Dim + blur BACKGROUND only — not applied to RevealStage cards.
@@ -2559,6 +2589,116 @@ struct Table {
   }
 
   /**
+   * F2: AI sits TrustOrChallenge — dealer enter + thinking bubble table-wide.
+   * Human entry uses openChallengeEntry (自位不用 NPC bubble).
+   */
+  private syncNpcChallengeAwaitBroadcast(snap: MatchSnapshot): void {
+    if (!this.shouldShowNpcAwait(snap)) {
+      return;
+    }
+    if (snap.lastPlay === null) {
+      return;
+    }
+    const playId: string = snap.lastPlay.playId;
+    if (this.challengeEnterPlayId === playId && this.challengeDealerEnter.length > 0) {
+      return;
+    }
+    this.challengeEnterPlayId = playId;
+    this.challengeDealerEnter = this.readChallengeDealerEnter();
+    this.setNpcChallengeBubble(this.readNpcChallengeThinking());
+    TableAudio.playChallengeEnter();
+    Logger.info(TAG, `${SfxIds.CHALLENGE_ENTER} F2 NPC AwaitChallenge broadcast`);
+  }
+
+  private shouldShowNpcAwait(snap: MatchSnapshot): boolean {
+    if (snap.phase !== Phase.TURN || this.revealOn || this.roundWinOn || this.playFlyOn) {
+      return false;
+    }
+    if (this.isHumanTurn(snap) || this.challengeEntryOn) {
+      return false;
+    }
+    if (this.isEmptySafePending(snap)) {
+      return false;
+    }
+    if (snap.lastPlay === null || snap.lastPlay.isFirstOfRound || !snap.canChallenge) {
+      return false;
+    }
+    return true;
+  }
+
+  private maybeClearChallengeBroadcast(snap: MatchSnapshot): void {
+    if (this.challengeEntryOn) {
+      return;
+    }
+    if (this.shouldShowNpcAwait(snap)) {
+      return;
+    }
+    if (snap.phase === Phase.CHALLENGE_RITUAL || snap.phase === Phase.JUDGE) {
+      return;
+    }
+    this.clearChallengeBroadcast();
+  }
+
+  /**
+   * F2: CHALLENGE_RITUAL / JUDGE — sync dealer announce, NPC doubt bubble, shared RevealStage.
+   * Ban action-seat-only flash; AI challenge must also open lb_cmp_reveal_stage.
+   */
+  private syncChallengeRitualBroadcast(snap: MatchSnapshot): void {
+    if (this.dealerLine !== snap.dealerLine) {
+      this.dealerLine = snap.dealerLine;
+    }
+    // AwaitChallenge enter prompt yields to ritual dealer announce (top-left F4 tip).
+    if (this.challengeDealerEnter.length > 0) {
+      this.challengeDealerEnter = '';
+    }
+    if (snap.challenge === null) {
+      return;
+    }
+    const chId: string = snap.challenge.challengeId;
+    const challenger: number = snap.challenge.challengerSeatId;
+    this.challengeResolvedPlayId = snap.challenge.targetPlayId;
+    if (this.revealForChallengeId !== chId) {
+      this.revealForChallengeId = chId;
+      if (this.isAiSeatId(snap, challenger)) {
+        this.setNpcChallengeBubble(this.readNpcChallengeDoubt());
+        TableAudio.playChallengeCommit();
+        Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} F2 AI challenge broadcast`);
+      }
+      this.beginRevealAfterAck(snap);
+    }
+  }
+
+  private isAiSeatId(snap: MatchSnapshot, seatId: number): boolean {
+    for (let i = 0; i < snap.seats.length; i++) {
+      if (snap.seats[i].seatId === seatId) {
+        return snap.seats[i].role === SeatRole.AI;
+      }
+    }
+    return false;
+  }
+
+  private setNpcChallengeBubble(text: string): void {
+    this.cancelNpcBubbleTimer();
+    this.npcChallengeBubble = text;
+    if (text.length === 0) {
+      return;
+    }
+    this.npcBubbleTimer = setTimeout((): void => {
+      this.npcBubbleTimer = -1;
+      if (this.npcChallengeBubble === text) {
+        this.npcChallengeBubble = '';
+      }
+    }, ChallengeFx.NPC_BUBBLE_MS);
+  }
+
+  private cancelNpcBubbleTimer(): void {
+    if (this.npcBubbleTimer >= 0) {
+      clearTimeout(this.npcBubbleTimer);
+      this.npcBubbleTimer = -1;
+    }
+  }
+
+  /**
    * 20 / #166: mount EmptySafeEntry when ≥3 emptySafePending ∧ human chooser.
    * Mutually exclusive with ChallengeEntry 质疑|相信. =2 must NOT show this.
    */
@@ -2603,6 +2743,9 @@ struct Table {
     if (after !== null &&
       (after.phase === Phase.CHALLENGE_RITUAL || after.phase === Phase.JUDGE)) {
       // Stay on table; reveal after ACK (same as ChallengeCommit).
+      if (after.challenge !== null) {
+        this.revealForChallengeId = after.challenge.challengeId;
+      }
       this.beginRevealAfterAck(after);
       return;
     }
@@ -2703,10 +2846,9 @@ struct Table {
     this.challengeCommitBusy = false;
     this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
     this.confirmBarOn = false;
-    // #158: lb_str_challenge_dealer_enter from string.json.
+    // #158 / F2: lb_str_challenge_dealer_enter table-wide near dealer.
     this.challengeDealerEnter = this.readChallengeDealerEnter();
-    // Hang stub: NPC bubble thinking key while AwaitChallenge (doubt/believe on resolve).
-    this.npcChallengeBubble = this.readNpcChallengeThinking();
+    // F2 / 17: NPC thinking bubble is for AI await only（自位不用）.
     if (this.playEnabled) {
       this.playEnabled = false;
     }
@@ -2762,7 +2904,8 @@ struct Table {
     }
   }
 
-  private closeChallengeEntry(allowPlay: boolean): void {
+  /** Entry chrome only — F2 broadcast (dealer enter / NPC bubble) stays until clearChallengeBroadcast. */
+  private closeChallengeEntryChrome(): void {
     this.cancelChallengeTimer();
     if (this.challengeEntryOn) {
       this.challengeEntryOn = false;
@@ -2770,12 +2913,22 @@ struct Table {
     if (this.challengeCommitBusy) {
       this.challengeCommitBusy = false;
     }
+  }
+
+  private clearChallengeBroadcast(): void {
+    this.cancelNpcBubbleTimer();
     if (this.challengeDealerEnter.length > 0) {
       this.challengeDealerEnter = '';
     }
     if (this.npcChallengeBubble.length > 0) {
       this.npcChallengeBubble = '';
     }
+  }
+
+  private closeChallengeEntry(allowPlay: boolean): void {
+    this.closeChallengeEntryChrome();
+    // Believe / leave-await: clear F2 cues. Ritual path uses chrome-only.
+    this.clearChallengeBroadcast();
     if (!allowPlay) {
       return;
     }
@@ -2863,12 +3016,14 @@ struct Table {
     }
     // ACK accepted. Open 18 reveal stage (not old lb_scr_challenge).
     this.challengeResolvedPlayId = target;
-    this.closeChallengeEntry(false);
-    // Hang stub: NPC bubble resolve uses doubt key when commit fires (17 v0.3.0).
-    // Set after close so closeChallengeEntry clear does not wipe the resolve copy.
-    this.npcChallengeBubble = this.readNpcChallengeDoubt();
+    // F2: chrome-only — keep dealer enter briefly; ritual sync owns announce + reveal.
+    this.closeChallengeEntryChrome();
     const after: MatchSnapshot | null = AppRuntime.engine.current();
     if (after !== null) {
+      if (after.challenge !== null) {
+        this.revealForChallengeId = after.challenge.challengeId;
+      }
+      // Human challenger: 自位不用 NPC bubble; table-wide RevealStage is the cue.
       this.beginRevealAfterAck(after);
     } else {
       this.pull();
