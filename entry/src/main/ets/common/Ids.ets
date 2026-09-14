@@ -116,6 +116,10 @@ export class ControlIds {
   static readonly CHALLENGE_PASS: string = 'lb_btn_challenge_pass';
   static readonly CHALLENGE_TIMER: string = 'lb_cmp_challenge_timer';
   static readonly CHALLENGE_RING: string = 'lb_cmp_challenge_ring';
+  /** Hang: dealer enter line near banner when AwaitChallenge. */
+  static readonly CHALLENGE_DEALER_ENTER: string = 'lb_txt_challenge_dealer_enter';
+  /** Hang: NPC seat bubble thinking / true / false. */
+  static readonly NPC_CHALLENGE_BUBBLE: string = 'lb_cmp_npc_challenge_bubble';
   /** Debug/dev only. Authority-reject after optimistic fly (C1-6). */
   static readonly DEBUG_PLAY_REJECT: string = 'lb_btn_debug_play_reject';
   /** Debug/dev only. Authority-reject next 假 (C2-7). */

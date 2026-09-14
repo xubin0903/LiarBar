@@ -3,9 +3,10 @@ import { ChallengeFx } from '../ChallengeFx';
 
 /**
  * lb_cmp_challenge_entry / lb_cmp_challenge_await
- * BottomEnd overlay family (same as confirm bar). Not inside handPin.
- * 真 / 假 same-layer two buttons + 过. Optional countdown ring.
- * Does not change padB / HAND_RING_GAP. Does not cover claim / pile heart.
+ * Self-front overlay in ring–hand HAND_RING_GAP band (above lb_cmp_hand).
+ * Same overlay family as confirm bar, but NOT BottomEnd-only corner (17 v0.2.1).
+ * Not inside handPin. 真 / 假 same-layer two buttons + 过. Optional countdown ring.
+ * Does not change padB / HAND_RING_GAP. Does not cover claim / pile heart / hand row.
  */
 @Component
 export struct ChallengeEntry {
@@ -72,10 +73,6 @@ export struct ChallengeEntry {
       .border({
         width: 1,
         color: $r('app.color.tavern_brass')
-      })
-      .margin({
-        right: 8,
-        bottom: 8
       })
       .alignItems(HorizontalAlign.Center)
     }

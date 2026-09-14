@@ -237,4 +237,12 @@ if (!table.includes('Text(this.poolText)') ||
   fail('poolText digit Text still bound to count');
 }
 
+
+// Rebuild: land dest still pool; overlay pad helper OK
+if (table.includes('poolCenterOverlay') || table.includes('pileGX')) {
+  pass('play fly land still targets pool center helper');
+} else {
+  fail('play fly pool land helper missing');
+}
+
 console.log(process.exitCode ? 'play-fly check FAILED' : 'play-fly check OK');
