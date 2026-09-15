@@ -58,8 +58,6 @@ if (existsSync(join(root, 'entry/src/main/ets/features/table/components/Challeng
     entry.includes("CHALLENGE_DOUBT") &&
     entry.includes("CHALLENGE_BELIEVE") &&
     entry.includes("CHALLENGE_ENTRY") &&
-    entry.includes("CHALLENGE_TIMER") &&
-    entry.includes("CHALLENGE_RING") &&
     entry.includes("art_btn_challenge_doubt") &&
     entry.includes("art_btn_challenge_believe") &&
     entry.includes("lb_str_challenge_doubt") &&
@@ -67,12 +65,31 @@ if (existsSync(join(root, 'entry/src/main/ets/features/table/components/Challeng
     !entry.includes("CHALLENGE_TRUE") &&
     !entry.includes("CHALLENGE_FALSE") &&
     !entry.includes("CHALLENGE_PASS") &&
+    !entry.includes("CHALLENGE_TIMER") &&
+    !entry.includes("CHALLENGE_RING") &&
     !/Button\('真'\)/.test(entry) &&
     !/Button\('假'\)/.test(entry) &&
     !/Button\('过'\)/.test(entry)) {
-  pass('C2-2: 质疑|相信 same-layer on lb_cmp_challenge_entry (no 真/假/过)');
+  pass('C2-2: 质疑|相信 same-layer on lb_cmp_challenge_entry (no 真/假/过; R6 timer off entry)');
 } else {
-  fail('ChallengeEntry missing doubt/believe or still binds true/false/pass entry');
+  fail('ChallengeEntry missing doubt/believe or still binds true/false/pass/timer entry');
+}
+
+// R6: challenge 10s ring/seconds at Table center-top only
+if (table.includes('challengeCenterTopTimer') &&
+    table.includes("ControlIds.CHALLENGE_TIMER") &&
+    table.includes("ControlIds.CHALLENGE_RING")) {
+  pass('R6 AwaitChallenge countdown at Table center-top');
+} else {
+  fail('R6 center-top challenge timer missing on Table');
+}
+
+// R5: pool hand kept during await
+if (table.includes('ensurePoolHandFromLastPlay') &&
+    /ensurePoolHandFromLastPlay[\s\S]{0,220}lastPlay\.count/.test(table)) {
+  pass('R5 ensurePoolHandFromLastPlay keeps lastPlay.count during await');
+} else {
+  fail('R5 pool hand ensure missing');
 }
 
 if (ids.includes("CHALLENGE_DOUBT: string = 'lb_btn_challenge_doubt'") &&

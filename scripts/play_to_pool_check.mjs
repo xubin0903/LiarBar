@@ -160,29 +160,31 @@ if (flyFx.includes('REVEAL_DOWN_VP: number = 56') &&
   fail('PlayFlyFx reveal geometry drifted');
 }
 
-// R3: draw→flip ≥400–600; face-up hold ≥1500–2500; ban old 160/600
+// R4: draw→flip 1000 (窗 800～1200); face-up hold 5000 (窗 4～6s); abolish 500/2000 primary
 const drawFlip = /DRAW_TO_FLIP_MS:\s*number\s*=\s*(\d+)/.exec(flyFx);
 const holdMs = /REVEAL_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(flyFx);
 const drawN = drawFlip ? Number(drawFlip[1]) : 0;
 const holdN = holdMs ? Number(holdMs[1]) : 0;
-if (drawN >= 400 && drawN <= 600 && holdN >= 1500 && holdN <= 2500 &&
+if (drawN === 1000 && holdN === 5000 &&
     !flyFx.includes('DRAW_TO_FLIP_MS: number = 160') &&
-    !flyFx.includes('REVEAL_HOLD_MS: number = 600')) {
-  pass(`R3 duration floors: DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
+    !flyFx.includes('DRAW_TO_FLIP_MS: number = 500') &&
+    !flyFx.includes('REVEAL_HOLD_MS: number = 600') &&
+    !flyFx.includes('REVEAL_HOLD_MS: number = 2000')) {
+  pass(`R4 duration floors: DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
 } else {
-  fail(`R3 duration floors failed draw=${drawN} hold=${holdN}`);
+  fail(`R4 duration floors failed draw=${drawN} hold=${holdN}`);
 }
 
-// R3: beginRevealAfterAck must nest hold before resetRevealUi/pull (ban instant cut)
+// R4: beginRevealAfterAck must nest hold before resetRevealUi/pull (ban instant cut)
 const beginFn = table.split('private beginRevealAfterAck')[1] || '';
 const beginBody = beginFn.split('private ranksCsv')[0] || beginFn.split('private ranksForReveal')[0] || '';
 if (beginBody.includes('PlayFlyFx.DRAW_TO_FLIP_MS') &&
     beginBody.includes('PlayFlyFx.REVEAL_HOLD_MS') &&
     beginBody.includes('resetRevealUi') &&
     /DRAW_TO_FLIP_MS[\s\S]{0,400}REVEAL_HOLD_MS[\s\S]{0,200}resetRevealUi/.test(beginBody)) {
-  pass('R3 beginRevealAfterAck: draw→flip→hold then resetRevealUi (no instant cut)');
+  pass('R4 beginRevealAfterAck: draw→flip→hold then resetRevealUi (no instant cut)');
 } else {
-  fail('R3 beginRevealAfterAck missing timed hold before resetRevealUi');
+  fail('R4 beginRevealAfterAck missing timed hold before resetRevealUi');
 }
 
 if (ids.includes("REVEAL_DRAW: string = 'lb_sfx_reveal_draw'") &&
@@ -324,6 +326,31 @@ if (table.includes('poolCenterOverlay') && table.includes('toPlayOverlay') &&
   pass('playDest/reveal use pad-corrected poolCenterOverlay');
 } else {
   fail('overlay pad correction missing');
+}
+
+
+// R5: AwaitChallenge keeps pool hand (= lastPlay.count); ban clear on entry open
+const openFn = table.split('private openChallengeEntry')[1] || '';
+const openBody = openFn.split('private readChallengeDealerEnter')[0] || openFn.slice(0, 1200);
+if (table.includes('ensurePoolHandFromLastPlay') &&
+    openBody.includes('ensurePoolHandFromLastPlay') &&
+    table.includes('ControlIds.PLAY_POOL_HAND') &&
+    heartBody.includes('PLAY_POOL_HAND')) {
+  pass('R5 pool hand ensured on AwaitChallenge entry; PLAY_POOL_HAND stays in heart');
+} else {
+  fail('R5 pool visible during await incomplete');
+}
+
+// R6: tips TopStart; center-top timer-only; challenge-enter not in heart
+if (topBarBody.includes('CHALLENGE_DEALER_ENTER') &&
+    topBarBody.includes('challengeDealerEnter') &&
+    topBarBody.includes('challengeCenterTopTimer') &&
+    table.includes('challengeCenterTopTimer') &&
+    !heartBody.includes('CHALLENGE_DEALER_ENTER') &&
+    !heartBody.includes('challengeDealerEnter')) {
+  pass('R6 tips TopStart / center-top timer-only; enter cue off heart');
+} else {
+  fail('R6 tip/timer placement drifted');
 }
 
 console.log(process.exitCode ? 'play-to-pool check FAILED' : 'play-to-pool check OK');
