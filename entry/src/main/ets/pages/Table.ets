@@ -555,46 +555,100 @@ struct Table {
 
   @Builder
   topBar() {
-    // F4: 本局宣称 + 轮到谁 → 顶栏左上 TopStart（禁叠桌心/挡池）.
-    // SUPERSEDE v0.2.1「提示迁出左上」仅这两项. F3 home 仍在 homeExitChrome.
-    Row() {
-      Column({ space: 2 }) {
-        Text(this.claimText)
-          .id(ControlIds.TXT_CLAIM)
-          .fontColor($r('app.color.tavern_candle'))
-          .fontSize($r('app.float.page_text_size'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .visibility(this.claimText.length > 0 ? Visibility.Visible : Visibility.None)
-        Text(this.dealerLine)
-          .id(ControlIds.DEALER_LINE)
-          .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.caption_text_size'))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
-      }
-      .id(ControlIds.TABLE_TIP)
-      .alignItems(HorizontalAlign.Start)
-      .constraintSize({ maxWidth: '42%' })
-      .layoutWeight(1)
+    // F4 + R6: ALL judge/global announcements → 顶栏左上 TopStart（禁叠桌心/中顶）.
+    // claim / whose-turn / challenge-enter / verdict dealerLine → TopStart.
+    // Center-top ONLY countdown (lb_txt_timer / challenge ring). F3 home 仍在 homeExitChrome.
+    Stack({ alignContent: Alignment.TopStart }) {
+      Row() {
+        Column({ space: 2 }) {
+          Column({ space: 2 }) {
+            Text(this.claimText)
+              .id(ControlIds.TXT_CLAIM)
+              .fontColor($r('app.color.tavern_candle'))
+              .fontSize($r('app.float.page_text_size'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .visibility(this.claimText.length > 0 ? Visibility.Visible : Visibility.None)
+            Text(this.dealerLine)
+              .id(ControlIds.DEALER_LINE)
+              .fontColor($r('app.color.tavern_paper'))
+              .fontSize($r('app.float.caption_text_size'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .visibility(this.dealerLine.length > 0 ? Visibility.Visible : Visibility.None)
+            // R6: challenge-enter cue moved off tableHeart (was center) → TopStart.
+            Text(this.challengeDealerEnter)
+              .id(ControlIds.CHALLENGE_DEALER_ENTER)
+              .fontColor($r('app.color.tavern_accent'))
+              .fontSize($r('app.float.caption_text_size'))
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .visibility(this.challengeDealerEnter.length > 0 ? Visibility.Visible : Visibility.None)
+          }
+          .id(ControlIds.TABLE_TIP)
+          .alignItems(HorizontalAlign.Start)
+        }
+        .id(ControlIds.DEALER_BANNER)
+        .alignItems(HorizontalAlign.Start)
+        .constraintSize({ maxWidth: '42%' })
+        .layoutWeight(1)
 
-      Text(this.timerText)
-        .id('lb_txt_timer')
-        .fontColor($r('app.color.tavern_accent'))
-        .fontSize($r('app.float.page_text_size'))
-        .margin({ left: 8, right: 8 })
-      this.weakCta()
-      // F3: lb_btn_home in homeExitChrome (above overlays). Spacer keeps balance.
-      Blank()
-        .width(48)
-        .height(1)
-        .margin({ left: 8 })
+        Blank()
+          .layoutWeight(1)
+
+        this.weakCta()
+        // F3: lb_btn_home in homeExitChrome (above overlays). Spacer keeps balance.
+        Blank()
+          .width(48)
+          .height(1)
+          .margin({ left: 8 })
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Top)
+
+      // R6: center-top ONLY countdown — turn seconds or AwaitChallenge ring/seconds.
+      // Ban stacking announcement text here.
+      Column({ space: 2 }) {
+        if (this.challengeEntryOn && !this.challengeCommitBusy) {
+          this.challengeCenterTopTimer()
+        } else {
+          Text(this.timerText)
+            .id('lb_txt_timer')
+            .fontColor($r('app.color.tavern_accent'))
+            .fontSize($r('app.float.page_text_size'))
+        }
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Center)
+      .hitTestBehavior(HitTestMode.None)
     }
     .id(ControlIds.TOPBAR)
     .width('100%')
     .constraintSize({ maxHeight: '12%' })
-    .alignItems(VerticalAlign.Top)
+  }
+
+  /** R6 · AwaitChallenge 10s ring/seconds at screen center-top only. */
+  @Builder
+  challengeCenterTopTimer() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .id(ControlIds.CHALLENGE_RING)
+        .width(ChallengeFx.RING_VP)
+        .height(ChallengeFx.RING_VP)
+        .borderRadius(ChallengeFx.RING_VP / 2)
+        .border({
+          width: 3,
+          color: $r('app.color.tavern_accent')
+        })
+      Text(`${this.challengeRemainSec}`)
+        .id('lb_txt_timer')
+        .fontColor($r('app.color.tavern_candle'))
+        .fontSize($r('app.float.caption_text_size'))
+    }
+    .id(ControlIds.CHALLENGE_TIMER)
+    .width(ChallengeFx.RING_VP)
+    .height(ChallengeFx.RING_VP)
+    .hitTestBehavior(HitTestMode.None)
   }
 
   /**
@@ -645,20 +699,9 @@ struct Table {
   @Builder
   tableHeart() {
     Column({ space: 6 }) {
-      // F4: claim + whose-turn moved to topBar TopStart — ban blocking pool.
-      // F2: challenge dealer-enter cue stays near dealer (table-wide, not pool-cover).
-      Column({ space: 2 }) {
-        Text(this.challengeDealerEnter)
-          .id(ControlIds.CHALLENGE_DEALER_ENTER)
-          .fontColor($r('app.color.tavern_accent'))
-          .fontSize($r('app.float.caption_text_size'))
-          .maxLines(1)
-          .visibility(this.challengeDealerEnter.length > 0 ? Visibility.Visible : Visibility.None)
-      }
-      .id(ControlIds.DEALER_BANNER)
-      .alignItems(HorizontalAlign.Center)
-      .constraintSize({ maxWidth: '70%' })
-
+      // F4+R6: claim / whose-turn / challenge-enter / judge lines → topBar TopStart.
+      // Ban announcement text at center (covers pool / stacks on center-top timer).
+      // Pool hand (PLAY_POOL_HAND) stays visible during AwaitChallenge (R5).
       Row({ space: 8 }) {
         Image($r('app.media.art_dealer_bust_announce'))
           .id(ControlIds.DEALER)
@@ -2607,6 +2650,8 @@ struct Table {
       return;
     }
     this.challengeEnterPlayId = playId;
+    // R5: NPC await must also keep pool hand count = lastPlay.count visible.
+    this.ensurePoolHandFromLastPlay(snap);
     this.challengeDealerEnter = this.readChallengeDealerEnter();
     this.setNpcChallengeBubble(this.readNpcChallengeThinking());
     TableAudio.playChallengeEnter();
@@ -2839,9 +2884,34 @@ struct Table {
     }
     const playId: string = snap.lastPlay === null ? '' : snap.lastPlay.playId;
     if (this.challengeEntryOn && this.challengeTargetPlayId === playId) {
+      // R5: re-assert pool hand count while await stays open.
+      this.ensurePoolHandFromLastPlay(snap);
       return;
     }
     this.openChallengeEntry(snap);
+  }
+
+  /**
+   * R5: During AwaitChallenge, pool hand card-back pile stays visible;
+   * count = lastPlay.count. Ban entry covering/clearing pool stack.
+   */
+  private ensurePoolHandFromLastPlay(snap: MatchSnapshot): void {
+    if (snap.lastPlay === null) {
+      return;
+    }
+    const n: number = PlayFlyFx.clampCount(snap.lastPlay.count);
+    if (this.pileN0 !== n) {
+      this.pileN0 = n;
+    }
+    if (this.pileN1 !== 0) {
+      this.pileN1 = 0;
+    }
+    if (this.pileN2 !== 0) {
+      this.pileN2 = 0;
+    }
+    if (this.pileN3 !== 0) {
+      this.pileN3 = 0;
+    }
   }
 
   private openChallengeEntry(snap: MatchSnapshot): void {
@@ -2853,7 +2923,9 @@ struct Table {
     this.challengeCommitBusy = false;
     this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
     this.confirmBarOn = false;
-    // #158 / F2: lb_str_challenge_dealer_enter table-wide near dealer.
+    // R5: keep PLAY_POOL_HAND readable (= lastPlay.count); never clear on entry open.
+    this.ensurePoolHandFromLastPlay(snap);
+    // #158 / F2 / R6: lb_str_challenge_dealer_enter → topBar TopStart (not heart).
     this.challengeDealerEnter = this.readChallengeDealerEnter();
     // F2 / 17: NPC thinking bubble is for AI await only（自位不用）.
     if (this.playEnabled) {
@@ -3040,8 +3112,8 @@ struct Table {
   /**
    * 18: after challenge ACK — lift pool hand to reveal stage, draw→flip SFX.
    * Stage center = pool center + (0, REVEAL_DOWN_VP). Dim/blur on bg only.
-   * R3: draw→flip DRAW_TO_FLIP_MS then face-up REVEAL_HOLD_MS; ban instant cut /
-   * resetRevealUi / next pull beat before hold done.
+   * R4: draw→flip DRAW_TO_FLIP_MS(1000) then face-up REVEAL_HOLD_MS(5000); ban instant cut /
+   * resetRevealUi / next pull beat before hold done. SUPERSEDE R3 500/2000.
    * Life/judge stub: hold after flip then pull(). Do not open Challenge page.
    */
   private beginRevealAfterAck(snap: MatchSnapshot): void {
@@ -3105,13 +3177,13 @@ struct Table {
     Logger.info(TAG, `${SfxIds.REVEAL_DRAW} beginRevealAfterAck n=${ranks.length}`);
     this.revealTimer = setTimeout((): void => {
       this.revealTimer = -1;
-      // R3: only flip after DRAW_TO_FLIP_MS; never skip to face-up instantly.
+      // R4: only flip after DRAW_TO_FLIP_MS; never skip to face-up instantly.
       this.revealFaceUp = true;
       TableAudio.playRevealFlip();
       Logger.info(TAG, `${SfxIds.REVEAL_FLIP} faceUp`);
       this.revealTimer = setTimeout((): void => {
         this.revealTimer = -1;
-        // R3: hold full REVEAL_HOLD_MS before resetRevealUi / pull. Ban early cut.
+        // R4: hold full REVEAL_HOLD_MS before resetRevealUi / pull. Ban early cut.
         this.resetRevealUi();
         this.pull();
       }, PlayFlyFx.REVEAL_HOLD_MS);

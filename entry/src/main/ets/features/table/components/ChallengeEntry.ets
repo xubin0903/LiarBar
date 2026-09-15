@@ -1,5 +1,4 @@
 import { ControlIds } from '../../../common/Ids';
-import { ChallengeFx } from '../ChallengeFx';
 
 /**
  * lb_cmp_challenge_entry / lb_cmp_challenge_await
@@ -7,8 +6,8 @@ import { ChallengeFx } from '../ChallengeFx';
  * Same overlay family as confirm bar, but NOT BottomEnd-only corner (17 v0.3.0).
  * Not inside handPin. 质疑|相信 same-layer two buttons (abolish 真/假/过 entry).
  * Chrome: art_btn_challenge_doubt/believe ±_on — wordless; client overlays text.
- * Optional countdown ring. Does not change padB / HAND_RING_GAP.
- * Does not cover claim / pile heart / hand row.
+ * R6: countdown ring/seconds live at screen center-top (Table), not in this panel.
+ * Does not change padB / HAND_RING_GAP. Does not cover claim / pile heart / hand row.
  */
 /** 360×144 media → ≥44vp touch; aspect kept. Not padB / GAP. */
 class ChallengeEntryFx {
@@ -19,6 +18,7 @@ class ChallengeEntryFx {
 @Component
 export struct ChallengeEntry {
   @Prop visible: boolean = false;
+  /** Kept for API stability; R6 timer renders in Table center-top. */
   @Prop remainSec: number = 10;
   onDoubt: () => void = () => {};
   onBelieve: () => void = () => {};
@@ -27,12 +27,9 @@ export struct ChallengeEntry {
 
   build() {
     if (this.visible) {
-      Column({ space: 8 }) {
-        this.timerRing()
-        Row({ space: 12 }) {
-          this.doubtChrome()
-          this.believeChrome()
-        }
+      Row({ space: 12 }) {
+        this.doubtChrome()
+        this.believeChrome()
       }
       .id(ControlIds.CHALLENGE_ENTRY)
       .padding({
@@ -47,7 +44,7 @@ export struct ChallengeEntry {
         width: 1,
         color: $r('app.color.tavern_brass')
       })
-      .alignItems(HorizontalAlign.Center)
+      .alignItems(VerticalAlign.Center)
     }
   }
 
@@ -131,28 +128,6 @@ export struct ChallengeEntry {
     .width(ChallengeEntryFx.BTN_W)
     .height(ChallengeEntryFx.BTN_H)
     .clip(true)
-  }
-
-  @Builder
-  timerRing() {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .id(ControlIds.CHALLENGE_RING)
-        .width(ChallengeFx.RING_VP)
-        .height(ChallengeFx.RING_VP)
-        .borderRadius(ChallengeFx.RING_VP / 2)
-        .border({
-          width: 3,
-          color: $r('app.color.tavern_accent')
-        })
-      Text(`${this.remainSec}`)
-        .fontColor($r('app.color.tavern_candle'))
-        .fontSize($r('app.float.caption_text_size'))
-    }
-    .id(ControlIds.CHALLENGE_TIMER)
-    .width(ChallengeFx.RING_VP)
-    .height(ChallengeFx.RING_VP)
-    .hitTestBehavior(HitTestMode.None)
   }
 
 }

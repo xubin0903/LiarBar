@@ -114,12 +114,13 @@ if (topBar.includes('ControlIds.TXT_CLAIM') && topBar.includes('ControlIds.TABLE
   pass('F4 claim + whose-turn in topBar TopStart');
 } else fail('F4 topBar missing claim/table_tip');
 
-if (heart.includes('this.claimText') || heart.includes('ControlIds.TXT_CLAIM')) {
-  fail('F4 claim still mounted in tableHeart (blocks pool)');
-} else if (heart.includes('CHALLENGE_DEALER_ENTER')) {
-  pass('F4 claim removed from tableHeart; challenge-enter cue stays near dealer');
+if (heart.includes('this.claimText') || heart.includes('ControlIds.TXT_CLAIM') ||
+    heart.includes('CHALLENGE_DEALER_ENTER') || heart.includes('challengeDealerEnter')) {
+  fail('F4/R6 announcement still mounted in tableHeart (blocks pool / stacks center)');
+} else if (topBar.includes('CHALLENGE_DEALER_ENTER') && topBar.includes('challengeDealerEnter')) {
+  pass('F4+R6 claim/dealer/challenge-enter in topBar TopStart; heart free');
 } else {
-  fail('F4 tableHeart unexpected');
+  fail('F4/R6 topBar missing challenge-enter cue');
 }
 
 // --- F5 ---
@@ -156,13 +157,34 @@ if (beginBody.includes('claim=') && beginBody.includes('lastPlayRanks=') &&
 } else fail("R1' beginRevealAfterAck HiLog keys missing");
 const drawN = Number((/DRAW_TO_FLIP_MS:\s*number\s*=\s*(\d+)/.exec(flyFx) || [])[1] || 0);
 const holdN = Number((/REVEAL_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(flyFx) || [])[1] || 0);
-if (drawN >= 400 && holdN >= 1500) pass(`R3 floors DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
-else fail(`R3 floors failed draw=${drawN} hold=${holdN}`);
+if (drawN === 1000 && holdN === 5000 &&
+    !flyFx.includes('DRAW_TO_FLIP_MS: number = 500') &&
+    !flyFx.includes('REVEAL_HOLD_MS: number = 2000')) {
+  pass(`R4 floors DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
+} else fail(`R4 floors failed draw=${drawN} hold=${holdN}`);
 const showEntry = table.split('private shouldShowChallengeEntry')[1] || '';
 const showEntryBody = showEntry.split('private actorEmptied')[0] || '';
 if (!showEntryBody.includes('lastPlay.isFirstOfRound') && showEntryBody.includes('lastPlay === null')) {
   pass('R2 shouldShowChallengeEntry no isFirstOfRound ban');
 } else fail('R2 shouldShowChallengeEntry still bans isFirstOfRound');
+
+
+// --- Aron Rebuild R5/R6 ---
+if (table.includes('ensurePoolHandFromLastPlay') &&
+    table.includes('ControlIds.PLAY_POOL_HAND') &&
+    /ensurePoolHandFromLastPlay[\s\S]{0,220}lastPlay\.count/.test(table) &&
+    /openChallengeEntry[\s\S]{0,700}ensurePoolHandFromLastPlay/.test(table)) {
+  pass('R5 pool hand (= lastPlay.count) ensured on AwaitChallenge open');
+} else fail('R5 pool visible during await missing');
+
+const hasCenterTimer = table.includes('challengeCenterTopTimer') &&
+  table.includes('ControlIds.CHALLENGE_TIMER') &&
+  table.includes('ControlIds.CHALLENGE_RING');
+const entryNoRing = !entry.includes('CHALLENGE_TIMER') && !entry.includes('timerRing') &&
+  !entry.includes('CHALLENGE_RING');
+if (hasCenterTimer && entryNoRing && topBar.includes('challengeCenterTopTimer')) {
+  pass('R6 center-top timer-only; ChallengeEntry buttons-only (no ring)');
+} else fail('R6 center-top timer / entry ring split failed');
 
 if (process.exitCode) console.error('client_rebuild_f2_f4_f5_check FAILED');
 else console.log('client_rebuild_f2_f4_f5_check OK');

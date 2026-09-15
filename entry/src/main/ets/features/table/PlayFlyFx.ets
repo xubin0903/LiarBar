@@ -28,12 +28,12 @@ export class PlayFlyFx {
   static readonly REVEAL_SCALE: number = 0.90;
   static readonly REVEAL_DIM: number = 0.40;
   static readonly REVEAL_BLUR_VP: number = 6;
-  /** R3: draw→flip floor ≥400–600ms (was 160; too short to read ritual). */
-  static readonly DRAW_TO_FLIP_MS: number = 500;
-  static readonly DRAW_TO_FLIP_MS_MIN: number = 400;
-  /** R3: face-up hold ≥1500–2500ms so every rank is readable before pull. */
-  static readonly REVEAL_HOLD_MS: number = 2000;
-  static readonly REVEAL_HOLD_MS_MIN: number = 1500;
+  /** R4: draw→flip 1000ms (窗 800～1200). SUPERSEDE R3 500/2000 as primary gate. */
+  static readonly DRAW_TO_FLIP_MS: number = 1000;
+  static readonly DRAW_TO_FLIP_MS_MIN: number = 800;
+  /** R4: face-up hold 5000ms (窗 4～6s) before resetRevealUi/pull. Ban early cut. */
+  static readonly REVEAL_HOLD_MS: number = 5000;
+  static readonly REVEAL_HOLD_MS_MIN: number = 4000;
 
   static clampCount(n: number): number {
     if (n < 1) {
