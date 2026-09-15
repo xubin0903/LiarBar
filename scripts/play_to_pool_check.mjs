@@ -160,16 +160,17 @@ if (flyFx.includes('REVEAL_DOWN_VP: number = 56') &&
   fail('PlayFlyFx reveal geometry drifted');
 }
 
-// R4: draw→flip 1000; face-up hold 3500 (min/exactly 3500); abolish 5000/2000/600 primary
+// R4: draw→flip 1000; face-up hold 3000 (min/exactly 3000); abolish 3500/5000/2000/600 primary
 const drawFlip = /DRAW_TO_FLIP_MS:\s*number\s*=\s*(\d+)/.exec(flyFx);
 const holdMs = /REVEAL_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(flyFx);
 const drawN = drawFlip ? Number(drawFlip[1]) : 0;
 const holdN = holdMs ? Number(holdMs[1]) : 0;
-if (drawN === 1000 && holdN === 3500 &&
+if (drawN === 1000 && holdN === 3000 &&
     !flyFx.includes('DRAW_TO_FLIP_MS: number = 160') &&
     !flyFx.includes('DRAW_TO_FLIP_MS: number = 500') &&
     !flyFx.includes('REVEAL_HOLD_MS: number = 600') &&
     !flyFx.includes('REVEAL_HOLD_MS: number = 2000') &&
+    !flyFx.includes('REVEAL_HOLD_MS: number = 3500') &&
     !flyFx.includes('REVEAL_HOLD_MS: number = 5000')) {
   pass(`R4 duration floors: DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
 } else {
