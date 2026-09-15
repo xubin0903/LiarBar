@@ -510,7 +510,15 @@
     },
     {
       "name": "_comment_lb_str_reveal_claim_face",
-      "value": "S18-24. FAIL if reveal stage shows claim-filled faces instead of real lastPlayRanks."
+      "value": "S18-24. FAIL if reveal shows claim-filled faces (e.g. claim A → all A) instead of real lastPlayRanks; empty ranks must not fake-play."
+    },
+    {
+      "name": "lb_str_reveal_too_fast",
+      "value": "开牌过快"
+    },
+    {
+      "name": "_comment_lb_str_reveal_too_fast",
+      "value": "S18-25. FAIL if DRAW_TO_FLIP<400ms or REVEAL_HOLD<1.5s (lock 500ms/2000ms; window 400–600 / 1.5–2.5)."
     }
   ]
 }
