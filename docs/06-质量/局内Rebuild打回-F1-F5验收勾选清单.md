@@ -1,27 +1,28 @@
-# 局内 Rebuild 打回 · F1–F5 + R1/R2 + R1′/R3 验收勾选清单
+# 局内 Rebuild 打回 · F1–F5 + R1/R2 + R1′/R3 + R4/R5/R6 验收勾选清单
 
 > ## 合入≠终验 · 未 Rebuild 勿勾 · **写勾选 only · 不发明玩法**
 >
-> **本表勾选纸（Rebuild 盯 · v0.3.0）**：对齐 PM Rebuild 打回 **F1–F5**（基线 **`d2fc046`**）+ Aron Rebuild **R1/R2**（客户端 **#191** `e1c1d210`；策划 **#192** · 对局 **v2.0.3 §1.3**）+ **R1′ 开牌假面加严 / R3 开牌时序**（客户端 **#195** `755d51c7`；策划 **#196** · 对局 **v2.0.4 §1.3** · **pending merge 时仍对齐 PR 键名**）。  
-> 只验表现/可达：他座熄烛、质疑/揭牌全员可见、局内返回主界面、全局宣言左上、self 三烛外框；**开牌真牌面**（含空 ranks 禁瞎演）；**第二人可质疑第一手**；**开牌可读时长**。  
+> **本表勾选纸（Rebuild 盯 · v0.4.0）**：对齐 PM Rebuild 打回 **F1–F5**（基线 **`d2fc046`**）+ Aron Rebuild **R1/R2**（客户端 **#191** `e1c1d210`；策划 **#192** · 对局 **v2.0.3 §1.3**）+ **R1′ / R3**（客户端 **#195** `755d51c7`；策划 **#196** · 对局 **v2.0.4 §1.3**）+ **R4/R5/R6**（客户端 **#200** `91c1b226`；UI **#199**；策划 **#201** · 对局 **v2.0.5** · **pending merge 时仍对齐 PR 键名**）。  
+> 只验表现/可达：他座熄烛、质疑/揭牌全员可见、局内返回主界面、全局宣言左上、self 三烛外框；**开牌真牌面**（含空 ranks 禁瞎演）；**第二人可质疑第一手**；**开牌可读时长（R4 主闸）**；**质疑窗本手张数可见**；**法官句全左上 / 中顶仅 timer**。  
 > **不**改规则主链（仍锁：`lives_default=3`；揭牌输家 **PenaltyExtinguish1**；CollectRedeal 不绑开枪；入口 **质疑|相信**）。  
 > **F2 对齐**：[对局-状态机](../02-游戏设计/对局-状态机.md) **v2.0.1 §1.2**（F2 全员可读）；失败短句挂 **S18-22** / **S18-23**。  
 > **R1/R2 对齐**：对局 **v2.0.3 §1.3**（#192）；**S18-24** `lb_str_reveal_claim_face`=**开牌假面**；**S18-6** `lb_str_first_hand_challenge`=**第二人不可质疑第一手**（语义翻；废旧「第一手禁质疑」；G-Q6=是）。  
-> **R1′/R3 对齐**：对局 **v2.0.4 §1.3**（#196 · pending 仍对齐键）；**S18-24** 加严（宣称 A · 出 Q → faceUp=Q；空 ranks **禁** claim/n=1 假面）；**S18-25** `lb_str_reveal_too_fast`=**开牌过快**；`DRAW_TO_FLIP=500ms`（窗 400～600）/ `REVEAL_HOLD=2000ms`（窗 1.5～2.5s）；**废**旧抽→翻 **160ms** 作本表主闸。  
+> **R1′/R3 对齐**：对局 **v2.0.4 §1.3**（#196）；**S18-24** 加严；**S18-25** `lb_str_reveal_too_fast`=**开牌过快**；R3 曾锁 `DRAW_TO_FLIP=500ms` / `REVEAL_HOLD=2000ms`（**已被 R4 SUPERSEDE**）。  
+> **R4/R5/R6 对齐**：对局 **v2.0.5**（#201 · pending 仍对齐键）· UI **#199** · 客户端 **#200** `91c1b226`；**R4** `DRAW_TO_FLIP=1000ms`（窗 800～1200）/ `REVEAL_HOLD=5000ms`（窗 4～6s）；**SUPERSEDE** R3 **500/2000**；失败仍 **开牌过快**（S18-25 · 窗已跟新）；**R5** AwaitChallenge 池上本手牌背可见·张数=`lastPlay.count` → **S18-26** `lb_str_challenge_no_pile_count`=**质疑窗不见上家本手张数**；**R6** 法官/荷官句全 TopStart 左上 · 中顶仅 timer → **S18-27** `lb_str_judge_not_top_start`=**法官句未全左上** · **S18-28** `lb_str_center_top_claim_stack`=**中顶仍叠宣言**。  
 > **F3 控件锁：** 局内返回认 **`lb_btn_home`**（系统返回 / `onBackPress` 可作次要路径）；**禁** `lb_btn_table_back`。  
-> 对局主闸另纸：[局内对局验收勾选清单](./局内对局验收勾选清单.md)（V1 · v0.2.2；**V1-3「第一手禁」口径由本表 R2 闸取代，未 Rebuild R2 勿替勾**）。生命细验另纸：生命显示清单。质疑入口细验另纸：C2。开牌区几何/旧 160ms 另认 [18](../04-设计/18-局内开牌区规格.md)（UI 跟数字；本表 R3 以 500/2000 为准）。  
-> **合入本表 ≠ 客户端过关。** 未 Rebuild 到自称已修 F1–F5 / R1–R2 / R1′–R3 的包 **勿勾**。
+> 对局主闸另纸：[局内对局验收勾选清单](./局内对局验收勾选清单.md)（V1 · v0.2.2；**V1-3「第一手禁」口径由本表 R2 闸取代，未 Rebuild R2 勿替勾**）。生命细验另纸：生命显示清单。质疑入口细验另纸：C2。开牌区几何/旧 160ms / 旧 R3 500/2000 另认 [18](../04-设计/18-局内开牌区规格.md)（UI 跟数字；**本表开牌时长主闸 = R4 1000/5000**）。  
+> **合入本表 ≠ 客户端过关。** 未 Rebuild 到自称已修 F1–F5 / R1–R2 / R1′–R3 / **R4–R6** 的包 **勿勾**。
 
 | 项 | 内容 |
 |----|------|
-| 版本 | **v0.3.0 · F1–F5 + R1/R2 + R1′/R3 Rebuild 盯**（基线 `d2fc046`；F2→S18-22/23；F3=`lb_btn_home` 禁 `lb_btn_table_back`；#188 `df69e3d` F3+F1；**#191** `e1c1d210` R1+R2；**#192** 对局 v2.0.3 §1.3 / S18-24+S18-6；**#195** `755d51c7` R1′+R3 客户端；**#196** 对局 v2.0.4 §1.3 / S18-25 · pending 仍对齐；**未落地勿勾过关**） |
+| 版本 | **v0.4.0 · F1–F5 + R1/R2 + R1′/R3 + R4/R5/R6 Rebuild 盯**（基线 `d2fc046`；F2→S18-22/23；F3=`lb_btn_home` 禁 `lb_btn_table_back`；#188 `df69e3d` F3+F1；**#191** `e1c1d210` R1+R2；**#192** 对局 v2.0.3 §1.3 / S18-24+S18-6；**#195** `755d51c7` R1′+R3；**#196** 对局 v2.0.4 §1.3 / S18-25；**#200** `91c1b226` R4+R5+R6 客户端；**#199** UI；**#201** 对局 v2.0.5 / S18-26～28 · pending 仍对齐；**未落地勿勾过关**） |
 | 读者 | **用户本机终验** / 评委 / 测试岗 |
-| 范围 | 只验 PM/Aron Rebuild 表现闸（F1–F5 + R1/R2 + R1′/R3）；不扩 V1 全表；不落 ets；不发明玩法 |
-| 对齐 | PM Rebuild 打回 · 基线 **`d2fc046`** · 策划 **#186** / 对局 **v2.0.1 §1.2**（F2）· **#192** / 对局 **v2.0.3 §1.3**（R1/R2）· **#196** / 对局 **v2.0.4 §1.3**（R1′/R3 · pending merge 对齐键）· 客户端 **#188** `df69e3d`（F3+F1）· **#191** `e1c1d210`（R1+R2）· **#195** `755d51c7`（R1′ lastPlayRanks 加严 + R3 500/2000）· F3 **`lb_btn_home`** · V1 主闸（废左轮·3烛·质疑\|相信）· `LIFE_CHANGE` / `PenaltyExtinguish1` → `lb_cmp_life_seat_p*` · `lb_cmp_reveal_stage` / `lastPlayRanks` / `lastPicked` · `DRAW_TO_FLIP` / `REVEAL_HOLD` |
-| 不做 | 改入口文案键 / 命数 / 主链；抬桌心挡池当宣言位；只修 self 不修他座；用 claim 假面冒充开牌；空 ranks 瞎演；以旧 160ms 作本表过关；持面未满就 reset/pull；把合入当终验 |
-| 验序 | **优先 F3 + F1 → F2 → F4 / F5 → R1 / R2 → R1′ / R3** |
+| 范围 | 只验 PM/Aron Rebuild 表现闸（F1–F5 + R1/R2 + R1′/R3 + R4/R5/R6）；不扩 V1 全表；不落 ets；不发明玩法 |
+| 对齐 | PM Rebuild 打回 · 基线 **`d2fc046`** · 策划 **#186** / 对局 **v2.0.1 §1.2**（F2）· **#192** / 对局 **v2.0.3 §1.3**（R1/R2）· **#196** / 对局 **v2.0.4 §1.3**（R1′/R3）· **#201** / 对局 **v2.0.5**（R4/R5/R6 · pending 对齐键）· UI **#199** · 客户端 **#188** `df69e3d`（F3+F1）· **#191** `e1c1d210`（R1+R2）· **#195** `755d51c7`（R1′+R3）· **#200** `91c1b226`（R4 1000/5000 + R5 本手可见 + R6 TopStart/中顶 timer）· F3 **`lb_btn_home`** · V1 主闸（废左轮·3烛·质疑\|相信）· `LIFE_CHANGE` / `PenaltyExtinguish1` → `lb_cmp_life_seat_p*` · `lb_cmp_reveal_stage` / `lastPlayRanks` / `lastPicked` / `PLAY_POOL_HAND` · `DRAW_TO_FLIP` / `REVEAL_HOLD` · `lb_txt_timer` |
+| 不做 | 改入口文案键 / 命数 / 主链；抬桌心挡池当宣言位；只修 self 不修他座；用 claim 假面冒充开牌；空 ranks 瞎演；以旧 160ms 或 **R3 500/2000** 作本表开牌时长过关；持面未满就 reset/pull；进窗清掉本手牌背堆；中顶叠宣称/法官句；把合入当终验 |
+| 验序 | **优先 F3 + F1 → F2 → F4 / F5 → R1 / R2 → R1′ / R3 → R4 / R5 / R6** |
 
-> **本批认 F1～F5 + R1/R2 + R1′/R3。** 失败短句用下表原句。  
+> **本批认 F1～F5 + R1/R2 + R1′/R3 + R4/R5/R6。** 失败短句用下表原句。  
 > **合入≠终验。未 Rebuild 勿勾。**
 
 ---
@@ -40,9 +41,12 @@
 | 8 | 揭牌舞台 faceUp = 上家真实 `lastPlayRanks` / `lastPicked`；**禁** claim 假面 | **R1** · **R1′**（加严） |
 | 9 | 本轮第一手 PlayLanded 后，下家得 **质疑\|相信** 入口；废 `isFirstOfRound` 挡门 | **R2** |
 | 10 | 空 ranks **禁** claim / n=1 瞎演；宣称 A · 出 Q → faceUp=**Q**（非全 A） | **R1′** |
-| 11 | `DRAW_TO_FLIP=500ms`（窗 400～600）；`REVEAL_HOLD=2000ms`（窗 1.5～2.5s）；持面满窗前 **禁** reset/pull；**废**旧 160ms 主闸 | **R3** |
+| 11 | `DRAW_TO_FLIP=500ms` / `REVEAL_HOLD=2000ms`（R3 史锁）；**现主闸见 R4**；持面满窗前 **禁** reset/pull；**废**旧 160ms | **R3**（已被 **R4 SUPERSEDE**） |
+| 12 | `DRAW_TO_FLIP=1000ms`（窗 800～1200）；`REVEAL_HOLD=5000ms`（窗 4～6s）；**SUPERSEDE** R3 **500/2000**；失败仍 **开牌过快**（S18-25） | **R4** |
+| 13 | AwaitChallenge 期间 `PLAY_POOL_HAND` 本手牌背堆可见；张数 = `lastPlay.count`；进窗 **禁** clear 池叠 | **R5** |
+| 14 | 全部法官/荷官句（宣称、轮到谁、challenge-enter、verdict dealerLine）→ 顶栏 **TopStart** 左上；**中顶仅**倒计时 `lb_txt_timer` | **R6** |
 
-**基线：** `d2fc046`（develop 上 V1 v0.2.2 合入点）。develop 现已合 **#186** `b737001`（对局 **v2.0.1** · F2）、**#188** `df69e3d`（F3+F1）、**#191** `e1c1d210`（R1+R2 客户端）、**#192**（对局 **v2.0.3 §1.3** · S18-24 / S18-6）、**#195** `755d51c7`（R1′+R3 客户端）。策划 **#196**（对局 **v2.0.4 §1.3** · S18-25 / 500·2000）若尚未合入，本表仍对齐其 PR 键名；**合入 #191/#192/#195/#196 ≠ 本表终验**。
+**基线：** `d2fc046`（develop 上 V1 v0.2.2 合入点）。develop 现已合 **#186** `b737001`（对局 **v2.0.1** · F2）、**#188** `df69e3d`（F3+F1）、**#191** `e1c1d210`（R1+R2）、**#192**（对局 **v2.0.3 §1.3**）、**#195** `755d51c7`（R1′+R3）、**#196**（对局 **v2.0.4 §1.3** · S18-25）、**#199**（UI R4/R5/R6）、**#200** `91c1b226`（客户端 R4/R5/R6）。策划 **#201**（对局 **v2.0.5** · S18-26～28 / 1000·5000）若尚未合入，本表仍对齐其 PR 键名；**合入 #191/#192/#195/#196/#199/#200/#201 ≠ 本表终验**。
 
 ---
 
@@ -50,8 +54,8 @@
 
 | 门 | 必须 | 过 |
 |----|------|----|
-| Rebuild | 现场包自称已修 F1–F5 与/或 R1–R2 与/或 R1′–R3；**未 Rebuild 不得勾本行** | [ ] **未落地勿勾** |
-| 验序 | 先过 **F3 + F1**，再 **F2**，再 **F4 / F5**，再 **R1 / R2**，再 **R1′ / R3** | [ ] |
+| Rebuild | 现场包自称已修 F1–F5 与/或 R1–R2 与/或 R1′–R3 与/或 **R4–R6**；**未 Rebuild 不得勾本行** | [ ] **未落地勿勾** |
+| 验序 | 先过 **F3 + F1**，再 **F2**，再 **F4 / F5**，再 **R1 / R2**，再 **R1′ / R3**，再 **R4 / R5 / R6** | [ ] |
 | 他座熄烛 | 调试扣 P1/P2/P3 与 AI 揭牌输家，对应座可见熄 1 | [ ] |
 | 全员揭牌 | 质疑表现 + 翻牌裁定全员可见 | [ ] |
 | 局内返回 | 对局中点 **`lb_btn_home`**（系统返回/`onBackPress` 次要）到达主界面；禁 `lb_btn_table_back` | [ ] |
@@ -60,19 +64,21 @@
 | 开牌真牌面 | Reveal 见真实 lastPlayRanks，非 claim 假面 | [ ] |
 | 第二人可质疑第一手 | 首出落地后下家得 质疑\|相信；旧「第一手禁质疑」废除 | [ ] |
 | 开牌假面加严 | 宣称 A·出 Q → faceUp=Q；空 ranks 不瞎演 | [ ] |
-| 开牌可读时长 | DRAW_TO_FLIP≈500ms；REVEAL_HOLD≈2000ms；持面满窗才 reset | [ ] |
-| 本批过关 | 上列 ∧ **F1～F5** ∧ **R1/R2** ∧ **R1′/R3** 现场过 | [ ] **未落地勿勾** |
+| 开牌可读时长（R4） | DRAW_TO_FLIP≈**1000ms**；REVEAL_HOLD≈**5000ms**；持面满窗才 reset；**勿**以 R3 500/2000 勾过 | [ ] |
+| 质疑窗本手张数 | AwaitChallenge 池上本手牌背可见；张数=`lastPlay.count` | [ ] |
+| 法官句左上 / 中顶仅 timer | 法官/荷官句全 TopStart；中顶仅 `lb_txt_timer` | [ ] |
+| 本批过关 | 上列 ∧ **F1～F5** ∧ **R1/R2** ∧ **R1′/R3** ∧ **R4/R5/R6** 现场过 | [ ] **未落地勿勾** |
 
 ---
 
 ## 2. 前置
 
-- [ ] Rebuild 到自称已修 **F1–F5** 与/或 **R1–R2** 与/或 **R1′–R3** 的客户端（相对基线 `d2fc046`；R1/R2 对齐 **#191** `e1c1d210`；R1′/R3 对齐 **#195** `755d51c7`）
+- [ ] Rebuild 到自称已修 **F1–F5** 与/或 **R1–R2** 与/或 **R1′–R3** 与/或 **R4–R6** 的客户端（相对基线 `d2fc046`；R1/R2 对齐 **#191** `e1c1d210`；R1′/R3 对齐 **#195** `755d51c7`；**R4/R5/R6** 对齐 **#200** `91c1b226`）
 - [ ] 调试包可开 `lb_btn_debug_open` → `lb_cmp_debug_life`，能对 **self / P1 / P2 / P3** 扣血演示（正式包零调试入口，另认生命清单）
-- [ ] 能造：① 他座（AI）揭牌输家熄烛；② 有人点质疑并进揭牌；③ 对局中点 **`lb_btn_home`**（或系统返回）；④ 本轮 **第一手**落地后轮到下家；⑤ 揭牌舞台可见开出牌面；⑥ **宣称 ≠ 实出** 的一手（如宣称 A · 出 Q/K/Joker）；⑦ 可读完开牌抽→翻→持面全轴
-- [ ] 锁名可对：`lb_cmp_life_self` / `lb_cmp_life_seat_p*` / `LIFE_CHANGE` / `PenaltyExtinguish1` / `lb_cmp_table_tip` / `lb_cmp_npc_challenge_bubble` / `lb_cmp_reveal_stage` / `lastPlayRanks` / `lastPicked` / **`lb_btn_home`** / `lb_btn_challenge_doubt` / `lb_btn_challenge_believe` / `DRAW_TO_FLIP` / `REVEAL_HOLD`；**禁** `lb_btn_table_back`；**禁** claim 填充假面；**禁** 空 ranks 瞎演；**禁** 持面未满 reset/pull
-- [ ] 失败短句键：#192 **S18-24** `lb_str_reveal_claim_face` / **S18-6** `lb_str_first_hand_challenge`（新义）；#196 **S18-25** `lb_str_reveal_too_fast`=**开牌过快**（pending 仍对齐键）；F2 仍用 S18-22/23
-- [ ] V1 / C2 / 生命显示 **另纸**；本表不替勾规则全表与生命细验；**V1-3 旧「第一手禁」由 R2 闸覆盖**；开牌区旧 **160ms** 主闸由本表 **R3（500/2000）** 取代，勿以 160ms 勾 R3 过关
+- [ ] 能造：① 他座（AI）揭牌输家熄烛；② 有人点质疑并进揭牌；③ 对局中点 **`lb_btn_home`**（或系统返回）；④ 本轮 **第一手**落地后轮到下家；⑤ 揭牌舞台可见开出牌面；⑥ **宣称 ≠ 实出** 的一手（如宣称 A · 出 Q/K/Joker）；⑦ 可读完开牌抽→翻→持面全轴（**R4 1s/5s**）；⑧ AwaitChallenge 时仍见池上本手牌背堆；⑨ 观察顶栏左上法官句与中顶倒计时
+- [ ] 锁名可对：`lb_cmp_life_self` / `lb_cmp_life_seat_p*` / `LIFE_CHANGE` / `PenaltyExtinguish1` / `lb_cmp_table_tip` / `lb_cmp_npc_challenge_bubble` / `lb_cmp_reveal_stage` / `lastPlayRanks` / `lastPicked` / `PLAY_POOL_HAND` / **`lb_btn_home`** / `lb_btn_challenge_doubt` / `lb_btn_challenge_believe` / `DRAW_TO_FLIP` / `REVEAL_HOLD` / `lb_txt_timer` / `lb_txt_judge`；**禁** `lb_btn_table_back`；**禁** claim 填充假面；**禁** 空 ranks 瞎演；**禁** 持面未满 reset/pull；**禁** 进窗 clear 本手牌背；**禁** 中顶叠宣称/法官句
+- [ ] 失败短句键：#192 **S18-24** `lb_str_reveal_claim_face` / **S18-6** `lb_str_first_hand_challenge`（新义）；#196/#201 **S18-25** `lb_str_reveal_too_fast`=**开牌过快**（窗跟 R4）；#201 **S18-26** `lb_str_challenge_no_pile_count`=**质疑窗不见上家本手张数**；**S18-27** `lb_str_judge_not_top_start`=**法官句未全左上**；**S18-28** `lb_str_center_top_claim_stack`=**中顶仍叠宣言**（#201 pending 仍对齐键）；F2 仍用 S18-22/23
+- [ ] V1 / C2 / 生命显示 **另纸**；本表不替勾规则全表与生命细验；**V1-3 旧「第一手禁」由 R2 闸覆盖**；开牌区旧 **160ms** 与 **R3 500/2000** 均由本表 **R4（1000/5000）** SUPERSEDE，勿以 160ms / 500/2000 勾 R4 过关
 
 ---
 
@@ -192,11 +198,13 @@
 
 ---
 
-### R3 开牌时序（可读时长）
+### R3 开牌时序（可读时长 · **已被 R4 SUPERSEDE**）
 
-**失败短句：** **开牌过快** → **S18-25** `lb_str_reveal_too_fast`（#196 · 对局 v2.0.4 §1.3）  
-**钉：** 抽→翻 **`DRAW_TO_FLIP=500ms`**（验收窗 **400～600ms**）；翻后持面 **`REVEAL_HOLD=2000ms`**（验收窗 **1.5～2.5s**）；持面 **满窗** 前 **禁** `resetRevealUi` / pull / 瞬切下一拍。  
-**废旧闸：** 旧抽→翻 **160ms**（及 120～200 窗）**不再**作本表 R3 / 开牌可读主闸；18 规格数字由 UI 常驻枝跟，本表盯 500/2000。
+> **史锁保留：** R3 曾锁 500/2000。**现开牌时长主闸 = §3d R4（1000/5000）**。勿以本小节勾终验开牌可读；未 Rebuild R4 勿拿 R3 数字冒充过关。
+
+**失败短句：** **开牌过快** → **S18-25** `lb_str_reveal_too_fast`（#196 · 对局 v2.0.4 §1.3；**R4 后窗跟 800～1200 / 4～6s**）  
+**钉（史）：** 抽→翻 **`DRAW_TO_FLIP=500ms`**（窗 **400～600ms**）；翻后持面 **`REVEAL_HOLD=2000ms`**（窗 **1.5～2.5s**）。  
+**废旧闸：** 旧抽→翻 **160ms** **不再**作主闸；**R3 500/2000 亦已被 R4 SUPERSEDE**。
 
 | ID | 步骤 | 期望 | 失败短句 | 过 |
 |----|------|------|----------|----|
@@ -204,7 +212,56 @@
 | **R3-2** | 翻面后持面可读 | 面朝上点数可读满窗；`REVEAL_HOLD` ≈ **2000ms**（落在 **1.5～2.5s**） | **开牌过快**（S18-25 `lb_str_reveal_too_fast`） | [ ] |
 | **R3-3** | 持面期内扫收束 | 持面未满 **禁** `resetRevealUi` / pull / 舞台被清；满窗后才允许收束进下一拍 | **开牌过快**（S18-25 `lb_str_reveal_too_fast`） | [ ] |
 
-**策划交叉：** 对局 **v2.0.4 §1.3**（#196）· 客户端 **#195** `755d51c7` · 交叉 [18](../04-设计/18-局内开牌区规格.md)（UI 跟数字）。**≠** S18-24 开牌假面。
+**策划交叉：** 对局 **v2.0.4 §1.3**（#196）· 客户端 **#195** `755d51c7` · 交叉 [18](../04-设计/18-局内开牌区规格.md)。**现主闸见 R4**。**≠** S18-24 开牌假面。
+
+---
+
+## 3d. 勾选 R4 / R5 / R6（Aron Rebuild · 对齐 #200 / #201 / #199）
+
+> **合入 #200 ≠ 终验。#201 若未合入仍对齐其 PR 键名（S18-26～28 / DRAW_TO_FLIP=1000 / REVEAL_HOLD=5000 / 对局 v2.0.5）。未 Rebuild 勿勾。**
+
+### R4 开牌时序（1000/5000 · SUPERSEDE R3 500/2000）
+
+**失败短句：** **开牌过快** → **S18-25** `lb_str_reveal_too_fast`（#201 · 对局 v2.0.5 · 窗已跟新；失败短语不变）  
+**钉：** 抽→翻 **`DRAW_TO_FLIP=1000ms`**（验收窗 **800～1200ms**）；翻后持面 **`REVEAL_HOLD=5000ms`**（验收窗 **4～6s**）；持面 **满窗** 前 **禁** `resetRevealUi` / pull / 瞬切下一拍。  
+**SUPERSEDE：** R3 **500/2000**（及旧 **160ms**）**不再**作本表开牌可读主闸；18 规格数字由 UI 常驻枝跟（#199 · 18 v0.1.4），本表盯 **1000/5000**。
+
+| ID | 步骤 | 期望 | 失败短句 | 过 |
+|----|------|------|----------|----|
+| **R4-1** | 进揭牌：观察抽→翻 | 背可见 → 翻开；`DRAW_TO_FLIP` ≈ **1000ms**（落在 **800～1200ms**）；**禁**瞬切 / 仍锁旧 **160ms** 或 **R3 500ms** 当过关 | **开牌过快**（S18-25 `lb_str_reveal_too_fast`） | [ ] |
+| **R4-2** | 翻面后持面可读 | 面朝上点数可读满窗；`REVEAL_HOLD` ≈ **5000ms**（落在 **4～6s**）；**禁**以 R3 **2000ms** 当过关 | **开牌过快**（S18-25 `lb_str_reveal_too_fast`） | [ ] |
+| **R4-3** | 持面期内扫收束 | 持面未满 **禁** `resetRevealUi` / pull / 舞台被清；满窗后才允许收束进下一拍 | **开牌过快**（S18-25 `lb_str_reveal_too_fast`） | [ ] |
+
+**策划交叉：** 对局 **v2.0.5**（#201 · pending 对齐键）· UI **#199** · 18 v0.1.4 · 客户端 **#200** `91c1b226`。**≠** S18-24 开牌假面。
+
+---
+
+### R5 AwaitChallenge 本手张数可见
+
+**失败短句：** **质疑窗不见上家本手张数** → **S18-26** `lb_str_challenge_no_pile_count`（#201）  
+**钉：** `AwaitChallenge` 期间池上 **`PLAY_POOL_HAND`** 本手 **牌背堆保持可见**；张数 = **`lastPlay.count`**（1～3）；进质疑窗 **禁** clear / 抽空本手叠。交叉 17 v0.3.4（#199）。
+
+| ID | 步骤 | 期望 | 失败短句 | 过 |
+|----|------|------|----------|----|
+| **R5-1** | 上家打出 n 张（n=`lastPlay.count`）落地后，下家进 **AwaitChallenge**（身前 质疑\|相信） | 池上本手 **牌背** 可见；可见张数 = **n**；非空池 / 非隐本手 | **质疑窗不见上家本手张数**（S18-26 `lb_str_challenge_no_pile_count`） | [ ] |
+| **R5-2** | 进窗前后对照池叠 | 进 `lb_cmp_challenge_entry` **不得**清掉 / 抽空本手牌背堆；张数仍 = `lastPlay.count` | **质疑窗不见上家本手张数**（S18-26 `lb_str_challenge_no_pile_count`） | [ ] |
+
+**策划交叉：** 对局 **v2.0.5 §1.4**（#201）· UI 17 v0.3.4（#199）· 客户端 **#200** `91c1b226`。**≠** S18-22 质疑无表现。
+
+---
+
+### R6 法官句全左上 / 中顶仅 timer
+
+**失败短句：** **法官句未全左上** → **S18-27** `lb_str_judge_not_top_start`；**中顶仍叠宣言** → **S18-28** `lb_str_center_top_claim_stack`（#201）  
+**钉：** 全部法官/荷官/全局播报（宣称、轮到谁、challenge-enter、verdict `dealerLine` / `lb_txt_judge`）→ 顶栏 **TopStart** 左上；**中顶 CenterTop 仅**倒计时 `lb_txt_timer`。Claim + dealerLine **仍**左上（F4 加严）。交叉 11 v0.2.14 / 17 R6（#199）。
+
+| ID | 步骤 | 期望 | 失败短句 | 过 |
+|----|------|------|----------|----|
+| **R6-1** | 对局中扫宣称 / 轮到谁 / challenge-enter / 裁定 dealerLine | 上述句全部在顶栏 **左上 TopStart**；**禁**落桌心 / 中顶主读 | **法官句未全左上**（S18-27 `lb_str_judge_not_top_start`） | [ ] |
+| **R6-2** | 观察中顶 CenterTop | **仅**倒计时 `lb_txt_timer`（环/秒）；**禁**叠宣称 / 法官句 / dealerLine | **中顶仍叠宣言**（S18-28 `lb_str_center_top_claim_stack`） | [ ] |
+| **R6-3** | 对照 F4 | F4「宣言左上」仍过；本门加严：法官句全族左上 + 中顶专席仅 timer | **法官句未全左上** / **中顶仍叠宣言** | [ ] |
+
+**策划交叉：** 对局 **v2.0.5 §1.5**（#201）· UI 11/17（#199）· 客户端 **#200** `91c1b226`。**≠** F4 仅宣称左上（本门含法官全族）。
 
 ---
 
@@ -219,7 +276,10 @@
 | **F5** | **self烛框未框全** | self 三烛外框未完全包住 3 烛（含焰） |
 | **R1 / R1′** | **开牌假面** | → **S18-24** `lb_str_reveal_claim_face`（对局 v2.0.3/v2.0.4 §1.3 · #192/#196）；揭牌用宣称/claim 填充，非真实 `lastPlayRanks`；或宣称 A→翻全 A；或空 ranks 瞎演 |
 | **R2** | **第二人不可质疑第一手** | → **S18-6** `lb_str_first_hand_challenge`（#192 语义翻）；首出落地后下家不进 TrustOrChallenge / 被 `isFirstOfRound` 挡住；旧「第一手仍可质疑」失败句已废 |
-| **R3** | **开牌过快** | → **S18-25** `lb_str_reveal_too_fast`（对局 v2.0.4 §1.3 / #196）；抽→翻 <400ms（或仍锁旧 160ms 主闸）；或翻后持面 <1.5s 就 reset/pull；看不清点数 |
+| **R3** | **开牌过快**（史） | → **S18-25** `lb_str_reveal_too_fast`（对局 v2.0.4 · #196）；R3 窗 400～600 / 1.5～2.5s；**现主闸见 R4** |
+| **R4** | **开牌过快** | → **S18-25** `lb_str_reveal_too_fast`（对局 v2.0.5 / #201 · 窗跟新）；抽→翻 <800ms（或仍锁 160 / **R3 500**）；或翻后持面 <4s 就 reset/pull；看不清点数 |
+| **R5** | **质疑窗不见上家本手张数** | → **S18-26** `lb_str_challenge_no_pile_count`（#201）；AwaitChallenge 池上本手牌背不可见 / 张数≠`lastPlay.count` / 进窗前抽空本手 |
+| **R6** | **法官句未全左上** / **中顶仍叠宣言** | → **S18-27** `lb_str_judge_not_top_start` / **S18-28** `lb_str_center_top_claim_stack`（#201）；法官/荷官句未落 TopStart；或中顶叠宣称/法官句（非仅 `lb_txt_timer`） |
 
 勾不通过时只准用上表原句，不要写「还行 / 能看出来一点」。
 
@@ -229,15 +289,17 @@
 
 | 禁 | 说明 |
 |----|------|
-| **未 Rebuild 勾过关** | 合入本表 / #191 / #192 / #195 / #196 ≠ 终验 |
+| **未 Rebuild 勾过关** | 合入本表 / #191 / #192 / #195 / #196 / #199 / #200 / #201 ≠ 终验 |
 | **发明玩法** | 不改质疑\|相信文案、3 烛、PenaltyExtinguish1、CollectRedeal |
 | **只修 self** | F1 必须他座 `lb_cmp_life_seat_p*` 同套熄灭 |
-| **桌心挡池当宣言** | F4 禁再堆桌心挡池 |
+| **桌心挡池当宣言** | F4 / R6 禁再堆桌心挡池；中顶禁叠宣言 |
 | **claim 假面当开牌** | R1/R1′ 禁用宣称填充 `lb_cmp_reveal_stage`；空 ranks 禁瞎演 |
 | **第一手禁质疑挡门** | R2 废；不得以 V1-3 旧句挡本闸 |
-| **旧 160ms 勾 R3** | R3 主闸 = 500/2000；160ms **SUPERSEDED** 作本表过关 |
-| **持面未满就收束** | 禁 reset/pull before `REVEAL_HOLD` 满窗 |
-| **替勾 V1 / C2 / 生命细验** | 另纸；本表盯 Rebuild F1–F5 + R1/R2 + R1′/R3 |
+| **旧 160ms / R3 500/2000 勾 R4** | R4 主闸 = **1000/5000**；160ms 与 **500/2000** 均 **SUPERSEDED** |
+| **持面未满就收束** | 禁 reset/pull before `REVEAL_HOLD` 满窗（现 5s） |
+| **进窗清本手牌背** | R5 禁 clear `PLAY_POOL_HAND`；张数须 = `lastPlay.count` |
+| **中顶叠宣称/法官句** | R6 中顶 **仅** `lb_txt_timer` |
+| **替勾 V1 / C2 / 生命细验** | 另纸；本表盯 Rebuild F1–F5 + R1/R2 + R1′/R3 + R4/R5/R6 |
 | **落 ets** | 本 PR 零客户端 |
 | **`lb_btn_table_back`** | F3 局内返回 **禁** 此 id；只认 **`lb_btn_home`**（系统返回 / `onBackPress` 次要） |
 
@@ -251,10 +313,11 @@
 | 2026-09-14 | **v0.1.1** F2 失败短句交叉策划键：**质疑无表现**→S18-22 `lb_str_challenge_no_broadcast`；**揭牌仅自己见**→S18-23 `lb_str_reveal_self_only`；对齐对局-状态机 **v2.0.1 §1.2**（F2 全员可读 · #186 `b737001`）；rebase develop | 已审 |
 | 2026-09-14 | **v0.1.2** F3-1 显式控件 **`lb_btn_home`**（系统返回 / `onBackPress` 次要）；**禁** `lb_btn_table_back`；注 **#188** `df69e3d` 已落 F3+F1 首修；rebase develop | 已审 |
 | 2026-09-15 | **v0.2.0** 增 **R1 开牌真牌面**（S18-24 `lb_str_reveal_claim_face`）+ **R2 第二人可质疑第一手**（S18-6 `lb_str_first_hand_challenge` 语义翻；废旧「第一手禁质疑」）；对齐 **#191** `e1c1d210` / **#192** 对局 v2.0.3 §1.3（#192 pending 仍对齐键）；验序 +R1/R2；rebase develop | 已审 |
-| 2026-09-15 | **v0.3.0** 增 **R1′ 开牌假面加严**（宣称A→faceUp=真出；空 ranks 禁瞎演；S18-24 加严）+ **R3 开牌时序**（`DRAW_TO_FLIP=500ms` / `REVEAL_HOLD=2000ms`；**S18-25** `lb_str_reveal_too_fast`=开牌过快；废旧 160ms 主闸）；对齐 **#195** `755d51c7` / **#196** 对局 v2.0.4 §1.3（#196 pending 仍对齐键）；验序 +R1′/R3；rebase develop | **本提交 · 待审** |
+| 2026-09-15 | **v0.3.0** 增 **R1′ 开牌假面加严**（宣称A→faceUp=真出；空 ranks 禁瞎演；S18-24 加严）+ **R3 开牌时序**（`DRAW_TO_FLIP=500ms` / `REVEAL_HOLD=2000ms`；**S18-25** `lb_str_reveal_too_fast`=开牌过快；废旧 160ms 主闸）；对齐 **#195** `755d51c7` / **#196** 对局 v2.0.4 §1.3（#196 pending 仍对齐键）；验序 +R1′/R3；rebase develop | 已审 |
+| 2026-09-15 | **v0.4.0** 增 **§3d R4/R5/R6**：R4 `DRAW_TO_FLIP=1000ms` / `REVEAL_HOLD=5000ms`（**SUPERSEDE** R3 500/2000；失败仍 S18-25 开牌过快·窗跟新）；R5 AwaitChallenge 本手牌背可见·张数=`lastPlay.count` → **S18-26** `lb_str_challenge_no_pile_count`；R6 法官句全 TopStart / 中顶仅 timer → **S18-27** `lb_str_judge_not_top_start` / **S18-28** `lb_str_center_top_claim_stack`；对齐 **#200** `91c1b226` / **#201**（pending 仍对齐键 · 对局 v2.0.5）/ **#199**；验序 +R4/R5/R6；rebase develop | **本提交 · 待审** |
 
 请 **@LiarBar负责人** **@测试** **@鸿蒙** 会签。合入≠终验。
 
 ---
 
-*测试岗 · v0.3.0 · F1–F5 + R1/R2 + R1′/R3 Rebuild 盯 · R1/R1′→S18-24 · R3→S18-25 · R2→S18-6（新义）· #195 755d51c7 · #196 pending 对齐 · F3=`lb_btn_home` · F2→S18-22/23 · 基线 d2fc046 · 零 ets · 合入≠终验 · 未 Rebuild 勿勾*
+*测试岗 · v0.4.0 · F1–F5 + R1/R2 + R1′/R3 + R4/R5/R6 Rebuild 盯 · R1/R1′→S18-24 · R3史/R4→S18-25 · R5→S18-26 · R6→S18-27/28 · R2→S18-6（新义）· #200 91c1b226 · #201 pending 对齐 · #199 · F3=`lb_btn_home` · F2→S18-22/23 · 基线 d2fc046 · 零 ets · 合入≠终验 · 未 Rebuild 勿勾*
