@@ -134,15 +134,30 @@ if (life.includes('.clip(false)')) pass('F5 LifeCandles clip(false) so flame not
 else fail('F5 LifeCandles still clips');
 
 
-// --- Aron Rebuild R1/R2 ---
+// --- Aron Rebuild R1′/R2/R3 ---
 const engineSrc = src('entry/src/main/ets/engine/MatchEngine.ets');
+const flyFx = src('entry/src/main/ets/features/table/PlayFlyFx.ets');
 const ranksFn = table.split('private ranksForReveal')[1] || '';
 const ranksBody = ranksFn.split('private rejectChallengeRestore')[0] || '';
-if (ranksBody.includes('lastPlayRanks') && !ranksBody.includes('currentClaim') && !/claim\s*=/.test(ranksBody)) {
-  pass('R1 ranksForReveal no claim fake fill');
-} else fail('R1 ranksForReveal claim fallback still present');
-if (/showRanks[\s\S]{0,220}CHALLENGE_RITUAL/.test(engineSrc)) pass('R1 snapshot ranks on CHALLENGE_RITUAL');
-else fail('R1 engine showRanks missing CHALLENGE_RITUAL');
+if (ranksBody.includes('lastPlayRanks') && ranksBody.includes('peekLastPlayRanks') &&
+    !ranksBody.includes('currentClaim') && !/claim\s*=/.test(ranksBody)) {
+  pass("R1' ranksForReveal no claim fake fill + trusted peek");
+} else fail("R1' ranksForReveal claim fallback still present");
+if (/showRanks[\s\S]{0,220}CHALLENGE_RITUAL/.test(engineSrc) &&
+    engineSrc.includes('peekLastPlayRanks') && engineSrc.includes('peekLastPickedRanks')) {
+  pass("R1' snapshot ranks on CHALLENGE_RITUAL + peeks");
+} else fail("R1' engine showRanks/peeks missing");
+const beginFn = table.split('private beginRevealAfterAck')[1] || '';
+const beginBody = beginFn.split('private ranksCsv')[0] || '';
+if (beginBody.includes('claim=') && beginBody.includes('lastPlayRanks=') &&
+    beginBody.includes('lastPicked=') && beginBody.includes('lastPlay.count=') &&
+    beginBody.includes('playId=')) {
+  pass("R1' beginRevealAfterAck HiLog keys present");
+} else fail("R1' beginRevealAfterAck HiLog keys missing");
+const drawN = Number((/DRAW_TO_FLIP_MS:\s*number\s*=\s*(\d+)/.exec(flyFx) || [])[1] || 0);
+const holdN = Number((/REVEAL_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(flyFx) || [])[1] || 0);
+if (drawN >= 400 && holdN >= 1500) pass(`R3 floors DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
+else fail(`R3 floors failed draw=${drawN} hold=${holdN}`);
 const showEntry = table.split('private shouldShowChallengeEntry')[1] || '';
 const showEntryBody = showEntry.split('private actorEmptied')[0] || '';
 if (!showEntryBody.includes('lastPlay.isFirstOfRound') && showEntryBody.includes('lastPlay === null')) {

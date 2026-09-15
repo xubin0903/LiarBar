@@ -213,6 +213,8 @@ struct Table {
   private playFlyPlayId: string = '';
   private playFlyTimer: number = -1;
   private revealTimer: number = -1;
+  /** R1′: empty-ranks defer attempts; cap avoids infinite wait. */
+  private revealDeferTries: number = 0;
   private challengeTickId: number = -1;
   private challengeDeadlineMs: number = 0;
   private challengeEnterPlayId: string = '';
@@ -2526,6 +2528,7 @@ struct Table {
     this.revealRanks = [];
     this.revealX = 0;
     this.revealY = 0;
+    this.revealDeferTries = 0;
   }
 
   private cardHiddenAt(idx: number): boolean {
@@ -3037,6 +3040,8 @@ struct Table {
   /**
    * 18: after challenge ACK — lift pool hand to reveal stage, draw→flip SFX.
    * Stage center = pool center + (0, REVEAL_DOWN_VP). Dim/blur on bg only.
+   * R3: draw→flip DRAW_TO_FLIP_MS then face-up REVEAL_HOLD_MS; ban instant cut /
+   * resetRevealUi / next pull beat before hold done.
    * Life/judge stub: hold after flip then pull(). Do not open Challenge page.
    */
   private beginRevealAfterAck(snap: MatchSnapshot): void {
@@ -3044,7 +3049,48 @@ struct Table {
     // Cards lift off pool → clear pool hand fan.
     this.pileN0 = 0;
     const ranks: string[] = this.ranksForReveal(snap);
-    const n: number = ranks.length > 0 ? ranks.length : 1;
+    let claim: string = '';
+    if (snap.currentClaim !== null) {
+      claim = snap.currentClaim.rank;
+    }
+    const picked: string[] = AppRuntime.engine.peekLastPickedRanks();
+    let playCount: number = 0;
+    let playId: string = '';
+    if (snap.lastPlay !== null) {
+      playCount = snap.lastPlay.count;
+      playId = snap.lastPlay.playId;
+    }
+    // R1′ HiLog keys: claim / lastPlayRanks / lastPicked / lastPlay.count / playId
+    Logger.info(TAG,
+      `beginRevealAfterAck claim=${claim} lastPlayRanks=${this.ranksCsv(ranks)} ` +
+      `lastPicked=${this.ranksCsv(picked)} lastPlay.count=${playCount} playId=${playId}`);
+    // R1′: empty ranks → FORBIDDEN claim fill / n=1 fake show. Wait for trusted ranks.
+    if (ranks.length === 0) {
+      this.revealDeferTries = this.revealDeferTries + 1;
+      Logger.warn(TAG,
+        `beginRevealAfterAck ranks empty — defer try=${this.revealDeferTries} (no claim fill)`);
+      this.revealOn = false;
+      this.revealFaceUp = false;
+      this.revealRanks = [];
+      if (this.revealDeferTries > 25) {
+        Logger.warn(TAG, 'beginRevealAfterAck ranks still empty — abort reveal (no claim fill)');
+        this.revealDeferTries = 0;
+        return;
+      }
+      this.revealTimer = setTimeout((): void => {
+        this.revealTimer = -1;
+        const again: MatchSnapshot | null = AppRuntime.engine.current();
+        if (again !== null &&
+          (again.phase === Phase.CHALLENGE_RITUAL || again.phase === Phase.JUDGE)) {
+          this.beginRevealAfterAck(again);
+        } else {
+          this.revealDeferTries = 0;
+        }
+      }, 80);
+      return;
+    }
+    this.revealDeferTries = 0;
+    const n: number = PlayFlyFx.clampCount(ranks.length);
     const w: number = PlayFlyFx.pileWidth(n);
     const h: number = PlayFlyFx.pileHeight();
     const mid: number[] = this.poolCenterOverlay();
@@ -3059,26 +3105,53 @@ struct Table {
     Logger.info(TAG, `${SfxIds.REVEAL_DRAW} beginRevealAfterAck n=${ranks.length}`);
     this.revealTimer = setTimeout((): void => {
       this.revealTimer = -1;
+      // R3: only flip after DRAW_TO_FLIP_MS; never skip to face-up instantly.
       this.revealFaceUp = true;
       TableAudio.playRevealFlip();
       Logger.info(TAG, `${SfxIds.REVEAL_FLIP} faceUp`);
       this.revealTimer = setTimeout((): void => {
         this.revealTimer = -1;
-        // Minimal Section 3: hold then pull. Full judge/life later.
+        // R3: hold full REVEAL_HOLD_MS before resetRevealUi / pull. Ban early cut.
         this.resetRevealUi();
         this.pull();
       }, PlayFlyFx.REVEAL_HOLD_MS);
     }, PlayFlyFx.DRAW_TO_FLIP_MS);
   }
 
+  private ranksCsv(ranks: string[]): string {
+    let s: string = '';
+    for (let i = 0; i < ranks.length; i++) {
+      if (i > 0) {
+        s = `${s},`;
+      }
+      s = `${s}${ranks[i]}`;
+    }
+    return s;
+  }
+
   /**
-   * R1: faceUp ranks MUST be engine lastPlayRanks (= lastPicked).
-   * FORBID claim/currentClaim.rank fill — empty means engine not yet open; never fake.
+   * R1′: faceUp ranks MUST be engine lastPlayRanks (= lastPicked).
+   * FORBID claim/currentClaim.rank fill. If snapshot empty, read trusted peek.
+   * Empty after peek → caller must wait; never fabricate claim / n=1 fake.
    */
   private ranksForReveal(snap: MatchSnapshot): string[] {
     const out: string[] = [];
     for (let i = 0; i < snap.lastPlayRanks.length; i++) {
       out.push(snap.lastPlayRanks[i]);
+    }
+    if (out.length > 0) {
+      return out;
+    }
+    const trusted: string[] = AppRuntime.engine.peekLastPlayRanks();
+    for (let i = 0; i < trusted.length; i++) {
+      out.push(trusted[i]);
+    }
+    if (out.length > 0) {
+      return out;
+    }
+    const picked: string[] = AppRuntime.engine.peekLastPickedRanks();
+    for (let i = 0; i < picked.length; i++) {
+      out.push(picked[i]);
     }
     return out;
   }

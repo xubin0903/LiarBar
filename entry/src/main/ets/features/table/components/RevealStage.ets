@@ -17,7 +17,7 @@ export struct RevealStage {
   @Prop revealScale: number = PlayFlyFx.REVEAL_SCALE;
 
   build() {
-    if (this.visible) {
+    if (this.visible && this.cardCount() > 0) {
       Stack({ alignContent: Alignment.Center }) {
         ForEach(this.indexes(), (idx: number) => {
           this.cardAt(idx)
@@ -79,10 +79,11 @@ export struct RevealStage {
     }
   }
 
+  /** R1′: empty ranks → 0 cards (never fake n=1 / claim face). */
   private cardCount(): number {
     const n: number = this.ranks.length;
     if (n < 1) {
-      return 1;
+      return 0;
     }
     return PlayFlyFx.clampCount(n);
   }
