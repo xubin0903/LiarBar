@@ -82,7 +82,7 @@
     },
     {
       "name": "_comment_lb_str_challenge_disabled_first",
-      "value": "Value=第一手还没人出过牌. MUST NOT be in-table tip primary (old tip-deleted lock). Button/disabled affordance only."
+      "value": "Value=第一手还没人出过牌. ONLY when no prior play exists. MUST NOT block challenge after first PlayLanded (see S18-6). MUST NOT be in-table tip primary."
     },
     {
       "name": "lb_str_challenge_reject",
@@ -446,7 +446,11 @@
     },
     {
       "name": "lb_str_first_hand_challenge",
-      "value": "第一手仍可质疑"
+      "value": "第二人不可质疑第一手"
+    },
+    {
+      "name": "_comment_lb_str_first_hand_challenge",
+      "value": "S18-6/S17-1. 2026-09-15 semantic flip: FAIL if second player cannot challenge first play of round. Old value「第一手仍可质疑」abolished."
     },
     {
       "name": "lb_str_deck_not_20",
@@ -499,6 +503,14 @@
     {
       "name": "lb_str_reveal_self_only",
       "value": "揭牌仅自己见"
+    },
+    {
+      "name": "lb_str_reveal_claim_face",
+      "value": "开牌假面"
+    },
+    {
+      "name": "_comment_lb_str_reveal_claim_face",
+      "value": "S18-24. FAIL if reveal stage shows claim-filled faces instead of real lastPlayRanks."
     }
   ]
 }
