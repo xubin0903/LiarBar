@@ -518,7 +518,31 @@
     },
     {
       "name": "_comment_lb_str_reveal_too_fast",
-      "value": "S18-25. FAIL if DRAW_TO_FLIP<400ms or REVEAL_HOLD<1.5s (lock 500ms/2000ms; window 400–600 / 1.5–2.5)."
+      "value": "S18-25. FAIL if DRAW_TO_FLIP<800ms or REVEAL_HOLD<4s (lock 1000ms/5000ms; window 800–1200 / 4–6s). SUPERSEDE R3 500/2000."
+    },
+    {
+      "name": "lb_str_challenge_no_pile_count",
+      "value": "质疑窗不见上家本手张数"
+    },
+    {
+      "name": "_comment_lb_str_challenge_no_pile_count",
+      "value": "S18-26. FAIL if AwaitChallenge pool last-hand backs invisible or count≠lastPlay.count."
+    },
+    {
+      "name": "lb_str_judge_not_top_start",
+      "value": "法官句未全左上"
+    },
+    {
+      "name": "_comment_lb_str_judge_not_top_start",
+      "value": "S18-27. FAIL if judge/dealer lines not TopStart."
+    },
+    {
+      "name": "lb_str_center_top_claim_stack",
+      "value": "中顶仍叠宣言"
+    },
+    {
+      "name": "_comment_lb_str_center_top_claim_stack",
+      "value": "S18-28. FAIL if CenterTop stacks claim/judge over timer-only."
     }
   ]
 }
