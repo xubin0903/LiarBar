@@ -3,7 +3,7 @@
  * UI beat only — not a new engine Phase.
  *
  * C2 gates (implementation notes; 合入 ≠ 终验):
- *   C2-1 第一手禁质疑 — lastPlay.isFirstOfRound → no enabled 质疑|相信
+ *   C2-1 开局尚无上家牌禁质疑 — lastPlay==null / !canChallenge；禁 isFirstOfRound 粘性禁窗
  *   C2-2 质疑|相信同层二选 — lb_btn_challenge_doubt / _believe one layer; 相信 silent
  *   C2-3 只打上家本手 — targetPlayId = lastPlay.playId
  *   C2-4 打光禁入口 — hand==0 / emptyOrder / RankSettle → no entry

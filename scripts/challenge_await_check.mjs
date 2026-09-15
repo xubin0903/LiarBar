@@ -161,13 +161,27 @@ if (fx.includes('AWAIT_MS: number = 10000') &&
   fail('timeout window / Believe missing');
 }
 
-if (table.includes('lastPlay.isFirstOfRound') &&
-    table.includes('shouldShowChallengeEntry') &&
+// R2 / C2-1: ban only when no lastPlay yet — NOT sticky lastPlay.isFirstOfRound
+const entryFn = table.split('private shouldShowChallengeEntry')[1] || '';
+const entryBody = entryFn.split('private actorEmptied')[0] || '';
+if (entryBody.includes('snap.lastPlay === null') &&
+    entryBody.includes('snap.canChallenge') &&
+    !entryBody.includes('lastPlay.isFirstOfRound') &&
     table.includes('actorEmptied') &&
     table.includes('this.playFlyOn || this.confirmBusy || this.roundWinOn')) {
-  pass('C2-1/4/5: first-hand / emptied / fly+busy gates');
+  pass('R2/C2-1: shouldShowChallengeEntry hides only when no lastPlay; no isFirstOfRound ban');
 } else {
-  fail('entry gates incomplete');
+  fail('R2: shouldShowChallengeEntry still bans via isFirstOfRound or missing lastPlay/canChallenge');
+}
+
+const npcAwaitFn = table.split('private shouldShowNpcAwait')[1] || '';
+const npcAwaitBody = npcAwaitFn.split('private maybeClearChallengeBroadcast')[0] || '';
+if (npcAwaitBody.includes('snap.lastPlay === null') &&
+    npcAwaitBody.includes('snap.canChallenge') &&
+    !npcAwaitBody.includes('lastPlay.isFirstOfRound')) {
+  pass('R2: shouldShowNpcAwait also free of isFirstOfRound sticky ban');
+} else {
+  fail('R2: shouldShowNpcAwait still uses isFirstOfRound');
 }
 
 if (table.includes('snap.lastPlay.playId') &&
@@ -356,6 +370,28 @@ if (!/revolver.*lives.?primary|cylinder.*lives.?primary|lives.?primary.*cylinder
   pass('lives UI: no revolver-cylinder-as-lives-primary rewrite');
 } else {
   fail('revolver cylinder promoted to lives primary');
+}
+
+
+// R1: ranksForReveal must use real lastPlayRanks; FORBID claim fake-face fallback
+const revealFn = table.split('private ranksForReveal')[1] || '';
+const revealBody = revealFn.split('private rejectChallengeRestore')[0] || '';
+if (revealBody.includes('snap.lastPlayRanks') &&
+    !revealBody.includes('currentClaim') &&
+    !revealBody.includes('claim') &&
+    !/currentClaim\.rank/.test(revealBody)) {
+  pass('R1: ranksForReveal = lastPlayRanks only; no claim/currentClaim fake fill');
+} else {
+  fail('R1: ranksForReveal still has claim fake-face fallback');
+}
+
+const engine = src('entry/src/main/ets/engine/MatchEngine.ets');
+if (engine.includes('Phase.CHALLENGE_RITUAL') &&
+    /showRanks[\s\S]{0,220}CHALLENGE_RITUAL/.test(engine) &&
+    engine.includes('lastPlayRanks: showRanks ? this.copyRanks(this.lastPlayRanks) : []')) {
+  pass('R1: engine exposes lastPlayRanks during CHALLENGE_RITUAL (ACK before revealOpen)');
+} else {
+  fail('R1: engine still gates lastPlayRanks away during CHALLENGE_RITUAL');
 }
 
 console.log(process.exitCode ? 'challenge-await check FAILED' : 'challenge-await check OK');
