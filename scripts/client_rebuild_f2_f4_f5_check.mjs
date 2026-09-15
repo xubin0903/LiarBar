@@ -133,5 +133,21 @@ if (ids.includes("LIFE_SELF_FRAME: string = 'lb_cmp_life_self_frame'") &&
 if (life.includes('.clip(false)')) pass('F5 LifeCandles clip(false) so flame not cropped');
 else fail('F5 LifeCandles still clips');
 
+
+// --- Aron Rebuild R1/R2 ---
+const engineSrc = src('entry/src/main/ets/engine/MatchEngine.ets');
+const ranksFn = table.split('private ranksForReveal')[1] || '';
+const ranksBody = ranksFn.split('private rejectChallengeRestore')[0] || '';
+if (ranksBody.includes('lastPlayRanks') && !ranksBody.includes('currentClaim') && !/claim\s*=/.test(ranksBody)) {
+  pass('R1 ranksForReveal no claim fake fill');
+} else fail('R1 ranksForReveal claim fallback still present');
+if (/showRanks[\s\S]{0,220}CHALLENGE_RITUAL/.test(engineSrc)) pass('R1 snapshot ranks on CHALLENGE_RITUAL');
+else fail('R1 engine showRanks missing CHALLENGE_RITUAL');
+const showEntry = table.split('private shouldShowChallengeEntry')[1] || '';
+const showEntryBody = showEntry.split('private actorEmptied')[0] || '';
+if (!showEntryBody.includes('lastPlay.isFirstOfRound') && showEntryBody.includes('lastPlay === null')) {
+  pass('R2 shouldShowChallengeEntry no isFirstOfRound ban');
+} else fail('R2 shouldShowChallengeEntry still bans isFirstOfRound');
+
 if (process.exitCode) console.error('client_rebuild_f2_f4_f5_check FAILED');
 else console.log('client_rebuild_f2_f4_f5_check OK');

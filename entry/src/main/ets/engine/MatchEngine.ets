@@ -1475,8 +1475,10 @@ export class MatchEngine {
     if (remain < 0) {
       remain = 0;
     }
-    const showRanks: boolean = this.revealOpen || this.phase === Phase.JUDGE || this.phase === Phase.PENALTY ||
-      this.phase === Phase.RECAP;
+    // R1: CHALLENGE_RITUAL must expose real lastPlayRanks at ACK (before revealOpen),
+    // so RevealStage faceUp never falls back to claim fakes.
+    const showRanks: boolean = this.revealOpen || this.phase === Phase.CHALLENGE_RITUAL ||
+      this.phase === Phase.JUDGE || this.phase === Phase.PENALTY || this.phase === Phase.RECAP;
     let ritualBeat: string = '';
     if (this.challenge !== null) {
       ritualBeat = this.challenge.ritualBeat;

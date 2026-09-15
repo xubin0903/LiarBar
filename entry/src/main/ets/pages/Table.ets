@@ -2620,7 +2620,8 @@ struct Table {
     if (this.isEmptySafePending(snap)) {
       return false;
     }
-    if (snap.lastPlay === null || snap.lastPlay.isFirstOfRound || !snap.canChallenge) {
+    // R2: after first play lands, next seat (incl. NPC await) must see Trust|Challenge.
+    if (snap.lastPlay === null || !snap.canChallenge) {
       return false;
     }
     return true;
@@ -2769,8 +2770,9 @@ struct Table {
   }
 
   /**
-   * Q03: PlayLanded ∧ hand>0 ∧ not first hand ∧ canChallenge ∧ human.
-   * Zero entry during PlayLaunch / confirmBusy / RoundWin / first hand.
+   * Q03: PlayLanded ∧ hand>0 ∧ canChallenge ∧ human.
+   * Zero entry during PlayLaunch / confirmBusy / RoundWin / before any play (no lastPlay).
+   * R2: after every play (incl. first of round), next seat enters 质疑|相信.
    * ForceChallenge2 (=2 empty): allow even when actor emptied.
    */
   private shouldShowChallengeEntry(snap: MatchSnapshot): boolean {
@@ -2794,7 +2796,9 @@ struct Table {
     if (!force2 && !snap.hasCards) {
       return false;
     }
-    if (snap.lastPlay === null || snap.lastPlay.isFirstOfRound) {
+    // R2: do NOT ban via sticky first-of-round flag on the play object.
+    // Hide only when no lastPlay yet; engine canChallengeNow allows playIndexInRound>=1.
+    if (snap.lastPlay === null) {
       return false;
     }
     if (!snap.canChallenge) {
@@ -3067,25 +3071,14 @@ struct Table {
     }, PlayFlyFx.DRAW_TO_FLIP_MS);
   }
 
-  /** Prefer snap.lastPlayRanks; if engine still gates them, size from lastPlay. */
+  /**
+   * R1: faceUp ranks MUST be engine lastPlayRanks (= lastPicked).
+   * FORBID claim/currentClaim.rank fill — empty means engine not yet open; never fake.
+   */
   private ranksForReveal(snap: MatchSnapshot): string[] {
     const out: string[] = [];
     for (let i = 0; i < snap.lastPlayRanks.length; i++) {
       out.push(snap.lastPlayRanks[i]);
-    }
-    if (out.length > 0) {
-      return out;
-    }
-    if (snap.lastPlay === null) {
-      return out;
-    }
-    let claim: string = 'A';
-    if (snap.currentClaim !== null) {
-      claim = snap.currentClaim.rank;
-    }
-    const n: number = PlayFlyFx.clampCount(snap.lastPlay.count);
-    for (let i = 0; i < n; i++) {
-      out.push(claim);
     }
     return out;
   }
