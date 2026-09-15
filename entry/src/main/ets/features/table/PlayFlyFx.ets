@@ -31,9 +31,9 @@ export class PlayFlyFx {
   /** R4: draw→flip 1000ms (窗 800～1200). SUPERSEDE R3 500/2000 as primary gate. */
   static readonly DRAW_TO_FLIP_MS: number = 1000;
   static readonly DRAW_TO_FLIP_MS_MIN: number = 800;
-  /** R4: face-up hold 3500ms (min 3500) before resetRevealUi/pull. Ban early cut. Abolish 5000 primary. */
-  static readonly REVEAL_HOLD_MS: number = 3500;
-  static readonly REVEAL_HOLD_MS_MIN: number = 3500;
+  /** R4: face-up hold 3000ms (min 3000) before resetRevealUi/pull. Ban early cut. Abolish 3500/5000 primary. */
+  static readonly REVEAL_HOLD_MS: number = 3000;
+  static readonly REVEAL_HOLD_MS_MIN: number = 3000;
 
   static clampCount(n: number): number {
     if (n < 1) {

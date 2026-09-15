@@ -157,9 +157,10 @@ if (beginBody.includes('claim=') && beginBody.includes('lastPlayRanks=') &&
 } else fail("R1' beginRevealAfterAck HiLog keys missing");
 const drawN = Number((/DRAW_TO_FLIP_MS:\s*number\s*=\s*(\d+)/.exec(flyFx) || [])[1] || 0);
 const holdN = Number((/REVEAL_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(flyFx) || [])[1] || 0);
-if (drawN === 1000 && holdN === 3500 &&
+if (drawN === 1000 && holdN === 3000 &&
     !flyFx.includes('DRAW_TO_FLIP_MS: number = 500') &&
     !flyFx.includes('REVEAL_HOLD_MS: number = 2000') &&
+    !flyFx.includes('REVEAL_HOLD_MS: number = 3500') &&
     !flyFx.includes('REVEAL_HOLD_MS: number = 5000')) {
   pass(`R4 floors DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
 } else fail(`R4 floors failed draw=${drawN} hold=${holdN}`);
