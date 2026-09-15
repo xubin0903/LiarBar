@@ -154,11 +154,35 @@ if (existsSync(join(root, 'entry/src/main/ets/features/table/components/RevealSt
 if (flyFx.includes('REVEAL_DOWN_VP: number = 56') &&
     flyFx.includes('REVEAL_SCALE: number = 0.90') &&
     flyFx.includes('REVEAL_DIM: number = 0.40') &&
-    flyFx.includes('REVEAL_BLUR_VP: number = 6') &&
-    flyFx.includes('DRAW_TO_FLIP_MS: number = 160')) {
-  pass('18 numbers: DOWN 56 / scale 0.90 / dim 0.40 / blur 6 / draw→flip 160');
+    flyFx.includes('REVEAL_BLUR_VP: number = 6')) {
+  pass('18 numbers: DOWN 56 / scale 0.90 / dim 0.40 / blur 6');
 } else {
-  fail('PlayFlyFx reveal constants drifted');
+  fail('PlayFlyFx reveal geometry drifted');
+}
+
+// R3: draw→flip ≥400–600; face-up hold ≥1500–2500; ban old 160/600
+const drawFlip = /DRAW_TO_FLIP_MS:\s*number\s*=\s*(\d+)/.exec(flyFx);
+const holdMs = /REVEAL_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(flyFx);
+const drawN = drawFlip ? Number(drawFlip[1]) : 0;
+const holdN = holdMs ? Number(holdMs[1]) : 0;
+if (drawN >= 400 && drawN <= 600 && holdN >= 1500 && holdN <= 2500 &&
+    !flyFx.includes('DRAW_TO_FLIP_MS: number = 160') &&
+    !flyFx.includes('REVEAL_HOLD_MS: number = 600')) {
+  pass(`R3 duration floors: DRAW_TO_FLIP=${drawN} REVEAL_HOLD=${holdN}`);
+} else {
+  fail(`R3 duration floors failed draw=${drawN} hold=${holdN}`);
+}
+
+// R3: beginRevealAfterAck must nest hold before resetRevealUi/pull (ban instant cut)
+const beginFn = table.split('private beginRevealAfterAck')[1] || '';
+const beginBody = beginFn.split('private ranksCsv')[0] || beginFn.split('private ranksForReveal')[0] || '';
+if (beginBody.includes('PlayFlyFx.DRAW_TO_FLIP_MS') &&
+    beginBody.includes('PlayFlyFx.REVEAL_HOLD_MS') &&
+    beginBody.includes('resetRevealUi') &&
+    /DRAW_TO_FLIP_MS[\s\S]{0,400}REVEAL_HOLD_MS[\s\S]{0,200}resetRevealUi/.test(beginBody)) {
+  pass('R3 beginRevealAfterAck: draw→flip→hold then resetRevealUi (no instant cut)');
+} else {
+  fail('R3 beginRevealAfterAck missing timed hold before resetRevealUi');
 }
 
 if (ids.includes("REVEAL_DRAW: string = 'lb_sfx_reveal_draw'") &&
@@ -264,7 +288,7 @@ if (table.includes('snap.lastPlay === null && !this.playFlyOn && !this.revealOn'
   fail('pile clear still fires on playIndexInRound===0 alone');
 }
 
-// Rebuild: claim/dealer not extreme top-left; DEALER_BANNER near heart
+// F4: claim/dealer in topBar (not heart-blocking pool)
 function braceBlock2(src, from) {
   if (from < 0 || src[from] !== '{') return '';
   let depth = 0;
@@ -286,12 +310,12 @@ function builderBody2(src, name) {
 }
 const topBarBody = builderBody2(table, 'topBar');
 const heartBody = builderBody2(table, 'tableHeart');
-if (topBarBody.length > 0 && !topBarBody.includes('claimText') && !topBarBody.includes('dealerLine') &&
-    heartBody.includes('claimText') && heartBody.includes('DEALER_BANNER') &&
-    heartBody.includes('dealerLine')) {
-  pass('claim/dealer tip near heart DEALER_BANNER (not topBar dead corner)');
+// F4 (#190): claim + whose-turn live in topBar TopStart; must not block pool in heart.
+if (topBarBody.includes('claimText') && topBarBody.includes('dealerLine') &&
+    !heartBody.includes('claimText') && !heartBody.includes('TXT_CLAIM')) {
+  pass('F4 claim/dealer in topBar; heart free of claim (pool clear)');
 } else {
-  fail('claim/dealer still in topBar or missing from heart');
+  fail('F4 claim/dealer layout drifted (expect topBar, not heart)');
 }
 
 // playDest uses poolCenterOverlay (pad-corrected)

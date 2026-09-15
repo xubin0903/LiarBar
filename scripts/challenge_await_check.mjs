@@ -373,25 +373,57 @@ if (!/revolver.*lives.?primary|cylinder.*lives.?primary|lives.?primary.*cylinder
 }
 
 
-// R1: ranksForReveal must use real lastPlayRanks; FORBID claim fake-face fallback
+// R1′: ranksForReveal must use real lastPlayRanks / trusted peek; FORBID claim fill
 const revealFn = table.split('private ranksForReveal')[1] || '';
 const revealBody = revealFn.split('private rejectChallengeRestore')[0] || '';
 if (revealBody.includes('snap.lastPlayRanks') &&
+    revealBody.includes('peekLastPlayRanks') &&
     !revealBody.includes('currentClaim') &&
-    !revealBody.includes('claim') &&
-    !/currentClaim\.rank/.test(revealBody)) {
-  pass('R1: ranksForReveal = lastPlayRanks only; no claim/currentClaim fake fill');
+    !/claim\s*=/.test(revealBody) &&
+    !/currentClaim\.rank/.test(revealBody) &&
+    !revealBody.includes('snap.lastPlay.count')) {
+  pass("R1': ranksForReveal = lastPlayRanks/peek only; no claim fake fill");
 } else {
-  fail('R1: ranksForReveal still has claim fake-face fallback');
+  fail("R1': ranksForReveal still has claim fake-face fallback");
 }
+
+const beginFn = table.split('private beginRevealAfterAck')[1] || '';
+const beginBody = beginFn.split('private ranksCsv')[0] || beginFn.split('private ranksForReveal')[0] || '';
+const logKeysOk = beginBody.includes('claim=') &&
+  beginBody.includes('lastPlayRanks=') &&
+  beginBody.includes('lastPicked=') &&
+  beginBody.includes('lastPlay.count=') &&
+  beginBody.includes('playId=');
+const noFakeN1 = beginBody.includes('ranks empty') &&
+  !/ranks\.length\s*>\s*0\s*\?\s*ranks\.length\s*:\s*1/.test(beginBody);
+if (logKeysOk && noFakeN1) {
+  pass("R1': beginRevealAfterAck HiLog keys + no empty→n=1/claim fill");
+} else {
+  fail("R1': beginRevealAfterAck missing log keys or still n=1/claim fill");
+}
+
+// Self-test short phrases (manual device):
+// 宣称A · 出Q/K/Joker · 质疑 · faceUp=Q/K/Joker 非全A
+// 开牌太快：背可见→翻可读→面朝上可读满窗（≥2.5s 轴）
 
 const engine = src('entry/src/main/ets/engine/MatchEngine.ets');
 if (engine.includes('Phase.CHALLENGE_RITUAL') &&
     /showRanks[\s\S]{0,220}CHALLENGE_RITUAL/.test(engine) &&
-    engine.includes('lastPlayRanks: showRanks ? this.copyRanks(this.lastPlayRanks) : []')) {
-  pass('R1: engine exposes lastPlayRanks during CHALLENGE_RITUAL (ACK before revealOpen)');
+    engine.includes('lastPlayRanks: showRanks ? this.copyRanks(this.lastPlayRanks) : []') &&
+    engine.includes('peekLastPlayRanks') &&
+    engine.includes('peekLastPickedRanks')) {
+  pass("R1': engine exposes lastPlayRanks on CHALLENGE_RITUAL + trusted peeks");
 } else {
-  fail('R1: engine still gates lastPlayRanks away during CHALLENGE_RITUAL');
+  fail("R1': engine still gates lastPlayRanks / missing peeks");
+}
+
+const revealStage = src('entry/src/main/ets/features/table/components/RevealStage.ets');
+if (revealStage.includes('cardCount() > 0') &&
+    /ranks\.length[\s\S]{0,80}return 0/.test(revealStage) &&
+    !revealStage.includes('currentClaim')) {
+  pass("R1': RevealStage empty→0 cards; not bound to currentClaim");
+} else {
+  fail("R1': RevealStage still fakes n=1 or binds claim");
 }
 
 console.log(process.exitCode ? 'challenge-await check FAILED' : 'challenge-await check OK');

@@ -128,6 +128,23 @@ export class MatchEngine {
     return this.buildSnapshot();
   }
 
+  /**
+   * R1′: trusted last-play ranks for reveal UI — never gated by revealOpen/phase.
+   * Equals commitPicked lastPlayRanks / lastPicked.rank. Never claim.
+   */
+  peekLastPlayRanks(): string[] {
+    return this.copyRanks(this.lastPlayRanks);
+  }
+
+  /** R1′: trusted lastPicked ranks (same source as peekLastPlayRanks). */
+  peekLastPickedRanks(): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < this.lastPicked.length; i++) {
+      out.push(this.lastPicked[i].rank);
+    }
+    return out;
+  }
+
   phaseOf(): Phase {
     return this.phase;
   }
@@ -1135,12 +1152,26 @@ export class MatchEngine {
       return;
     }
     let pick: CardModel = hand[0];
+    // R1′: prefer_legal must not make every timeout look like claim-face.
+    // Prefer one legal when available; else / ~30% bluff pick a fake so challenge
+    // self-tests can see non-claim ranks. UI never rewrites play→claim.
     if (this.cfg.auto_play_prefer_legal) {
+      const legal: CardModel[] = [];
+      const fake: CardModel[] = [];
       for (let i = 0; i < hand.length; i++) {
         if (isLegal(hand[i].rank, this.currentClaim.rank)) {
-          pick = hand[i];
-          break;
+          legal.push(hand[i]);
+        } else {
+          fake.push(hand[i]);
         }
+      }
+      const bluffRoll: boolean = this.rng !== null && fake.length > 0 && this.rng.nextBool(0.30);
+      if (bluffRoll) {
+        pick = fake[0];
+      } else if (legal.length > 0) {
+        pick = legal[0];
+      } else if (fake.length > 0) {
+        pick = fake[0];
       }
     } else if (this.rng !== null) {
       pick = hand[this.rng.nextInt(hand.length)];
