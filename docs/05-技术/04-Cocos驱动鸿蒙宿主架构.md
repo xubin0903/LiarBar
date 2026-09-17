@@ -2,9 +2,9 @@
 
 | 项 | 内容 |
 |----|------|
-| 文档版本 | **v0.1.0** |
-| 状态 | 宿主架构草案 · **零 ets**（本票只交文档）· 待 Cocos 岗会签 |
-| 对齐 | [01-工程脚手架约定](./01-工程脚手架约定.md) · [03-鸿蒙特性选型](./03-鸿蒙特性选型.md) · 记忆包 `08-status/05-engine-refactor-plan.md` · 对局状态机 v2.0.7（规则锁不动） |
+| 文档版本 | **v0.1.1** |
+| 状态 | 宿主架构草案 · C2 Spike 清单已补 · stub 接线见 §10 · 待 Cocos 岗会签 |
+| 对齐 | [01-工程脚手架约定](./01-工程脚手架约定.md) · [03-鸿蒙特性选型](./03-鸿蒙特性选型.md) · [05-Cocos工程与引擎移植方案](./05-Cocos工程与引擎移植方案.md) · 记忆包 `08-status/05-engine-refactor-plan.md` · 对局状态机 v2.0.7（规则锁不动） |
 | 决议 | Aron 2026-09-17：Cocos Creator **3.8.8** 驱动对局；ArkUI 壳 + 华为 Kit 保留；默认 **Mode 2** 嵌入 |
 | 岗位 | 鸿蒙开发（`feat/client`）写；Cocos 开发会签；PM 审合 |
 
@@ -293,6 +293,7 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 | 日期 | 意见 | 提议修改 | 提出人 | 状态 |
 |------|------|----------|--------|------|
 | 2026-09-17 | 新建宿主架构 v0.1.0：Mode 2 默认、线程/桥/Kit/签名/Mode1/Spike；引用 Cocos 官方 NEXT 发布与 ArkTS 反射；本机 SDK 核实 LiveView/CoreSpeech/GameService | 新建本文；零 ets；不改规则数字包名 | 鸿蒙开发 · C1 | **待 PM 审 · 待 Cocos 会签** |
+| 2026-09-17 | C2 Spike：§10 实施清单；`CocosBridge` stub、`USE_COCOS_TABLE`、`CocosTableHost` XComponent 占位；无 K2 so 不链 libcocos | 补 §10 + ets stub；旧桌默认保留 | 鸿蒙开发 · C2 | **待 PM 审** |
 
 ---
 
@@ -302,6 +303,44 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 2. [基于反射机制实现 JavaScript 与 HarmonyOS Next 系统原生通信](https://docs.cocos.com/creator/3.8/manual/zh/advanced-topics/arkts-reflection.html)  
 3. 本机 SDK：`E:\devStudio\DevEco Studio\sdk\default\hms\ets\kits\@kit.LiveViewKit.d.ts` · `@kit.CoreSpeechKit.d.ts` · `@kit.GameServiceKit.d.ts`  
 4. 仓内：`build-profile.json5` · `entry/src/main/module.json5` · `AppRuntime.ets` · `MatchDirector.ets` · `harmony/*.ets` · `pages/Table.ets` 生命周期  
+
+---
+
+## 10. C2 Spike 实施清单
+
+> 票 C2（鸿蒙岗）· 合入 ≠ 终验 · **依赖 K2**：Creator 3.8.8 HarmonyOS NEXT 构建产物尚未进仓时，本清单代码侧只交 stub + 开关，**不**假装链接 `libcocos.so`。
+
+### 10.1 期望模块 / 挂点
+
+| 项 | 约定 |
+|----|------|
+| 引擎模块名（计划） | `cocos_engine`（根 `build-profile.json5` → `modules[]`）；或 HAR `har/cocos_engine` |
+| 壳侧桥 | `entry/src/main/ets/harmony/CocosBridge.ets`（反射静态方法；`runtimeOnly.sources` 登记） |
+| 开发开关 | **`USE_COCOS_TABLE`**（编译常量，默认 **`false`**）· 落点 `harmony/CocosTableFlag.ets` |
+| XComponent 挂点 | `features/table/CocosTableHost.ets` · `XComponentType.SURFACE` · 控件 id `lb_xcomp_cocos` · 对外屏仍 `lb_scr_table` |
+| `libraryname` / so | 待 K2 产物：`libraryname: 'cocos'` + `libcocos.so`；**无产物时省略 native 链接**，仅 SURFACE 占位 + 生命周期日志 |
+| 旧桌 | `USE_COCOS_TABLE=false` 时 `pages/Table.ets` 表现逻辑 **原样保留**（不删） |
+
+### 10.2 验收标准（Spike）
+
+| # | 项 | 过线 |
+|---|----|------|
+| A1 | 开关默认 | `USE_COCOS_TABLE=false` 时行为与 C2 前一致（旧 ArkUI 桌） |
+| A2 | 开关 true | 进入 `lb_scr_table` 走 `CocosTableHost`：可见 SURFACE 占位（或真实 Cocos 场景）+ 生命周期 hilog |
+| A3 | 桥 | `CocosBridge.ping()` → 日志 `pong`（反射通路待 so/Worker 就绪后补全） |
+| A4 | 构建 | **无** K2 产物时：entry 仍可 DevEco 编过（不链 `libcocos`） |
+| A5 | 有产物时 | 模块/HAR 并入后模拟器可见 Cocos 场景 ≥1 张牌 + JS↔ArkTS ping-pong → PR 写 **Mode 2 可行** |
+
+### 10.3 本票交付与阻塞
+
+| 交付 | 状态口径 |
+|------|----------|
+| §10 本文 | 文档 |
+| `CocosBridge` stub + `CocosTableHost` + `USE_COCOS_TABLE` | 代码 Spike |
+| `cocos_engine` / `libcocos.so` 链接 | **阻塞于 K2**（仓内尚无 `cocos/` NEXT 产物；真根 `E:\Cocos\projects\LiarBarTable\LiarBarTable` 亦无 `build` / `harmonyos-next`） |
+| Mode 2 真机/模拟器终验 | **未实测**（无 so）；合入只证明宿主接线骨架就绪 |
+
+**下一步（K2 到齐后）**：把 Creator 生成树并入 `cocos_engine` → 打开 `USE_COCOS_TABLE`（或 Preferences）→ 补 `libraryname` → 跑 §7 S1–S5。
 
 ---
 
