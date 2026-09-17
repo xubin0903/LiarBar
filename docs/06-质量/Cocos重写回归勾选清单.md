@@ -40,7 +40,7 @@
 | 门 | 必须 | 过 |
 |----|------|----|
 | Rebuild | 现场包自称已切 Cocos 对局视图（或开发开关新表）；**未 Rebuild 不得勾本行** | [ ] **未落地勿勾** |
-| engine_parity | 同 seed 事件序列 ets 版 vs TS 版一致（`cocos/tools/engine_parity.mjs`） | [ ] |
+| engine_parity | 同 seed 事件序列 ets 版 vs TS 版一致（`cocos/tools/engine_parity.mjs`） | [ ] **T3 烟雾 OK · ets NOT RUN · 未勾 100%** · [K3-parity验收记录](./K3-parity验收记录.md) |
 | 混合宿主 | ArkUI 壳 ↔ Cocos 视图切换 / 返回 / 后台恢复 / 实况窗一致 | [ ] |
 | F1–F5 | 他座熄烛 · 全员揭牌 · `lb_btn_home` 回大厅 · 宣言左上 · self 烛框 | [ ] |
 | R1–R6 | 真牌面 · 第二人可质疑第一手 · R4 1000/3000 · 本手张数 · 法官左上/中顶 timer | [ ] |
@@ -150,7 +150,7 @@
 
 | ID | 步骤 | 期望 | 过 |
 |----|------|------|----|
-| **EP-1** | 跑 `cocos/tools/engine_parity.mjs`（路径不存在 → **SKIP**，不红；见 §7） | 同 seed 事件序列：ArkTS `MatchEngine` vs Cocos `engine/*.ts` **100% 一致** | [ ] |
+| **EP-1** | 跑 `cocos/tools/engine_parity.mjs`（路径不存在 → **SKIP**，不红；见 §7） | 同 seed 事件序列：ArkTS `MatchEngine` vs Cocos `engine/*.ts` **100% 一致** | [ ] **T3：TS 烟雾绿 · ets NOT RUN · 勿勾 100%** |
 | **EP-2** | 覆盖主链事件（草表，正式以 05 文档 + 状态机附录 E 为准） | 至少含：`MatchStarted` `Dealt` `ClaimSet` `TurnBegan` `PlayLanded` `ChallengeWindowOpened` `Believed` `ChallengeCommitted` `RevealStarted` `Judged` `CandleOut` `SeatEliminated` `Redealt` `EmptyGate` `MatchEnded` | [ ] |
 | **EP-3** | 判定公式抽检 | 真假裁定 / PenaltyExtinguish1 / HandEmptyGate ≥3|=2 与文档锁一致 | [ ] |
 
@@ -161,7 +161,8 @@
 ## 7. 门禁迁移（T2 脚本已落 · 缺文件 SKIP）
 
 > **规则**：旧路径存在则查旧；新路径存在则查新；**目标路径尚不存在 → 打印 `SKIP` 而非红**。双轨期旧 ArkUI 闸仍有效，直到阶段 5 删旧表。  
-> **T2 状态（2026-09-17）**：`cocos_*_check.mjs` 已进仓；`engine_mainpath_check.mjs` 双轨 INFO/软断言；K3/K4 未合时新闸应 **SKIP 绿**，不得依赖 K3。
+> **T2 状态（2026-09-17）**：`cocos_*_check.mjs` 已进仓；`engine_mainpath_check.mjs` 双轨 INFO/软断言；K3/K4 未合时新闸应 **SKIP 绿**，不得依赖 K3。  
+> **T3 状态（2026-09-17 · develop `28c5a61` / K3 #225）**：`engine_parity` 烟雾 **OK**（`parity_100: false` · ets **NOT RUN**）；`cocos_engine_purity` / `cocos_cues` **PASS 绿**（不再 SKIP）。详见 [K3-parity验收记录](./K3-parity验收记录.md)。
 
 ### 7.1 现有 `scripts/*_check.mjs`
 
@@ -189,7 +190,7 @@
 | `cocos_engine_purity_check.mjs` | `cocos/assets/scripts/engine/` 内：**禁** `import` cc/UI、**禁** `setTimeout`；判定公式三行原样（与 ets / 文档锁一致） | **已落** | **SKIP**（不红） |
 | `cocos_cues_check.mjs` | `Cues.ts`（或等价）数字 = **1000 / 3000 / 24 / 320**（`DRAW_TO_FLIP` / `REVEAL_HOLD` / `HAND_RING_GAP` / `FLY_MS`） | **已落** | **SKIP** |
 | `cocos_node_ids_check.mjs` | 场景 JSON 必含节点：`lb_cmp_hand` · `lb_cmp_pool` · `lb_txt_timer` · `lb_txt_judge` · `lb_btn_challenge_doubt` · `lb_btn_challenge_believe`；骨架零 `lb_*` → **SKIP** | **已落** | **SKIP** |
-| （共用）`cocos/tools/engine_parity.mjs` | 同 seed 事件序列对比；Cocos 岗维护，测试 T3 跑验 | 待 K3 | 工具缺失 → **SKIP** 并记「待 K3」 |
+| （共用）`cocos/tools/engine_parity.mjs` | 同 seed 事件序列对比；Cocos 岗维护，测试 T3 跑验 | **T3 已验烟雾**（ets 对照仍 NOT RUN） | 工具缺失 → **SKIP**；K3 合入后应能跑 |
 
 ### 7.3 迁移阶段建议
 
@@ -209,7 +210,8 @@
 - [ ] Rebuild 到含 Cocos 嵌入（或明确开发开关）的包；记下 SHA / 机型
 - [ ] 能造：他座熄烛、首手可质疑、宣称≠实出揭牌、完整 1000/3000 开牌轴、AwaitChallenge 见本手张数、后台切换、大厅往返
 - [ ] 失败只报 S18 短句或本表 ID；**未 Rebuild 勿勾过关**
-- [ ] T2 门禁：`node scripts/cocos_engine_purity_check.mjs` / `cocos_cues_check.mjs` / `cocos_node_ids_check.mjs`（缺文件应为 SKIP）
+- [ ] T2/T3 门禁：`node scripts/cocos_engine_purity_check.mjs` / `cocos_cues_check.mjs` / `cocos_node_ids_check.mjs`（缺文件应为 SKIP；K3 合入后 purity/cues 应绿）
+- [ ] T3：`node cocos/tools/engine_parity.mjs` 烟雾；**parity 100% 仅当 ets 对照也跑通**（见 README-parity / [K3-parity验收记录](./K3-parity验收记录.md)）
 
 ---
 
@@ -232,10 +234,11 @@
 | 日期 | 说明 | 状态 |
 |------|------|------|
 | 2026-09-17 | **v0.1.0** 新建 Cocos 重写回归总纸：parity F1–F5 / R1–R6 / S18-1～28 + 性能 + 混合宿主 + engine_parity + 门禁迁移计划；**本票不改脚本**；合入≠终验 · 未 Rebuild 勿勾 | 已合（T1） |
-| 2026-09-17 | **v0.1.1** T2：落 `cocos_engine_purity_check` / `cocos_cues_check` / `cocos_node_ids_check`（缺文件 SKIP）；`engine_mainpath` 双轨 tip；§7 迁移表标 **已落/已改**；玩法正文锁零改；合入≠终验 | **本提交 · 待审** |
+| 2026-09-17 | **v0.1.1** T2：落 `cocos_engine_purity_check` / `cocos_cues_check` / `cocos_node_ids_check`（缺文件 SKIP）；`engine_mainpath` 双轨 tip；§7 迁移表标 **已落/已改**；玩法正文锁零改；合入≠终验 | 已合（T2 #224） |
+| 2026-09-17 | **T3**：K3 #225 后跑 `engine_parity` 烟雾 OK；`parity_100: false`（ets NOT RUN）；`cocos_engine_purity`/`cocos_cues` 绿；见 [K3-parity验收记录](./K3-parity验收记录.md)；玩法正文锁零改；合入≠终验 | **本提交 · 待审** |
 
 请 **@LiarBar负责人** **@测试** **@Cocos** **@鸿蒙** 会签。合入≠终验。
 
 ---
 
-*测试岗 · T2 · v0.1.1 · Cocos 重写回归 · 门禁双轨 + cocos_* SKIP · 合入≠终验 · 未 Rebuild 勿勾*
+*测试岗 · T3 · Cocos 重写回归 · K3 parity 烟雾 · 闸绿 · 100% 未宣称 · 合入≠终验 · 未 Rebuild 勿勾*
