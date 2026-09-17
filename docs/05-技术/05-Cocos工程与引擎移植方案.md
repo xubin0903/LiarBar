@@ -232,31 +232,40 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 
 同步本机副本 → 仓库：`robocopy` 排除 `library/` `temp/` `local/` `build/` `native/` `node_modules/` `.git/`。操作步骤见 `cocos/README.md`。
 
-### 7.2 K2 本机构建实况（诚实记录 · 2026-09-17）
+### 7.2 K2 / K2补 构建产物实机记录（2026-09-17）
 
 | 项 | 实况 |
 |----|------|
-| `cocos/build/harmonyos-next/` | **曾产出**（本机可见；**gitignore**，不进 PR）。内含 `assets/`、`data/`、`cocos.compile.config.json`；平台参数 JS 引擎 **JSVM**、横屏 |
-| `cocos/native/` | **未见**进工作区（目录不存在 / 未生成完整 native 工程） |
-| `libcocos.so` / `.so` | **未见**（在 `cocos/` 工作区与 `build/` 下检索为空） |
-| 完整 native 工程生成 | **未完成** —— 仅有 Creator 侧 build 中间资源，**不能**视为 Mode 2 可链接的引擎产物齐备 |
-| secrets | `library/` `temp/` `local/` `build/` `native/` 已 ignore；MCP token 配置已 ignore；未把 `.env` / 密钥进库 |
+| `cocos/build/harmonyos-next/` | **已存在**（本机生成、**gitignore**、勿进 PR）。含 `assets/`、`data/`、`cocos.compile.config.json`；平台产物 JS 引擎 **JSVM**。 |
+| `cocos/native/engine/harmonyos-next/` | **已可生成**（gitignore）。Creator 导出 `build/harmonyos-next` 后，对中间产物跑引擎自带 `native-pack-tool` 的 `create`（`node scripts/task <build/harmonyos-next> create`），输出到 `cocos/native/engine/harmonyos-next/`（另有 `native/engine/common/`）。 |
+| `libcocos.so` | **本机已产出（未进 git）**。在**纯 ASCII 路径**下用 DevEco `hvigorw` 的 `BuildNativeWithNinja` 编出 arm64-v8a。 |
+| 本机 so 实路径（K2补） | `E:\Cocos\projects\LiarBarHarmonyNative\engine\harmonyos-next\entry\build\default\intermediates\cmake\default\obj\arm64-v8a\libcocos.so`（约 235MB；旁路 `libc++_shared.so`）。交接副本：`E:\Cocos\projects\LiarBarHarmonyNative\handoff-arm64-v8a\`。 |
+| 本机 SDK / 工具 | DevEco SDK：`E:\devStudio\DevEco Studio\sdk\default`（openharmony native = NDK）；`hvigorw`：`E:\devStudio\DevEco Studio\tools\hvigor\bin\hvigorw.bat`；`ohpm`：同目录 `tools\ohpm`。 |
+| Creator 偏好里的 sdkPath | `E:/devStudio/DevEco Studio/sdk/default/openharmony`；ndkPath：`.../openharmony/native`。`E:\HarmonyDev\LocalHuawei\Sdk` 仅有 `productConfig.json`，**不能**当完整 SDK。 |
+| 阻塞点（路径） | 仓库路径含中文 `liar项目` 时，hvigor 报 **00306003**。须把 native 工程**物理拷贝**到纯 ASCII 目录再编（如 `E:\Cocos\projects\LiarBarHarmonyNative\`）；junction 仍会解析回中文路径，**无效**。 |
+| 阻塞点（整包 HAP） | 同次 `assembleHap` 在 **CompileArkTS** 失败（模板 `cocos_worker.ets` 等与 HarmonyOS 6.1 / modelVersion 不匹配）。**不影响**已产出的 `libcocos.so`（CMake/Ninja 已 SUCCESS）。整包 Run / 签名仍须 Aron 在 DevEco GUI 处理。 |
+| secrets | `library/` `temp/` `local/` `build/` `native/` 已 ignore；MCP token 已 ignore；未加 `.env` / 密钥入仓。 |
 
-**结论**：K2 = 工程源码 + 资产进库 + 构建路径文档化；**≠** NEXT 原生产物交付；**合入 ≠ 终验**。
+**边界**：K2/K2补 = 工程纳入 + 资产拷贝 + **NEXT native 生成路径与 so 实机路径文档化**；整包 HAP / Mode 2 并入仍归 **C2′**；引擎移植归 **K3（已合 #225）**。
 
-### 7.3 给鸿蒙 C2′ 的产物交付约定
+### 7.3 交给鸿蒙 C2′ 的可执行拷贝清单
 
-因 `native/` / `libcocos.so` **未进工作区且不进 git**，Mode 2 完整接线所需原生产物约定如下（二选一，PM/C2′ 择）：
+`native/` / `build/` / `*.so` **默认不进 git**。Mode 2 并入按下列拷贝（本机路径告知 PM/C2′）：
 
-1. **本机构建后拷贝清单**（推荐 spike）：在 Creator 对 `cocos/` 构建 HarmonyOS Next 并生成完整 `native/engine/harmonyos-next/` 后，向鸿蒙岗交付至少：
-   - `cocos/native/engine/harmonyos-next/`（或官方导出的 DevEco 工程树）
-   - 构建产物中的 **`libcocos.so`**（及同 ABI 依赖 `.so`，常见 `arm64-v8a`）
-   - `cocos/build/harmonyos-next/data/`（或等价资源包，供运行时加载）
-   - 构建配置摘要：`jsEngine=JSVM`、包名、朝向（横屏）
-   交付方式：本机目录 / 内网包；**禁止**把 `build/` `native/` 强行 commit。
-2. **后续补票**：若 Aron GUI/SDK 未齐导致仍无 so，单开票据（C2′ 或 K2.1）完成「可链接 so + 宿主 XComponent 冒烟」后再谈 Mode 2 结论。
+1. **推荐本机交接包（K2补已备）**
+   - so：`E:\Cocos\projects\LiarBarHarmonyNative\handoff-arm64-v8a\libcocos.so`（及同目录 `libc++_shared.so`）
+   - 完整 native 工程（ASCII）：`E:\Cocos\projects\LiarBarHarmonyNative\engine\harmonyos-next\`（DevEco 可开；勿依赖含中文的仓库绝对路径编译）
+   - 资源：`E:\Cocos\projects\LiarBarHarmonyNative\build-harmonyos-next\data\`（或仓库 `cocos/build/harmonyos-next/data/`）
+   - 摘要：`jsEngine=JSVM`，ABI=`arm64-v8a`，SDK=`6.1.0(23)`
+2. **若在仓库 `cocos/` 复现（给 Aron 点的菜单）**
+   1. Creator 3.8.8 打开仓库 `cocos/` → **项目 → 构建发布 → HarmonyOS Next**（JS 引擎 JSVM；填 OHOS SDK / NDK 如上）→ 生成 `build/harmonyos-next/`
+   2. （若无 `native/`）执行 pack `create` 或构建面板生成原生工程 → `cocos/native/engine/harmonyos-next/`
+   3. **将** `native/engine` **整树复制到纯 ASCII 路径**，改 `entry/build-profile.json5` 里 `RES_DIR` / `COMMON_DIR` 为 ASCII，`compatibleSdkVersion`/`targetSdkVersion`→`6.1.0(23)`，`local.properties`→`sdk.dir=E:/devStudio/DevEco Studio/sdk/default`
+   4. DevEco / `ohpm install` + `hvigorw ... default@BuildNativeWithNinja` → so 落在 `entry/build/default/intermediates/cmake/default/obj/arm64-v8a/libcocos.so`
+   5. 整包 Run：DevEco 打开该 ASCII 工程，处理签名与 ArkTS 模板告警
+3. **禁止**把 `build/`、`native/`、`.so` 强行 commit。
 
-当前 **#220** 仅为 CocosBridge stub + 开发开关；**Mode 2 完整接线仍待 C2′**。
+当前 **#220** 已有 CocosBridge stub + 开发开关；**C2′** 用上述 so + XComponent 宿主做 Mode 2 冒烟。
 
 ## 8. 验收口径
 
@@ -291,6 +300,7 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 | 2026-09-17 | K1：Cocos 工程目录 / ets→ts 移植清单 / MatchEvents 草表 / `lb.*` 桥 / Cues 1000·3000·320·24 / Mode 2 默认 / 官方 NEXT+反射引用；零代码零资产；不改规则数字 | 新建本文 v0.1.0 | Cocos 开发 | 会签草案 · 待审 |
 | 2026-09-17 | K2：回填 §7/§7.1–7.3：进库打开路径、build/harmonyos-next 实况、**无 native/无 so**、C2′ 拷贝清单；settings 对齐 FIT_HEIGHT | 增补 §7.2/7.3；改 project.json | Cocos 开发 | 已开 PR · 合入≠终验 · Mode2 待 C2′ |
 | 2026-09-17 | **D2 ACK**：§3.3 十五事件名与状态机附录 E **一一对应**；载荷可映射（草表粗于附录，如 `MatchStarted` 的 `matchId`/`livesDefault=3` 以附录为准）；`RevealStarted` 禁 claim 假面；无左轮/膛位事件；未偷加规则、与 v2.0.8 正文零冲突。文档 21 只读确认不改玩法（本票不改 21） | 仅审核行 + 会签栏/§3.3 指引句（**不升版**） | 策划 | **ACK** |
+| 2026-09-17 | K2补：native-pack-tool create + ASCII 路径产出 arm64 `libcocos.so`（~235MB）；回填 §7.2/7.3；中文路径/ArkTS 整包阻塞 | 更新 §7.2/7.3 | Cocos 开发 · PM 审订 | **待合** |
 | 2026-09-17 | **PM**：修复 §7 路径被控制字符污染（`bbuild`/断行）；语义不变 | 重写 §7～§7.3 正文 | 制作人 | **已修** |
 
 ---
