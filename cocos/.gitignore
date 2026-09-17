@@ -29,3 +29,8 @@ Thumbs.db
 #//////////////////////////
 settings/mcp-server.json
 settings/v2/packages/mcp-server.json
+
+#//////////////////////////
+# K3 parity dumps (generated)
+#//////////////////////////
+tools/parity-out/
