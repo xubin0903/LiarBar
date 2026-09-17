@@ -209,59 +209,51 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 
 ## 7. 构建流程
 
-1. 本机 Creator **3.8.8**：E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe 打开仓库内 **cocos/**（推荐直接开进库根；本机副本映射见 §7.1）。  
-2. 菜单 **项目 → 构建发布**，平台选 **HarmonyOS Next**；JS 引擎选 **JSVM**；Debug/Release 按任务。  
-3. 构建输出约定（均 **.gitignore**，不进库）：  
-   - 中间产物：cocos/bbuild/harmonyos-next/  
-   - 原生工程：cocos/native/engine/harmonyos-next/（DevEco 打开或 Mode 2 并入宿主）  
-4. DevEco Studio 打开该原生工程（或 Mode 2 并入仓库根后的模块），配置签名，真机/模拟器 Run。  
-5. Mode 2：鸿蒙岗把引擎模块 / HAR / libcocos.so 接到现有 LiarBar；Table.ets XComponent 显示场景（完整接线 = **C2′**，本票不替代）。  
+1. 本机 Creator **3.8.8**：`E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe` 打开仓库内 **`cocos/`**（推荐直接开进库根；本机副本映射见 §7.1）。
+2. 菜单 **项目 → 构建发布**，平台选 **HarmonyOS Next**；JS 引擎选 **JSVM**；Debug/Release 按任务。
+3. 构建输出约定（均 **`.gitignore`**，不进库）：
+   - 中间产物：`cocos/build/harmonyos-next/`
+   - 原生工程：`cocos/native/engine/harmonyos-next/`（DevEco 打开或 Mode 2 并入宿主）
+4. DevEco Studio 打开该原生工程（或 Mode 2 并入仓库根后的模块），配置签名，真机/模拟器 Run。
+5. Mode 2：鸿蒙岗把引擎模块 / HAR / `libcocos.so` 接到现有 LiarBar；`Table.ets` `XComponent` 显示场景（完整接线 = **C2′**，本票不替代）。
 6. 官方注意：Make/Run 在 Creator 侧可能未实现 → **以 DevEco 编译运行为准**；内存不足导致编译失败时关掉占用再编。
 
 ### 7.1 K2 落地路径（工程真根 vs 仓库）
 
 | 角色 | 路径 |
 |------|------|
-| **本机 Creator 打开路径（进库）** | 仓库 LiarBar/cocos/（package.json name=LiarBarTable，Creator **3.8.8**） |
-| 本机 Creator 工作副本（可选） | E:\Cocos\projects\LiarBarTable\LiarBarTable（**以内层为准**；外层多套一层忽略） |
-| 编辑器 | E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe |
-| MCP 扩展 | 仓库 cocos/extensions/cocos-mcp-server/（含 dist/；无 token；settings/mcp-server.json 已 ignore） |
-| 资产 | 按 [资产迁移Cocos对照表](../04-设计/资产迁移Cocos对照表.md) 自 entry/.../media / 
-awfile/audio **原样拷贝**；左轮不迁 |
-| 默认场景 | cocos/assets/scenes/Table.scene（空 Canvas；引擎/对局脚本占位，**K3** 移植） |
-| 设计分辨率 / 适配 | **1280×720**；UI [21](../04-设计/21-局内Cocos场景布局规格.md) 锁 **FIT_HEIGHT**。K2 已将 cocos/settings/v2/packages/project.json 对齐为 itHeight=true / itWidth=false（规格对齐，非玩法改动）。若编辑器复开后被默认覆盖，**K4** 须再验 Canvas |
+| **本机 Creator 打开路径（进库）** | 仓库 `LiarBar/cocos/`（`package.json` name=`LiarBarTable`，Creator **3.8.8**） |
+| 本机 Creator 工作副本（可选） | `E:\Cocos\projects\LiarBarTable\LiarBarTable`（**以内层为准**；外层多套一层忽略） |
+| 编辑器 | `E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe` |
+| MCP 扩展 | 仓库 `cocos/extensions/cocos-mcp-server/`（含 `dist/`；无 token；`settings/mcp-server.json` 已 ignore） |
+| 资产 | 按 [资产迁移Cocos对照表](../04-设计/资产迁移Cocos对照表.md) 自 `entry/.../media` / `rawfile/audio` **原样拷贝**；左轮不迁 |
+| 默认场景 | `cocos/assets/scenes/Table.scene`（空 Canvas；引擎/对局脚本占位，**K3** 移植） |
+| 设计分辨率 / 适配 | **1280×720**；UI [21](../04-设计/21-局内Cocos场景布局规格.md) 锁 **FIT_HEIGHT**。K2 已将 `cocos/settings/v2/packages/project.json` 对齐为 `fitHeight=true` / `fitWidth=false`（规格对齐，非玩法改动）。若编辑器复开后被默认覆盖，**K4** 须再验 Canvas |
 
-同步本机副本 → 仓库：
-obocopy 排除 library/ 	emp/ local/ uild/ 
-native/ 
-ode_modules/ .git/。操作步骤见 cocos/README.md。
+同步本机副本 → 仓库：`robocopy` 排除 `library/` `temp/` `local/` `build/` `native/` `node_modules/` `.git/`。操作步骤见 `cocos/README.md`。
 
 ### 7.2 K2 本机构建实况（诚实记录 · 2026-09-17）
 
 | 项 | 实况 |
 |----|------|
-| cocos/bbuild/harmonyos-next/ | **曾产出**（本机可见；**gitignore**，不进 PR）。内含 assets/、data/、cocos.compile.config.json；平台参数 JS 引擎 **JSVM**、横屏 |
-| cocos/native/ | **未见**进工作区（目录不存在 / 未生成完整 native 工程） |
-| libcocos.so / .so | **未见**（在 cocos/ 工作区与 uild/ 下检索为空） |
+| `cocos/build/harmonyos-next/` | **曾产出**（本机可见；**gitignore**，不进 PR）。内含 `assets/`、`data/`、`cocos.compile.config.json`；平台参数 JS 引擎 **JSVM**、横屏 |
+| `cocos/native/` | **未见**进工作区（目录不存在 / 未生成完整 native 工程） |
+| `libcocos.so` / `.so` | **未见**（在 `cocos/` 工作区与 `build/` 下检索为空） |
 | 完整 native 工程生成 | **未完成** —— 仅有 Creator 侧 build 中间资源，**不能**视为 Mode 2 可链接的引擎产物齐备 |
-| secrets | library/ 	emp/ local/ uild/ 
-native/ 已 ignore；MCP token 配置已 ignore；未把 .env / 密钥进库 |
+| secrets | `library/` `temp/` `local/` `build/` `native/` 已 ignore；MCP token 配置已 ignore；未把 `.env` / 密钥进库 |
 
 **结论**：K2 = 工程源码 + 资产进库 + 构建路径文档化；**≠** NEXT 原生产物交付；**合入 ≠ 终验**。
 
 ### 7.3 给鸿蒙 C2′ 的产物交付约定
 
-因 
-native/ / libcocos.so **未进工作区且不进 git**，Mode 2 完整接线所需原生产物约定如下（二选一，PM/C2′ 择）：
+因 `native/` / `libcocos.so` **未进工作区且不进 git**，Mode 2 完整接线所需原生产物约定如下（二选一，PM/C2′ 择）：
 
-1. **本机构建后拷贝清单**（推荐 spike）：在 Creator 对 cocos/ 构建 HarmonyOS Next 并生成完整 
-native/engine/harmonyos-next/ 后，向鸿蒙岗交付至少：  
-   - cocos/native/engine/harmonyos-next/（或官方导出的 DevEco 工程树）  
-   - 构建产物中的 **libcocos.so**（及同 ABI 依赖 .so，常见 rm64-v8a）  
-   - cocos/bbuild/harmonyos-next/data/（或等价资源包，供运行时加载）  
-   - 构建配置摘要：jsEngine=JSVM、包名、朝向（横屏）  
-   交付方式：本机目录 / 内网包；**禁止**把 uild/ 
-native/ 强行 commit。  
+1. **本机构建后拷贝清单**（推荐 spike）：在 Creator 对 `cocos/` 构建 HarmonyOS Next 并生成完整 `native/engine/harmonyos-next/` 后，向鸿蒙岗交付至少：
+   - `cocos/native/engine/harmonyos-next/`（或官方导出的 DevEco 工程树）
+   - 构建产物中的 **`libcocos.so`**（及同 ABI 依赖 `.so`，常见 `arm64-v8a`）
+   - `cocos/build/harmonyos-next/data/`（或等价资源包，供运行时加载）
+   - 构建配置摘要：`jsEngine=JSVM`、包名、朝向（横屏）
+   交付方式：本机目录 / 内网包；**禁止**把 `build/` `native/` 强行 commit。
 2. **后续补票**：若 Aron GUI/SDK 未齐导致仍无 so，单开票据（C2′ 或 K2.1）完成「可链接 so + 宿主 XComponent 冒烟」后再谈 Mode 2 结论。
 
 当前 **#220** 仅为 CocosBridge stub + 开发开关；**Mode 2 完整接线仍待 C2′**。
@@ -299,6 +291,7 @@ native/ 强行 commit。
 | 2026-09-17 | K1：Cocos 工程目录 / ets→ts 移植清单 / MatchEvents 草表 / `lb.*` 桥 / Cues 1000·3000·320·24 / Mode 2 默认 / 官方 NEXT+反射引用；零代码零资产；不改规则数字 | 新建本文 v0.1.0 | Cocos 开发 | 会签草案 · 待审 |
 | 2026-09-17 | K2：回填 §7/§7.1–7.3：进库打开路径、build/harmonyos-next 实况、**无 native/无 so**、C2′ 拷贝清单；settings 对齐 FIT_HEIGHT | 增补 §7.2/7.3；改 project.json | Cocos 开发 | 已开 PR · 合入≠终验 · Mode2 待 C2′ |
 | 2026-09-17 | **D2 ACK**：§3.3 十五事件名与状态机附录 E **一一对应**；载荷可映射（草表粗于附录，如 `MatchStarted` 的 `matchId`/`livesDefault=3` 以附录为准）；`RevealStarted` 禁 claim 假面；无左轮/膛位事件；未偷加规则、与 v2.0.8 正文零冲突。文档 21 只读确认不改玩法（本票不改 21） | 仅审核行 + 会签栏/§3.3 指引句（**不升版**） | 策划 | **ACK** |
+| 2026-09-17 | **PM**：修复 §7 路径被控制字符污染（`bbuild`/断行）；语义不变 | 重写 §7～§7.3 正文 | 制作人 | **已修** |
 
 ---
 
