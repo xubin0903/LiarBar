@@ -1,8 +1,8 @@
 # Cocos 重写回归勾选清单
 
-> ## 合入≠终验 · 未 Rebuild 勿勾 · **写勾选 only · 不发明玩法 · 本票不改脚本**
+> ## 合入≠终验 · 未 Rebuild 勿勾 · **写勾选 only · 不发明玩法 · 玩法正文锁不动**
 >
-> **本表（v0.1.0）**：对齐 Aron 2026-09-17 决议（Cocos Creator 3.8.8 驱动对局 · `_shared/memory-pack/08-status/05-engine-refactor-plan.md`）+ 现行 Rebuild 盯纸 **F1–F5 / R1–R6** + 失败短句闸 **S18-1～28**（`01-glossary` §5）+ 性能项 + **混合宿主**专项 + `engine_parity` + **门禁迁移计划**。  
+> **本表（v0.1.1）**：对齐 Aron 2026-09-17 决议（Cocos Creator 3.8.8 驱动对局 · `_shared/memory-pack/08-status/05-engine-refactor-plan.md`）+ 现行 Rebuild 盯纸 **F1–F5 / R1–R6** + 失败短句闸 **S18-1～28**（`01-glossary` §5）+ 性能项 + **混合宿主**专项 + `engine_parity` + **门禁迁移**（T2 脚本已落 · 缺文件 SKIP）。  
 > **规则锁不动**：废左轮 · 开局 3 烛 · 揭牌输家直接熄 1 · 熄尽淘汰 · 末存活胜 · CollectRedeal 不绑枪 · 每手 **质疑|相信** · 打光 ≥3 可选/=2 强制 · 开牌**真牌面** · 第二人可质疑第一手。  
 > **数字锁**：`DRAW_TO_FLIP=1000ms`（±100）· `REVEAL_HOLD=3000ms`（±100）· `HAND_RING_GAP=24%` · 禁 padB 顶高 · 手牌沉底 · 荷官回池旁 · 法官句左上 · 中顶只 timer · 张数可见。  
 > **节点锁（Cocos）**：场景节点名 = `lb_*`（与 ArkUI `.id` 对齐语义）；测试按节点名勾选。  
@@ -11,11 +11,11 @@
 
 | 项 | 内容 |
 |----|------|
-| 版本 | **v0.1.0 · Cocos 重写回归总纸**（parity F1–F5 / R1–R6 / S18-1～28 + 性能 + 混合宿主 + engine_parity + 门禁迁移计划） |
+| 版本 | **v0.1.1 · Cocos 重写回归总纸**（parity F1–F5 / R1–R6 / S18-1～28 + 性能 + 混合宿主 + engine_parity + 门禁迁移 **T2 已落**） |
 | 读者 | 测试岗 / PM / Aron 真机终验 / Cocos·鸿蒙岗会签 |
-| 范围 | 只写勾选与门禁**计划**；**不**改 `scripts/*.mjs`（脚本落地见 T2）；不改规则；不发明玩法；不落 ets/ts |
-| 对齐 | `05-engine-refactor-plan` · [局内Rebuild打回-F1-F5](./局内Rebuild打回-F1-F5验收勾选清单.md) **v0.4.2** · [局内对局验收](./局内对局验收勾选清单.md) **v0.2.2** · 对局-状态机 **v2.0.7** · glossary **S18-1～28** · 基线仓库 `b9e3f32` / develop 决议入台账 |
-| 不做 | 把合入当终验；路径不存在时把门禁当红（计划：**SKIP**）；改规则数字；新增 `art_*` / 音频 |
+| 范围 | 勾选 + 门禁迁移表状态；脚本见 `scripts/cocos_*_check.mjs`；不改规则；不发明玩法；不落 ets/ts |
+| 对齐 | `05-engine-refactor-plan` · [局内Rebuild打回-F1-F5](./局内Rebuild打回-F1-F5验收勾选清单.md) **v0.4.2** · [局内对局验收](./局内对局验收勾选清单.md) **v0.2.2** · 对局-状态机 **v2.0.7** · glossary **S18-1～28** · develop（含 K2 `#221`） |
+| 不做 | 把合入当终验；路径不存在时把门禁当红（**SKIP**）；改规则数字；新增 `art_*` / 音频 |
 | 验序 | **引擎 parity → 混合宿主壳 → F3+F1 → F2 → F4/F5 → R1/R2 → R1′/R3史 → R4/R5/R6 → S18 全表交叉 → 性能** |
 
 ---
@@ -158,38 +158,38 @@
 
 ---
 
-## 7. 门禁迁移计划（本票只计划 · T2 改脚本）
+## 7. 门禁迁移（T2 脚本已落 · 缺文件 SKIP）
 
 > **规则**：旧路径存在则查旧；新路径存在则查新；**目标路径尚不存在 → 打印 `SKIP` 而非红**。双轨期旧 ArkUI 闸仍有效，直到阶段 5 删旧表。  
-> **本票不改任何 `scripts/*.mjs`。**
+> **T2 状态（2026-09-17）**：`cocos_*_check.mjs` 已进仓；`engine_mainpath_check.mjs` 双轨 INFO/软断言；K3/K4 未合时新闸应 **SKIP 绿**，不得依赖 K3。
 
 ### 7.1 现有 `scripts/*_check.mjs`
 
-| 脚本 | 现行主要探针 | Cocos 弧策略 | 备注 |
-|------|--------------|--------------|------|
-| `engine_mainpath_check.mjs` | rawfile JSON + ArkTS `MatchEngine` 公式复述 | **双轨** | T2：若存在 `cocos/assets/scripts/engine/` 则同步断言 TS 侧公式；ets 仍在则继续查 ets |
-| `revolver_rules_check.mjs` | `MatchEngine` / Phase / lives=3 / 无 RevolverGun | **双轨** | 新引擎路径同样禁左轮主读；旧路径在则仍查 |
-| `challenge_await_check.mjs` | `Table.ets` / `ChallengeEntry` / doubt\|believe | **双轨→迁 Cocos** | 表内入口迁场景后查 `lb_btn_challenge_*` 节点 / `Cues`；壳层 ids 可留 |
-| `client_rebuild_f3_f1_check.mjs` | `Table.ets` home / 他座熄烛 / GAP24 | **双轨** | F3 宿主仍可能在 `Table.ets`；熄烛表现迁 Cocos 后双查 |
-| `client_rebuild_f2_f4_f5_check.mjs` | 全员揭牌 / 宣言左上 / 烛框 / GAP24 | **双轨** | 表现迁场景后查节点与布局常量 |
-| `play_fly_check.mjs` | `PlayFlyFx` / 飞牌 / 身前扣 | **双轨→迁 Cocos** | Tween 飞牌在 Presenter 后查 Cocos 脚本常量 |
-| `play_to_pool_check.mjs` | 飞池 + RevealStage + SFX 线 | **双轨→迁 Cocos** | R4/R5 数字跟 `Cues.ts` |
-| `deal_d1_check.mjs` | DealFx / 发牌演出 | **双轨→迁 Cocos** | 发牌表现迁场景后双轨 |
-| `life_touch_play_check.mjs` | 烛 + 手牌触摸出牌 | **双轨→迁 Cocos** | `lb_cmp_hand` 触摸在 Cocos；烛节点名保留 |
-| `card_faces_check.mjs` | media 牌面绑定 / 手牌默认背 | **双轨** | 资产拷贝进 `cocos/assets/art` 后可兼查；不改像素 |
-| `table_audio_check.mjs` | TableAudio / BGM+SFX | **双轨** | 音频路径迁 `cocos/assets/audio` 后双轨；壳层大厅音可仍查 ArkUI |
-| `lobby_boot_check.mjs` | 大厅 v3 冷启动 | **保留（ArkUI）** | 大厅不迁 Cocos；无需双轨 |
-| `revolver_art_bind_check.mjs` | EmptySafe chrome + 禁左轮 Foley 主调 | **双轨 / 部分冻结** | 禁 `playRevolver*` 主路径在新引擎同样锁；听验过关仍冻 |
-| `round_win_redeal_check.mjs` | 旧 RoundWin→RedealAll | **废弃（SUPERSEDED）** | 主胜负已废 RoundWin；保留文件仅防回潮时可改「断言不存在 RoundWin 主路径」；T2 起对 Cocos **SKIP 或改为禁令闸**，不得再作正路径过关 |
+| 脚本 | 现行主要探针 | Cocos 弧策略 | T2 状态 | 备注 |
+|------|--------------|--------------|---------|------|
+| `engine_mainpath_check.mjs` | rawfile JSON + ArkTS `MatchEngine` 公式复述 | **双轨** | **已改** | 无 cocos engine `.ts` → INFO tip；有文件则断言公式符号 + 禁 cc/setTimeout；ets 路径不改严 |
+| `revolver_rules_check.mjs` | `MatchEngine` / Phase / lives=3 / 无 RevolverGun | **双轨** | 待后续 | 新引擎路径同样禁左轮主读；旧路径在则仍查 |
+| `challenge_await_check.mjs` | `Table.ets` / `ChallengeEntry` / doubt\|believe | **双轨→迁 Cocos** | 待后续 | 表内入口迁场景后查 `lb_btn_challenge_*` 节点 / `Cues`；壳层 ids 可留 |
+| `client_rebuild_f3_f1_check.mjs` | `Table.ets` home / 他座熄烛 / GAP24 | **双轨** | 待后续 | F3 宿主仍可能在 `Table.ets`；熄烛表现迁 Cocos 后双查 |
+| `client_rebuild_f2_f4_f5_check.mjs` | 全员揭牌 / 宣言左上 / 烛框 / GAP24 | **双轨** | 待后续 | 表现迁场景后查节点与布局常量 |
+| `play_fly_check.mjs` | `PlayFlyFx` / 飞牌 / 身前扣 | **双轨→迁 Cocos** | 待后续 | Tween 飞牌在 Presenter 后查 Cocos 脚本常量 |
+| `play_to_pool_check.mjs` | 飞池 + RevealStage + SFX 线 | **双轨→迁 Cocos** | 待后续 | R4/R5 数字跟 `Cues.ts` |
+| `deal_d1_check.mjs` | DealFx / 发牌演出 | **双轨→迁 Cocos** | 待后续 | 发牌表现迁场景后双轨 |
+| `life_touch_play_check.mjs` | 烛 + 手牌触摸出牌 | **双轨→迁 Cocos** | 待后续 | `lb_cmp_hand` 触摸在 Cocos；烛节点名保留 |
+| `card_faces_check.mjs` | media 牌面绑定 / 手牌默认背 | **双轨** | 待后续 | 资产拷贝进 `cocos/assets/art` 后可兼查；不改像素 |
+| `table_audio_check.mjs` | TableAudio / BGM+SFX | **双轨** | 待后续 | 音频路径迁 `cocos/assets/audio` 后双轨；壳层大厅音可仍查 ArkUI |
+| `lobby_boot_check.mjs` | 大厅 v3 冷启动 | **保留（ArkUI）** | 不变 | 大厅不迁 Cocos；无需双轨 |
+| `revolver_art_bind_check.mjs` | EmptySafe chrome + 禁左轮 Foley 主调 | **双轨 / 部分冻结** | 待后续 | 禁 `playRevolver*` 主路径在新引擎同样锁；听验过关仍冻 |
+| `round_win_redeal_check.mjs` | 旧 RoundWin→RedealAll | **废弃（SUPERSEDED）** | 待后续 | 不得再作正路径过关；Cocos 侧可 SKIP / 禁令闸 |
 
-### 7.2 将新增（T2 · 路径不存在 → SKIP）
+### 7.2 新增（T2 · 路径不存在 → SKIP）
 
-| 脚本（计划名） | 规则摘要 | 路径不存在 |
-|----------------|----------|------------|
-| `cocos_engine_purity_check.mjs` | `cocos/assets/scripts/engine/` 内：**禁** `import` cc/UI、**禁** `setTimeout`；判定公式三行原样（与 ets / 文档锁一致） | **SKIP**（不红） |
-| `cocos_cues_check.mjs` | `Cues.ts`（或等价）数字 = **1000 / 3000 / 24**（`DRAW_TO_FLIP` / `REVEAL_HOLD` / `HAND_RING_GAP`） | **SKIP** |
-| `cocos_node_ids_check.mjs` | 场景 JSON 必含节点：`lb_cmp_hand` · `lb_cmp_pool` · `lb_txt_timer` · `lb_txt_judge` · `lb_btn_challenge_doubt` · `lb_btn_challenge_believe` | **SKIP** |
-| （共用）`cocos/tools/engine_parity.mjs` | 同 seed 事件序列对比；Cocos 岗维护，测试 T3 跑验 | 工具缺失 → **SKIP** 并记「待 K3」 |
+| 脚本 | 规则摘要 | T2 状态 | 路径不存在 |
+|------|----------|---------|------------|
+| `cocos_engine_purity_check.mjs` | `cocos/assets/scripts/engine/` 内：**禁** `import` cc/UI、**禁** `setTimeout`；判定公式三行原样（与 ets / 文档锁一致） | **已落** | **SKIP**（不红） |
+| `cocos_cues_check.mjs` | `Cues.ts`（或等价）数字 = **1000 / 3000 / 24 / 320**（`DRAW_TO_FLIP` / `REVEAL_HOLD` / `HAND_RING_GAP` / `FLY_MS`） | **已落** | **SKIP** |
+| `cocos_node_ids_check.mjs` | 场景 JSON 必含节点：`lb_cmp_hand` · `lb_cmp_pool` · `lb_txt_timer` · `lb_txt_judge` · `lb_btn_challenge_doubt` · `lb_btn_challenge_believe`；骨架零 `lb_*` → **SKIP** | **已落** | **SKIP** |
+| （共用）`cocos/tools/engine_parity.mjs` | 同 seed 事件序列对比；Cocos 岗维护，测试 T3 跑验 | 待 K3 | 工具缺失 → **SKIP** 并记「待 K3」 |
 
 ### 7.3 迁移阶段建议
 
@@ -209,7 +209,7 @@
 - [ ] Rebuild 到含 Cocos 嵌入（或明确开发开关）的包；记下 SHA / 机型
 - [ ] 能造：他座熄烛、首手可质疑、宣称≠实出揭牌、完整 1000/3000 开牌轴、AwaitChallenge 见本手张数、后台切换、大厅往返
 - [ ] 失败只报 S18 短句或本表 ID；**未 Rebuild 勿勾过关**
-- [ ] 本票确认：**未改**任何 `scripts/*.mjs`
+- [ ] T2 门禁：`node scripts/cocos_engine_purity_check.mjs` / `cocos_cues_check.mjs` / `cocos_node_ids_check.mjs`（缺文件应为 SKIP）
 
 ---
 
@@ -220,8 +220,7 @@
 | **合入当终验** | merge / 本表合入 ≠ Aron 真机 Rebuild |
 | **未 Rebuild 勾过** | 禁止 |
 | **发明玩法 / 改锁** | 规则与数字只有 Aron 能拍 |
-| **路径缺失报红** | 新闸计划为 SKIP；T2 落地须遵守 |
-| **本票改脚本** | 脚本属 T2 |
+| **路径缺失报红** | 新闸必须 SKIP；不得因 K3/K4 未合而红 |
 | **用 R3/3500/5000 勾 R4** | 主闸 1000/3000 |
 | **左轮听验过关** | S18-16/17 冻结口径 |
 | **替勾大厅 v3 过关** | 大厅另纸；且 v3 仍暂停宣称过关 |
@@ -232,10 +231,11 @@
 
 | 日期 | 说明 | 状态 |
 |------|------|------|
-| 2026-09-17 | **v0.1.0** 新建 Cocos 重写回归总纸：parity F1–F5 / R1–R6 / S18-1～28 + 性能（≥55 · 1000±100 · 3000±100）+ 混合宿主 H-1～6 + engine_parity + 门禁迁移计划（现有 `*_check.mjs` 双轨/保留/废弃 + 将新增 `cocos_*_check` · 路径不存在 SKIP）；对齐 `05-engine-refactor-plan` · Rebuild 纸 v0.4.2 · 对局纸 v0.2.2 · glossary S18；**本票不改脚本**；合入≠终验 · 未 Rebuild 勿勾 | **本提交 · 待审** |
+| 2026-09-17 | **v0.1.0** 新建 Cocos 重写回归总纸：parity F1–F5 / R1–R6 / S18-1～28 + 性能 + 混合宿主 + engine_parity + 门禁迁移计划；**本票不改脚本**；合入≠终验 · 未 Rebuild 勿勾 | 已合（T1） |
+| 2026-09-17 | **v0.1.1** T2：落 `cocos_engine_purity_check` / `cocos_cues_check` / `cocos_node_ids_check`（缺文件 SKIP）；`engine_mainpath` 双轨 tip；§7 迁移表标 **已落/已改**；玩法正文锁零改；合入≠终验 | **本提交 · 待审** |
 
 请 **@LiarBar负责人** **@测试** **@Cocos** **@鸿蒙** 会签。合入≠终验。
 
 ---
 
-*测试岗 · T1 · v0.1.0 · Cocos 重写回归 · F1–F5/R1–R6/S18-1～28 · PERF · 混合宿主 · engine_parity · 门禁迁移计划 · 零脚本改动 · 合入≠终验 · 未 Rebuild 勿勾*
+*测试岗 · T2 · v0.1.1 · Cocos 重写回归 · 门禁双轨 + cocos_* SKIP · 合入≠终验 · 未 Rebuild 勿勾*

@@ -2,8 +2,10 @@
 /**
  * Spec check for locked T01+ rules. ArkTS MatchEngine is the product source.
  * This script restates the same formulas so CI-less review can fail-fast.
+ * T2 dual-track: if cocos/assets/scripts/engine/*.ts exists, also assert
+ * Judge formula symbols there; missing cocos sources → INFO tip only (ets path unchanged).
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -17,6 +19,31 @@ function fail(msg) {
 
 function pass(msg) {
   console.log('PASS', msg);
+}
+
+function info(msg) {
+  console.log('INFO', msg);
+}
+
+function listCocosEngineTs() {
+  const dir = join(root, 'cocos/assets/scripts/engine');
+  if (!existsSync(dir) || !statSync(dir).isDirectory()) {
+    return [];
+  }
+  const out = [];
+  const walk = (d) => {
+    for (const name of readdirSync(d)) {
+      const abs = join(d, name);
+      const st = statSync(abs);
+      if (st.isDirectory()) {
+        walk(abs);
+      } else if (/\.(ts|js|mts|mjs)$/i.test(name) && !name.endsWith('.d.ts')) {
+        out.push(abs);
+      }
+    }
+  };
+  walk(dir);
+  return out;
 }
 
 const deck = JSON.parse(src('entry/src/main/resources/rawfile/config/deck.json'));
@@ -256,6 +283,26 @@ const targetPlayId = 'p-3';
 const challengeTarget = targetPlayId;
 if (challengeTarget === targetPlayId) {
   pass('challenge target is last play only');
+}
+
+// --- T2 dual-track tip / soft assert for Cocos engine TS (do not weaken ets path) ---
+const cocosEngineFiles = listCocosEngineTs();
+if (cocosEngineFiles.length === 0) {
+  info('dual-track: cocos/assets/scripts/engine/ has no .ts yet — ets MatchEngine remains sole gate; see cocos_engine_purity_check.mjs');
+} else {
+  info(`dual-track: scanning ${cocosEngineFiles.length} file(s) under cocos/assets/scripts/engine/`);
+  const cocosJoined = cocosEngineFiles.map((f) => readFileSync(f, 'utf8')).join('\n');
+  if (cocosJoined.includes('isChallengeSuccess') && cocosJoined.includes('isLegal') &&
+    cocosJoined.includes('handIsClean')) {
+    pass('dual-track: Cocos engine exposes isLegal / handIsClean / isChallengeSuccess');
+  } else {
+    fail('dual-track: Cocos engine/*.ts missing Judge formula symbols');
+  }
+  if (/\bfrom\s+['"]cc['"]/.test(cocosJoined) || /\bsetTimeout\s*\(/.test(cocosJoined)) {
+    fail('dual-track: Cocos engine must not import cc or use setTimeout (see cocos_engine_purity_check)');
+  } else {
+    pass('dual-track: Cocos engine has no cc import / setTimeout');
+  }
 }
 
 console.log(process.exitCode ? 'SPEC CHECK FAILED' : 'SPEC CHECK OK');
