@@ -4,8 +4,8 @@
 |----|------|
 | 文档版本 | **v0.1.0** |
 | 状态 | **会签草案** · 零代码零资产 · **合入 ≠ 终验** |
-| 对齐 | [对局-状态机](../02-游戏设计/对局-状态机.md) **v2.0.7** · [08-status/05 引擎重写规划](../../..)（记忆包）· [01-工程脚手架约定](./01-工程脚手架约定.md) · [03-鸿蒙特性选型](./03-鸿蒙特性选型.md) · Aron 2026-09-17 决议（Cocos Creator **3.8.8** 驱动对局） |
-| 会签 | 草案 · 待鸿蒙岗会签宿主接线 · 待策划 ACK 事件草表与规则零改 |
+| 对齐 | [对局-状态机](../02-游戏设计/对局-状态机.md) **v2.0.7**（正文）· **v2.0.8 附录 E**（事件契约）· [08-status/05 引擎重写规划](../../..)（记忆包）· [01-工程脚手架约定](./01-工程脚手架约定.md) · [03-鸿蒙特性选型](./03-鸿蒙特性选型.md) · Aron 2026-09-17 决议（Cocos Creator **3.8.8** 驱动对局） |
+| 会签 | 草案 · 待鸿蒙岗会签宿主接线 · **策划 D2 ACK**：§3.3 事件草表 ↔ 附录 E 对齐、规则零改 |
 | 谁写 | Cocos 开发（`feat/cocos`）· 桥与 Mode 2 接线由鸿蒙岗定稿 |
 | 本票范围 | **只文档**：工程目录、移植清单、事件流、桥协议、资产规则、构建流程、验收口径。**不改规则 / 不改数字 / 不发明玩法 / 不交代码与资产** |
 
@@ -126,7 +126,7 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 
 ### 3.3 MatchEvents 事件草表
 
-供 D1 / K3 起步；正式附录以策划状态机 **附录 E**（待 v2.0.8）为准。表现层只订阅事件，**不改判定**。
+供 D1 / K3 起步；正式附录以策划状态机 **附录 E（v2.0.8）** 为准（草表字段可粗于附录，语义须可映射）。表现层只订阅事件，**不改判定**。
 
 | 事件 | 载荷（草） | 说明 |
 |------|------------|------|
@@ -212,7 +212,7 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 1. 本机 Creator **3.8.8**：E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe 打开仓库内 **cocos/**（推荐直接开进库根；本机副本映射见 §7.1）。  
 2. 菜单 **项目 → 构建发布**，平台选 **HarmonyOS Next**；JS 引擎选 **JSVM**；Debug/Release 按任务。  
 3. 构建输出约定（均 **.gitignore**，不进库）：  
-   - 中间产物：cocos/build/harmonyos-next/  
+   - 中间产物：cocos/bbuild/harmonyos-next/  
    - 原生工程：cocos/native/engine/harmonyos-next/（DevEco 打开或 Mode 2 并入宿主）  
 4. DevEco Studio 打开该原生工程（或 Mode 2 并入仓库根后的模块），配置签名，真机/模拟器 Run。  
 5. Mode 2：鸿蒙岗把引擎模块 / HAR / libcocos.so 接到现有 LiarBar；Table.ets XComponent 显示场景（完整接线 = **C2′**，本票不替代）。  
@@ -232,36 +232,36 @@ awfile/audio **原样拷贝**；左轮不迁 |
 | 设计分辨率 / 适配 | **1280×720**；UI [21](../04-设计/21-局内Cocos场景布局规格.md) 锁 **FIT_HEIGHT**。K2 已将 cocos/settings/v2/packages/project.json 对齐为 itHeight=true / itWidth=false（规格对齐，非玩法改动）。若编辑器复开后被默认覆盖，**K4** 须再验 Canvas |
 
 同步本机副本 → 仓库：
-obocopy 排除 library/ 	emp/ local/ uild/ 
-ative/ 
+obocopy 排除 library/ 	emp/ local/ uild/ 
+native/ 
 ode_modules/ .git/。操作步骤见 cocos/README.md。
 
 ### 7.2 K2 本机构建实况（诚实记录 · 2026-09-17）
 
 | 项 | 实况 |
 |----|------|
-| cocos/build/harmonyos-next/ | **曾产出**（本机可见；**gitignore**，不进 PR）。内含 ssets/、data/、cocos.compile.config.json；平台参数 JS 引擎 **JSVM**、横屏 |
+| cocos/bbuild/harmonyos-next/ | **曾产出**（本机可见；**gitignore**，不进 PR）。内含 assets/、data/、cocos.compile.config.json；平台参数 JS 引擎 **JSVM**、横屏 |
 | cocos/native/ | **未见**进工作区（目录不存在 / 未生成完整 native 工程） |
-| libcocos.so / .so | **未见**（在 cocos/ 工作区与 uild/ 下检索为空） |
+| libcocos.so / .so | **未见**（在 cocos/ 工作区与 uild/ 下检索为空） |
 | 完整 native 工程生成 | **未完成** —— 仅有 Creator 侧 build 中间资源，**不能**视为 Mode 2 可链接的引擎产物齐备 |
-| secrets | library/ 	emp/ local/ uild/ 
-ative/ 已 ignore；MCP token 配置已 ignore；未把 .env / 密钥进库 |
+| secrets | library/ 	emp/ local/ uild/ 
+native/ 已 ignore；MCP token 配置已 ignore；未把 .env / 密钥进库 |
 
 **结论**：K2 = 工程源码 + 资产进库 + 构建路径文档化；**≠** NEXT 原生产物交付；**合入 ≠ 终验**。
 
 ### 7.3 给鸿蒙 C2′ 的产物交付约定
 
 因 
-ative/ / libcocos.so **未进工作区且不进 git**，Mode 2 完整接线所需原生产物约定如下（二选一，PM/C2′ 择）：
+native/ / libcocos.so **未进工作区且不进 git**，Mode 2 完整接线所需原生产物约定如下（二选一，PM/C2′ 择）：
 
 1. **本机构建后拷贝清单**（推荐 spike）：在 Creator 对 cocos/ 构建 HarmonyOS Next 并生成完整 
-ative/engine/harmonyos-next/ 后，向鸿蒙岗交付至少：  
+native/engine/harmonyos-next/ 后，向鸿蒙岗交付至少：  
    - cocos/native/engine/harmonyos-next/（或官方导出的 DevEco 工程树）  
-   - 构建产物中的 **libcocos.so**（及同 ABI 依赖 .so，常见 rm64-v8a）  
-   - cocos/build/harmonyos-next/data/（或等价资源包，供运行时加载）  
+   - 构建产物中的 **libcocos.so**（及同 ABI 依赖 .so，常见 rm64-v8a）  
+   - cocos/bbuild/harmonyos-next/data/（或等价资源包，供运行时加载）  
    - 构建配置摘要：jsEngine=JSVM、包名、朝向（横屏）  
-   交付方式：本机目录 / 内网包；**禁止**把 uild/ 
-ative/ 强行 commit。  
+   交付方式：本机目录 / 内网包；**禁止**把 uild/ 
+native/ 强行 commit。  
 2. **后续补票**：若 Aron GUI/SDK 未齐导致仍无 so，单开票据（C2′ 或 K2.1）完成「可链接 so + 宿主 XComponent 冒烟」后再谈 Mode 2 结论。
 
 当前 **#220** 仅为 CocosBridge stub + 开发开关；**Mode 2 完整接线仍待 C2′**。
@@ -297,9 +297,10 @@ ative/ 强行 commit。
 | 日期 | 意见 | 提议修改 | 提出人 | 状态 |
 |------|------|----------|--------|------|
 | 2026-09-17 | K1：Cocos 工程目录 / ets→ts 移植清单 / MatchEvents 草表 / `lb.*` 桥 / Cues 1000·3000·320·24 / Mode 2 默认 / 官方 NEXT+反射引用；零代码零资产；不改规则数字 | 新建本文 v0.1.0 | Cocos 开发 | 会签草案 · 待审 |
-| 2026-09-17 | K2：回填 §7/§7.1–7.3：进库打开路径、uild/harmonyos-next 实况、**无 native/无 so**、C2′ 拷贝清单；settings 对齐 FIT_HEIGHT | 增补 §7.2/7.3；改 project.json | Cocos 开发 | 已开 PR · 合入≠终验 · Mode2 待 C2′ |
+| 2026-09-17 | K2：回填 §7/§7.1–7.3：进库打开路径、build/harmonyos-next 实况、**无 native/无 so**、C2′ 拷贝清单；settings 对齐 FIT_HEIGHT | 增补 §7.2/7.3；改 project.json | Cocos 开发 | 已开 PR · 合入≠终验 · Mode2 待 C2′ |
+| 2026-09-17 | **D2 ACK**：§3.3 十五事件名与状态机附录 E **一一对应**；载荷可映射（草表粗于附录，如 `MatchStarted` 的 `matchId`/`livesDefault=3` 以附录为准）；`RevealStarted` 禁 claim 假面；无左轮/膛位事件；未偷加规则、与 v2.0.8 正文零冲突。文档 21 只读确认不改玩法（本票不改 21） | 仅审核行 + 会签栏/§3.3 指引句（**不升版**） | 策划 | **ACK** |
 
 ---
 
-*上接：[05-技术 README](./README.md) · [对局-状态机 v2.0.7](../02-游戏设计/对局-状态机.md) · [03-鸿蒙特性选型](./03-鸿蒙特性选型.md)*  
+*上接：[05-技术 README](./README.md) · [对局-状态机 v2.0.7 / 附录 E v2.0.8](../02-游戏设计/对局-状态机.md) · [03-鸿蒙特性选型](./03-鸿蒙特性选型.md)*  
 *官方：[发布到 HarmonyOS Next](https://docs.cocos.com/creator/3.8/manual/zh/editor/publish/publish-harmonyos-next.html) · [ArkTS 反射通信](https://docs.cocos.com/creator/3.8/manual/zh/advanced-topics/arkts-reflection.html)*
