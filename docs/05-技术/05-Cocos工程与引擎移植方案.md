@@ -207,14 +207,30 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 
 ---
 
-## 7. 构建流程（草案 · K2 实测后回填路径）
+## 7. 构建流程
 
-1. 本机 Creator **3.8.8**：`E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe` 打开 `cocos/`。  
-2. 菜单 **Project → Build**，平台选 **HarmonyOS Next**；JS 引擎选 **JSVM**；Debug/Release 按任务。  
-3. 构建输出：`cocos/native/engine/harmonyos-next/`（以 Creator 实际产物为准；K2 把确切路径写回本节）。  
+1. 本机 Creator **3.8.8**：`E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe` 打开仓库 `cocos/`（或本机副本，见 §7.1）。  
+2. 菜单 **项目 → 构建发布**，平台选 **HarmonyOS Next**；JS 引擎选 **JSVM**；Debug/Release 按任务。  
+3. 构建输出（期望）：  
+   - 中间产物 `cocos/build/harmonyos-next/`（**.gitignore**，不进库）  
+   - 原生工程 `cocos/native/engine/harmonyos-next/`（**.gitignore**；DevEco 打开）  
 4. DevEco Studio 打开该原生工程（或 Mode 2 并入仓库根后的模块），配置签名，真机/模拟器 Run。  
 5. Mode 2：鸿蒙岗把引擎模块 / HAR 接到现有 `LiarBar`；`Table.ets` `XComponent` 显示场景。  
-6. 官方注意：Make/Run 在 Creator 侧可能未实现 → **以 DevEco 编译运行为准**；内存不足导致编译失败时关掉占用再编。
+6. 官方注意：Make/Run 在 Creator 侧可能未实现 → **以 DevEco 编译运行为准**；内存不足导致编译失败时关掉占用再编。  
+7. **K2 阻塞**：CLI/`--build` 无人值守常因 Creator 登录或 HarmonyOS SDK 未配失败 → **构建待 Aron 在 Creator GUI 点一次**；详见 `cocos/README.md`。
+
+### 7.1 K2 落地路径（工程真根 vs 仓库）
+
+| 角色 | 路径 |
+|------|------|
+| 仓库进库工程根 | `LiarBar/cocos/`（`package.json` name=`LiarBarTable`，Creator **3.8.8**） |
+| 本机 Creator 工作副本 | `E:\Cocos\projects\LiarBarTable\LiarBarTable`（**以内层为准**；外层多套一层忽略） |
+| 编辑器 | `E:\Cocos\editor\CocosCreator-3.8.8\CocosCreator.exe` |
+| MCP 扩展 | 仓库 `cocos/extensions/cocos-mcp-server/`（无 `node_modules`）；重装：`E:\Cocos\mcp\install-into-project.ps1` |
+| 资产 | 按 [资产迁移Cocos对照表](../04-设计/资产迁移Cocos对照表.md) 自 `entry/.../media` / `rawfile/audio` **原样拷贝**；左轮不迁 |
+| 默认场景 | `cocos/assets/scenes/Table.scene`（空 Canvas；K4 铺 `lb_*`） |
+
+同步本机副本 → 仓库：`robocopy` 排除 `library/` `temp/` `local/` `build/` `native/` `node_modules/` `.git/`。操作步骤见 `cocos/README.md`。
 
 ---
 
@@ -249,6 +265,7 @@ isChallengeSuccess(targetRanks, claim) => !handIsClean(targetRanks, claim)
 | 日期 | 意见 | 提议修改 | 提出人 | 状态 |
 |------|------|----------|--------|------|
 | 2026-09-17 | K1：Cocos 工程目录 / ets→ts 移植清单 / MatchEvents 草表 / `lb.*` 桥 / Cues 1000·3000·320·24 / Mode 2 默认 / 官方 NEXT+反射引用；零代码零资产；不改规则数字 | 新建本文 v0.1.0 | Cocos 开发 | 会签草案 · 待审 |
+| 2026-09-17 | K2：回填 §7 构建路径 + §7.1 仓库/`E:\Cocos\projects\...` 映射；工程骨架与资产拷贝见 `cocos/` | 增补本节 | Cocos 开发 | 草案 · 构建待 Aron GUI |
 
 ---
 
