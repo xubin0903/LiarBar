@@ -21,7 +21,10 @@ import { ChallengeFx } from '../features/table/ChallengeFx';
 import { PlayFlyFx } from '../features/table/PlayFlyFx';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
+import { CocosBridge } from '../harmony/CocosBridge';
+import { USE_COCOS_TABLE } from '../harmony/CocosTableFlag';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
+import { CocosTableHost } from '../features/table/CocosTableHost';
 import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
 import { EventKind, Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
 
@@ -239,6 +242,12 @@ struct Table {
   private hintTimer: number = -1;
 
   aboutToAppear(): void {
+    // C2 Spike: Cocos host path — keep legacy table when USE_COCOS_TABLE=false.
+    if (USE_COCOS_TABLE) {
+      this.lockTableWindow();
+      Logger.info(TAG, 'USE_COCOS_TABLE=true — CocosTableHost path (await K2 libcocos)');
+      return;
+    }
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     SoundPlayer.bind(ctx);
     this.warmupTableSfx();
@@ -283,6 +292,11 @@ struct Table {
   }
 
   aboutToDisappear(): void {
+    if (USE_COCOS_TABLE) {
+      this.unbindAvoid();
+      Logger.info(TAG, 'USE_COCOS_TABLE=true — host disappear');
+      return;
+    }
     if (this.pollId >= 0) {
       clearInterval(this.pollId);
       this.pollId = -1;
@@ -304,6 +318,13 @@ struct Table {
   }
 
   build() {
+    if (USE_COCOS_TABLE) {
+      CocosTableHost({
+        onRequestHome: () => {
+          this.goHome();
+        }
+      })
+    } else {
     Stack({ alignContent: Alignment.TopStart }) {
       Image($r('app.media.art_table_bg'))
         .width('100%')
@@ -551,6 +572,7 @@ struct Table {
       this.applyBreakpoint(w, h);
       this.logFlushGate('stack');
     })
+    } // else USE_COCOS_TABLE=false · legacy ArkUI table
   }
 
   @Builder
@@ -1498,6 +1520,9 @@ struct Table {
 
   /** F3: system back → same as lb_btn_home. */
   onBackPress(): boolean {
+    if (USE_COCOS_TABLE) {
+      CocosBridge.back();
+    }
     this.goHome();
     return true;
   }

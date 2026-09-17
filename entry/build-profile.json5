@@ -5,6 +5,13 @@
       "copyCodeResource": {
         "enable": false
       }
+    },
+    "arkOptions": {
+      "runtimeOnly": {
+        "sources": [
+          "./src/main/ets/harmony/CocosBridge.ets"
+        ]
+      }
     }
   },
   "targets": [
