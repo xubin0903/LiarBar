@@ -280,11 +280,12 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 | 票 | 内容 | 本文章节 |
 |----|------|----------|
 | **C1** | 本文 v0.1.0 | 全部（零 ets） |
-| C2 | Mode 2 Spike | §1 · §7 |
+| C2 | Mode 2 Spike stub | §1 · §7 · §10 |
+| **C2′** | libcocos 本机接线 + S1–S5 结论 | §7 · §11 |
 | C3 | `CocosBridge` + TTS + gamePerf + Live 改事件驱动 | §3 · §4 |
 | C4 | 删旧 Table 表现 / MatchDirector 让位 | §1.4 · §3.4 |
 
-并行：Cocos K1=`05` 工程文档；K2 空工程产物供 C2。
+并行：Cocos K1=`05`；K2/K2补 so → C2′；真桥 C3。
 
 ---
 
@@ -294,6 +295,7 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 |------|------|----------|--------|------|
 | 2026-09-17 | 新建宿主架构 v0.1.0：Mode 2 默认、线程/桥/Kit/签名/Mode1/Spike；引用 Cocos 官方 NEXT 发布与 ArkTS 反射；本机 SDK 核实 LiveView/CoreSpeech/GameService | 新建本文；零 ets；不改规则数字包名 | 鸿蒙开发 · C1 | **待 PM 审 · 待 Cocos 会签** |
 | 2026-09-17 | C2 Spike：§10 实施清单；`CocosBridge` stub、`USE_COCOS_TABLE`、`CocosTableHost` XComponent 占位；无 K2 so 不链 libcocos | 补 §10 + ets stub；旧桌默认保留 | 鸿蒙开发 · C2 | **待 PM 审** |
+| 2026-09-17 | **C2′**：K2补 so 齐备后接线 Mode 2——本机 libs 路径 + `LINK_LIBCOCOS` + §11 S1–S5 诚实结论；**不** commit 235MB so；默认开关仍 false | 增 §11；`CocosNativeLink`；copy 脚本；`cocos_engine/README` | 鸿蒙开发 · C2′ | **待 PM 审** |
 
 ---
 
@@ -308,7 +310,8 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 
 ## 10. C2 Spike 实施清单
 
-> 票 C2（鸿蒙岗）· 合入 ≠ 终验 · **依赖 K2**：Creator 3.8.8 HarmonyOS NEXT 构建产物尚未进仓时，本清单代码侧只交 stub + 开关，**不**假装链接 `libcocos.so`。
+> 票 C2（鸿蒙岗）· 合入 ≠ 终验 · **依赖 K2**：Creator 3.8.8 HarmonyOS NEXT 构建产物尚未进仓时，本清单代码侧只交 stub + 开关，**不**假装链接 `libcocos.so`。  
+> **C2′（K2补 #226 后）**见 **§11**：本机 so 放置 + `LINK_LIBCOCOS`；仍不宣称整包 HAP / S2 场景终验。
 
 ### 10.1 期望模块 / 挂点
 
@@ -318,7 +321,7 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 | 壳侧桥 | `entry/src/main/ets/harmony/CocosBridge.ets`（反射静态方法；`runtimeOnly.sources` 登记） |
 | 开发开关 | **`USE_COCOS_TABLE`**（编译常量，默认 **`false`**）· 落点 `harmony/CocosTableFlag.ets` |
 | XComponent 挂点 | `features/table/CocosTableHost.ets` · `XComponentType.SURFACE` · 控件 id `lb_xcomp_cocos` · 对外屏仍 `lb_scr_table` |
-| `libraryname` / so | 待 K2 产物：`libraryname: 'cocos'` + `libcocos.so`；**无产物时省略 native 链接**，仅 SURFACE 占位 + 生命周期日志 |
+| `libraryname` / so | C2′：`LINK_LIBCOCOS`（默认 false）为 true 时 `libraryname: 'cocos'`；so 本机放 `entry/libs/arm64-v8a/`（gitignore，见 copy 脚本） |
 | 旧桌 | `USE_COCOS_TABLE=false` 时 `pages/Table.ets` 表现逻辑 **原样保留**（不删） |
 
 ### 10.2 验收标准（Spike）
@@ -337,11 +340,60 @@ Mode 2 = **壳不动、桌面换引擎**；课设答辩仍讲「鸿蒙原生壳 
 |------|----------|
 | §10 本文 | 文档 |
 | `CocosBridge` stub + `CocosTableHost` + `USE_COCOS_TABLE` | 代码 Spike |
-| `cocos_engine` / `libcocos.so` 链接 | **阻塞于 K2**（仓内尚无 `cocos/` NEXT 产物；真根 `E:\Cocos\projects\LiarBarTable\LiarBarTable` 亦无 `build` / `harmonyos-next`） |
-| Mode 2 真机/模拟器终验 | **未实测**（无 so）；合入只证明宿主接线骨架就绪 |
+| `cocos_engine` / `libcocos.so` 链接 | **C2′ 推进**：so 本机交接路径 + `LINK_LIBCOCOS`；完整 `modules[]` 并入仍阻塞于中文路径 / ArkTS 模板（见 §11） |
+| Mode 2 真机/模拟器终验 | **未宣称**；合入 ≠ 终验；S2 场景牌面待 Aron DevEco |
 
-**下一步（K2 到齐后）**：把 Creator 生成树并入 `cocos_engine` → 打开 `USE_COCOS_TABLE`（或 Preferences）→ 补 `libraryname` → 跑 §7 S1–S5。
+**下一步（C2′ 后）**：Aron 在 ASCII 工程修通 CompileArkTS → 精简 Worker/jsb 迁入 → C3 真桥 + Kit。
 
 ---
 
-*相关：[本目录 README](./README.md) · [01](./01-工程脚手架约定.md) · [03](./03-鸿蒙特性选型.md) · 记忆包 `05-engine-refactor-plan.md` · **合入 ≠ 终验***
+## 11. C2′ 记录 · libcocos Mode 2 接线（2026-09-17）
+
+> 票 **C2′** · 前置 K2补 **#226** · **不宣称整包 HAP 终验** · **合入 ≠ 终验**
+
+### 11.1 本机 so / native 放置（不进 git）
+
+| 项 | 路径 |
+|----|------|
+| 交接源 so | `E:\Cocos\projects\LiarBarHarmonyNative\handoff-arm64-v8a\libcocos.so`（+ `libc++_shared.so`） |
+| ASCII native 工程 | `E:\Cocos\projects\LiarBarHarmonyNative\engine\harmonyos-next\` |
+| 资源 | `E:\Cocos\projects\LiarBarHarmonyNative\build-harmonyos-next\data\` |
+| 仓内落点（推荐） | `entry/libs/arm64-v8a/`（`*.so` gitignore） |
+| 拷贝脚本 | `node scripts/copy_cocos_native_libs.mjs` |
+| 模块说明占位 | `cocos_engine/README.md`（**未**登记根 `build-profile.json5` → `modules[]`） |
+
+### 11.2 代码开关（默认均 false · 保护旧桌）
+
+| 常量 | 文件 | 默认 | 冒烟时 |
+|------|------|------|--------|
+| `USE_COCOS_TABLE` | `harmony/CocosTableFlag.ets` | **false** | true → 进 `CocosTableHost` |
+| `LINK_LIBCOCOS` | `harmony/CocosNativeLink.ets` | **false** | true → `libraryname: 'cocos'` |
+
+临时冒烟顺序：copy 脚本 → `LINK_LIBCOCOS=true` → `USE_COCOS_TABLE=true` → DevEco；**勿 commit true / so**。规则数字 1000/3000/24 **未改**；旧 Table 表现 **未删**（C4）。
+
+### 11.3 §7 Spike S1–S5 诚实结论
+
+| # | 项 | 结论 | 说明 |
+|---|----|------|------|
+| S1 | 构建 | **部分** | 默认开关下 entry 不链 so，与 C2 同可编；**含 so / 完整 cocos 模块的整包 HAP** 仍受中文路径 **00306003** 与 ArkTS 模板（`cocos_worker.ets` ↔ 6.1）阻塞，需 Aron DevEco GUI |
+| S2 | 显示 | **未过** | 未在模拟器验证 Cocos 场景 ≥1 张 `art_card_*`；仅 `libraryname` 无 Worker/jsb/资源引导不出牌面 |
+| S3 | 桥 | **部分** | ArkTS stub `CocosBridge.ping→pong` 仍绿；**真** JS↔ArkTS（反射/ProxyPort + Worker）未接 |
+| S4 | 线程 | **未过** | Kit 探针仍 no-op stub；无跨线程实测（归 C3） |
+| S5 | 结论 | **Mode 2 部分可行 · 整包建议先 Mode1 旁路或 Aron GUI** | 宿主接线 + 本机 libs 路径已通；完整 Mode 2 嵌入现有中文路径仓 **暂不可稳定 assembleHap**；so 本身已在 ASCII 路径编出 |
+
+### 11.4 须 Aron DevEco GUI 的步骤（Agent 无法代劳）
+
+1. 打开 ASCII：`E:\Cocos\projects\LiarBarHarmonyNative\engine\harmonyos-next\`  
+2. 签名 + `sdk.dir`；修 **CompileArkTS** / `cocos_worker.ets` 与 6.1 模板  
+3. 验证副本（`E:\Projects\LiarBar`，Agent 不碰）拷 so、本地翻开关冒烟  
+4. Rebuild 终验（本 PR 不做）
+
+### 11.5 Mode 2 vs Mode 1（给 PM）
+
+- **可行（部分）**：壳侧开关、XComponent、`libraryname` 条件链、本机 so 放置与文档。  
+- **阻塞**：仓内中文路径编 native；Creator 模板 ArkTS 与 SDK 6.1。  
+- **建议**：优先 Aron 在 ASCII 工程打通整包；若嵌入 `LiarBar` 仍长期失败 → 按本文 §6 **回退 Mode 1**（独立 HAP + Ability 拉起），壳保留 Lobby/Report/教学。
+
+---
+
+*相关：[本目录 README](./README.md) · [01](./01-工程脚手架约定.md) · [03](./03-鸿蒙特性选型.md) · [05](./05-Cocos工程与引擎移植方案.md) §7.2/7.3 · 记忆包 `05-engine-refactor-plan.md` · **合入 ≠ 终验***

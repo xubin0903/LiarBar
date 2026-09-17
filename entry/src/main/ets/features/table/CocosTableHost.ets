@@ -1,16 +1,18 @@
 import { ControlIds, ScreenIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { CocosBridge } from '../../harmony/CocosBridge';
+import { LINK_LIBCOCOS } from '../../harmony/CocosNativeLink';
+import { USE_COCOS_TABLE } from '../../harmony/CocosTableFlag';
 
 const TAG = 'CocosTableHost';
 
 /**
- * C2 Spike · Mode 2 XComponent host for Cocos surface.
+ * C2′ · Mode 2 XComponent host for Cocos surface.
  *
- * 待 K2 产物（cocos_engine / libcocos.so）到位后：
- *   - 取消下方 libraryname 注释，设为 'cocos'
- *   - 在 onLoad 里走 Worker / nativeEngineInit（对齐 Creator harmonyos-next 模板）
- * 当前：SURFACE 占位 + 生命周期日志 + 桥 ping；不链接 native so。
+ * - USE_COCOS_TABLE（CocosTableFlag）控制是否进本宿主；默认 false → 旧桌。
+ * - LINK_LIBCOCOS（CocosNativeLink）控制是否带 libraryname: 'cocos'。
+ *   true 前须本机已有 entry/libs/arm64-v8a/libcocos.so（copy 脚本；勿 commit so）。
+ * - 链 so ≠ 场景出牌：Worker / jsb / 资源仍待整包引擎 ArkTS（见 cocos_engine/README.md）。
  */
 @Component
 export struct CocosTableHost {
@@ -18,8 +20,9 @@ export struct CocosTableHost {
   };
 
   aboutToAppear(): void {
-    Logger.info(TAG, 'aboutToAppear — Cocos host (no libcocos yet)');
-    CocosBridge.start('{"spike":true}');
+    Logger.info(TAG,
+      `aboutToAppear — USE_COCOS_TABLE=${USE_COCOS_TABLE} LINK_LIBCOCOS=${LINK_LIBCOCOS}`);
+    CocosBridge.start('{"spike":true,"c2prime":true}');
     const token: string = CocosBridge.ping();
     Logger.info(TAG, `bridge ping-pong token=${token}`);
   }
@@ -31,29 +34,47 @@ export struct CocosTableHost {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      // SURFACE 占位。libraryname / libcocos.so：待 cocos build 产物 —— 勿在无 so 时强链。
-      // 有产物后改为：
-      // XComponent({ id: 'lb_xcomp_cocos', type: XComponentType.SURFACE, libraryname: 'cocos' })
-      XComponent({
-        id: 'lb_xcomp_cocos',
-        type: XComponentType.SURFACE
-      })
-        .onLoad((_ctx?: object) => {
-          Logger.info(TAG,
-            'XComponent onLoad — SURFACE ready; libcocos link deferred (await K2)');
-          CocosBridge.pong();
+      // LINK_LIBCOCOS=false：SURFACE 占位，不 dlopen libcocos（缺 so 时安全）。
+      // LINK_LIBCOCOS=true：与 Creator harmonyos-next 模板一致 libraryname: 'cocos'。
+      if (LINK_LIBCOCOS) {
+        XComponent({
+          id: 'lb_xcomp_cocos',
+          type: XComponentType.SURFACE,
+          libraryname: 'cocos'
         })
-        .onDestroy(() => {
-          Logger.info(TAG, 'XComponent onDestroy');
+          .onLoad((_ctx?: object) => {
+            Logger.info(TAG, 'XComponent onLoad — libraryname=cocos (libcocos expected in libs)');
+            CocosBridge.pong();
+          })
+          .onDestroy(() => {
+            Logger.info(TAG, 'XComponent onDestroy');
+          })
+          .width('100%')
+          .height('100%')
+      } else {
+        XComponent({
+          id: 'lb_xcomp_cocos',
+          type: XComponentType.SURFACE
         })
-        .width('100%')
-        .height('100%')
+          .onLoad((_ctx?: object) => {
+            Logger.info(TAG,
+              'XComponent onLoad — SURFACE placeholder; set LINK_LIBCOCOS after copy_cocos_native_libs');
+            CocosBridge.pong();
+          })
+          .onDestroy(() => {
+            Logger.info(TAG, 'XComponent onDestroy');
+          })
+          .width('100%')
+          .height('100%')
+      }
 
       Column({ space: 8 }) {
-        Text('Cocos Table Host (Spike)')
+        Text('Cocos Table Host (C2′)')
           .fontColor($r('app.color.tavern_paper'))
           .fontSize($r('app.float.page_text_size'))
-        Text('USE_COCOS_TABLE · awaiting K2 libcocos')
+        Text(LINK_LIBCOCOS ?
+          'LINK_LIBCOCOS=true · libraryname=cocos' :
+          'LINK_LIBCOCOS=false · SURFACE only')
           .fontColor($r('app.color.tavern_candle'))
           .fontSize($r('app.float.caption_text_size'))
         Text(ControlIds.HOME)

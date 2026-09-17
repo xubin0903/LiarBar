@@ -44,3 +44,8 @@ __pycache__/
 .env
 .env.*
 *.keystore
+
+# Cocos native so（C2′：本机交接包，禁止进 git；见 entry/libs/arm64-v8a/README.md）
+*.so
+cocos/native/
+cocos/build/

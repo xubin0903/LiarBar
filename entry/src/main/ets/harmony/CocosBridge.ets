@@ -9,7 +9,8 @@ const TAG = 'CocosBridge';
  * Kit bodies land in C3 (TtsAdapter / LiveWindow / PeekPrivacy / GamePerf).
  * No game rules here — host IO only.
  *
- * libcocos / Worker / ProxyPort：待 K2 HarmonyOS NEXT 产物后再接线；
+ * C2′：本机 so 经 copy_cocos_native_libs → entry/libs；XComponent 链路由
+ * CocosNativeLink.LINK_LIBCOCOS。Worker / ProxyPort / evalString 真桥仍待整包引擎 ArkTS。
  * 当前 stub 仅 hilog，供宿主生命周期与开关联调。
  */
 export class CocosBridge {
