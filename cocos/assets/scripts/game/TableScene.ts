@@ -3,7 +3,7 @@
  * 锁：DRAW_TO_FLIP=1000 / REVEAL_HOLD=3000 / HAND_RING_GAP=24% / 禁 padB 顶高。
  * 场景是舞台；座位/牌/入口/烛来自 Prefab 或已有挂点。
  */
-import { _decorator, assetManager, Button, Component, JsonAsset, Node, Prefab, SpriteFrame } from 'cc';
+import { _decorator, assetManager, AudioSource, Button, Component, JsonAsset, Node, Prefab, SpriteFrame } from 'cc';
 import { ConfigRepository } from '../config/ConfigRepository';
 import { MatchEngine } from '../engine/MatchEngine';
 import { MatchDirector } from '../common/MatchDirector';
@@ -14,6 +14,7 @@ import { LayoutService } from './Layout';
 import { findDeep } from './Nodes';
 import { TableFactory, TablePrefabs } from './TableFactory';
 import { TablePresenter } from './TablePresenter';
+import { TableAudio } from './TableAudio';
 import { CardView } from './views/CardView';
 import { HandView } from './views/HandView';
 import { PoolView } from './views/PoolView';
@@ -45,6 +46,12 @@ export class TableScene extends Component {
   @property(SpriteFrame)
   cardBack: SpriteFrame | null = null;
 
+  @property(AudioSource)
+  audioBgm: AudioSource | null = null;
+
+  @property(AudioSource)
+  audioSfx: AudioSource | null = null;
+
   private engine: MatchEngine = new MatchEngine();
   private director: MatchDirector = new MatchDirector();
   private layout = new LayoutService();
@@ -61,11 +68,24 @@ export class TableScene extends Component {
 
   onDestroy(): void {
     this.director.stop();
+    TableAudio.stopBgm();
   }
 
   private async boot(): Promise<void> {
     try {
       await this.loadConfigs();
+
+      // Audio setup
+      let bgm = this.audioBgm || this.getComponent(AudioSource);
+      if (!bgm) {
+        bgm = this.addComponent(AudioSource);
+      }
+      let sfx = this.audioSfx;
+      if (!sfx) {
+        sfx = this.addComponent(AudioSource);
+      }
+      TableAudio.init(bgm, sfx);
+
       const frames = await this.loadFrames([
         SF.cardBack,
         SF.cardA,
@@ -98,7 +118,7 @@ export class TableScene extends Component {
       const prefabs = await this.loadPrefabs();
       console.log(
         TAG,
-        prefabs card= seat= dealer= life= challenge=
+        prefabs card=\ seat=\ dealer=\ life=\ challenge=\
       );
       if (!this.cardBack) {
         this.cardBack = frames[SF.cardBack] || null;
@@ -148,14 +168,14 @@ export class TableScene extends Component {
       if (this.btnHome) {
         this.btnHome.on(Button.EventType.CLICK, () => {
           this.director.stop();
+          TableAudio.stopBgm();
           LbRouter.toLobby();
         });
       }
 
-      // Hand selection tap / double-tap to play
+      // Hand selection tap to play
       hand.onSelectionChanged((count) => {
         if (count > 0 && this.engine.current()?.currentSeatId === 0) {
-          // Play selected cards
           this.presenter?.playSelectedCards();
         }
       });
@@ -185,7 +205,7 @@ export class TableScene extends Component {
 
       console.log(
         TAG,
-        locks DRAW_TO_FLIP= REVEAL_HOLD= GAP=%
+        locks DRAW_TO_FLIP=\ REVEAL_HOLD=\ GAP=\%
       );
     } catch (e) {
       console.error(TAG, 'boot failed', e);
