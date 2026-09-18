@@ -289,7 +289,7 @@ export class TablePresenter {
     if (ev.name === 'SeatEliminated') {
       const seat = Number(ev.payload['seat']);
       const who = SEAT_NAMES[seat] || 座\;
-      TableAudio.playRevolverShot();
+      TableAudio.playExtinguish();
       this.hud.setTip(\ 淘汰出局！);
       const seatView = this.seat(seat);
       if (seatView) {
@@ -328,3 +328,4 @@ export class TablePresenter {
     return null;
   }
 }
+
