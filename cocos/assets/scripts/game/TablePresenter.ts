@@ -12,6 +12,7 @@ import { HudView } from './views/HudView';
 import { LifeView } from './views/LifeView';
 import { PoolView } from './views/PoolView';
 import { SeatView } from './views/SeatView';
+import { ReportView } from './views/ReportView';
 import { TableAudio } from './TableAudio';
 import { DealFx } from './DealFx';
 import { PlayFlyFx } from './PlayFlyFx';
@@ -28,6 +29,7 @@ export class TablePresenter {
   private lives: LifeView[];
   private challenge: ChallengeView;
   private pool: PoolView | null;
+  private report: ReportView | null = null;
   private back: SpriteFrame | null;
   private rankFrames: { [rank: string]: SpriteFrame } = {};
   private remain: number[] = [0, 0, 0, 0];
@@ -59,6 +61,23 @@ export class TablePresenter {
       new LifeView(stage.lives[2]),
       new LifeView(stage.lives[3])
     ];
+
+    if (this.stageNode) {
+      this.report = new ReportView(this.stageNode);
+      this.report.onPlayAgain(() => {
+        this.resetCopy();
+        this.engine.startMatch({
+          nickname: '你',
+          playerCount: 4,
+          silent: false
+        });
+        this.pump();
+        setTimeout(() => {
+          this.engine.dealDone();
+          this.pump();
+        }, 350);
+      });
+    }
 
     this.bindChallengeActions();
   }
@@ -99,6 +118,9 @@ export class TablePresenter {
       this.pool.setEmpty();
     }
     this.challenge.hide();
+    if (this.report) {
+      this.report.hide();
+    }
     this.remain = [0, 0, 0, 0];
     for (let i = 0; i < this.seats.length; i++) {
       const seat = this.seats[i];
@@ -248,11 +270,10 @@ export class TablePresenter {
         ChallengeFx.playRevealSequence(
           this.stageNode,
           () => {
-            // Flip cards face up
             TableAudio.playRevealFlip();
           },
           () => {
-            // Hold completed
+            // Reveal hold completed
           }
         );
       }
@@ -265,6 +286,16 @@ export class TablePresenter {
         this.lives[seat].setLives(livesLeft);
       }
     }
+    if (ev.name === 'SeatEliminated') {
+      const seat = Number(ev.payload['seat']);
+      const who = SEAT_NAMES[seat] || 座\;
+      TableAudio.playRevolverShot();
+      this.hud.setTip(\ 淘汰出局！);
+      const seatView = this.seat(seat);
+      if (seatView) {
+        seatView.clearFan();
+      }
+    }
     if (ev.name === 'MatchEnded') {
       const winner = Number(ev.payload['winnerSeat']);
       const who = SEAT_NAMES[winner] || 座\;
@@ -273,6 +304,11 @@ export class TablePresenter {
         TableAudio.playWin();
       } else {
         TableAudio.playLose();
+      }
+      if (this.report) {
+        setTimeout(() => {
+          this.report?.show(who, winner === 0);
+        }, 1200);
       }
     }
   }
