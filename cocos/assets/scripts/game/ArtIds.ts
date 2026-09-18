@@ -1,8 +1,12 @@
-/** SpriteFrame UUID（`.meta` 真源 + `@f9941`）。禁止改像素。 */
+/** SpriteFrame UUID（.meta 真源 + @f9941）。禁止改像素。 */
 export const SF = {
   tableBg: 'fd75330e-f29c-4b99-b486-6ca908522ba9@f9941',
   tableBgLand: 'c17a8ada-baee-4843-9e88-125b88b5e4dc@f9941',
   cardBack: 'd4e69b17-fd30-468e-a36f-0b4ecb4985e0@f9941',
+  cardA: '74966db7-67b1-4d64-9d04-c261136815c9@f9941',
+  cardK: '0527eafe-bfbb-4dc3-a5a7-bdec7096ae09@f9941',
+  cardQ: 'ab58c7c7-2cb0-42ac-87c0-957d37d6733e@f9941',
+  cardJoker: 'f18d9c4c-21fc-448d-8d55-89933b3087fe@f9941',
   poolSlot: 'ebd0ab01-8402-4101-abaf-344a1aca9d4c@f9941',
   dealerIdle: 'ef4c044d-3c50-4c65-9cd5-3db74cd52ca6@f9941',
   playerIdle: 'd7f4f032-e0bd-44f2-be7b-95b23838ccc3@f9941',

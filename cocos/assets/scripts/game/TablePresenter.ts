@@ -4,6 +4,7 @@
 import { SpriteFrame } from 'cc';
 import { MatchEngine } from '../engine/MatchEngine';
 import { MatchEngineEvent } from '../engine/MatchEvents';
+import { PlayStyle } from '../engine/Phase';
 import { TableStage } from './Layout';
 import { ChallengeView } from './views/ChallengeView';
 import { HandView } from './views/HandView';
@@ -23,6 +24,7 @@ export class TablePresenter {
   private challenge: ChallengeView;
   private pool: PoolView | null;
   private back: SpriteFrame | null;
+  private rankFrames: { [rank: string]: SpriteFrame } = {};
   private remain: number[] = [0, 0, 0, 0];
   private burn: SpriteFrame[] = [];
 
@@ -46,6 +48,12 @@ export class TablePresenter {
       new LifeView(stage.lives[2]),
       new LifeView(stage.lives[3])
     ];
+
+    this.bindChallengeActions();
+  }
+
+  setRankFrames(map: { [rank: string]: SpriteFrame }): void {
+    this.rankFrames = map;
   }
 
   setBurnFrames(frames: SpriteFrame[]): void {
@@ -53,6 +61,21 @@ export class TablePresenter {
     for (let i = 0; i < this.lives.length; i++) {
       this.lives[i].setBurnFrames(frames);
     }
+  }
+
+  private bindChallengeActions(): void {
+    this.challenge.onDoubt(() => {
+      this.engine.intentChallenge();
+      this.engine.commitChallenge(0);
+      this.challenge.hide();
+      this.pump();
+    });
+
+    this.challenge.onBelieve(() => {
+      this.engine.believe();
+      this.challenge.hide();
+      this.pump();
+    });
   }
 
   resetCopy(): void {
@@ -76,6 +99,21 @@ export class TablePresenter {
     }
   }
 
+  playSelectedCards(): boolean {
+    const ids = this.hand.getSelectedCardIds();
+    if (ids.length === 0 || ids.length > 3) return false;
+    const snap = this.engine.current();
+    if (!snap || snap.currentSeatId !== 0) return false;
+
+    this.engine.intentPlay();
+    const ok = this.engine.submitPlay(ids, PlayStyle.SOFT, '', -1);
+    if (ok) {
+      this.hand.clearSelection();
+      this.pump();
+    }
+    return ok;
+  }
+
   pump(): void {
     const evs: MatchEngineEvent[] = this.engine.drainEvents(this.cursor);
     for (let i = 0; i < evs.length; i++) {
@@ -96,7 +134,12 @@ export class TablePresenter {
       const count = Number(ev.payload['count']);
       this.remain[seat] = count;
       if (seat === 0) {
-        this.hand.showBacks(count, this.back);
+        const snap = this.engine.current();
+        if (snap && snap.selfHand && snap.selfHand.length > 0) {
+          this.hand.showPlayerHand(snap.selfHand, this.rankFrames, this.back);
+        } else {
+          this.hand.showBacks(count, this.back);
+        }
       } else {
         const view = this.seat(seat);
         if (view) {
@@ -114,8 +157,8 @@ export class TablePresenter {
     }
     if (ev.name === 'TurnBegan') {
       const seat = Number(ev.payload['seat']);
-      const who = SEAT_NAMES[seat] || `座${seat}`;
-      this.hud.setTip(seat === 0 ? '轮到你' : `轮到${who}`);
+      const who = SEAT_NAMES[seat] || 座\;
+      this.hud.setTip(seat === 0 ? '轮到你出牌' : 轮到\);
       return;
     }
     if (ev.name === 'PlayLanded') {
@@ -127,7 +170,12 @@ export class TablePresenter {
       }
       this.remain[seat] = Math.max(0, (this.remain[seat] || 0) - count);
       if (seat === 0) {
-        this.hand.showBacks(this.remain[0], this.back);
+        const snap = this.engine.current();
+        if (snap && snap.selfHand) {
+          this.hand.showPlayerHand(snap.selfHand, this.rankFrames, this.back);
+        } else {
+          this.hand.showBacks(this.remain[0], this.back);
+        }
       } else {
         const view = this.seat(seat);
         if (view) {
@@ -146,6 +194,22 @@ export class TablePresenter {
     }
     if (ev.name === 'Believed' || ev.name === 'ChallengeCommitted') {
       this.challenge.hide();
+    }
+    if (ev.name === 'Judged') {
+      const succ = Boolean(ev.payload['success']);
+      this.hud.setJudge(succ ? '质疑成功！' : '质疑失败！');
+    }
+    if (ev.name === 'CandleOut') {
+      const seat = Number(ev.payload['seat']);
+      const livesLeft = Number(ev.payload['livesLeft']);
+      if (this.lives[seat]) {
+        this.lives[seat].setLives(livesLeft);
+      }
+    }
+    if (ev.name === 'MatchEnded') {
+      const winner = Number(ev.payload['winnerSeat']);
+      const who = SEAT_NAMES[winner] || 座\;
+      this.hud.setTip(对局结束，胜者：\);
     }
   }
 
