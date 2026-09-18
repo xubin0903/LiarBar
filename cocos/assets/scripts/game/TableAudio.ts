@@ -19,9 +19,6 @@ export class TableAudio {
   static readonly WIN_UUID = '6e85f137-7e49-47b9-8fcd-7fdb74598eb5';
   static readonly LOSE_UUID = '2f6b8441-c0fa-4443-af3d-2adb4c7eb7fd';
   static readonly CARD_FLIP_UUID = '70cc7deb-4f64-4fc9-a5a6-7ee14281fe71';
-  static readonly REV_CLICK_UUID = 'a79137fa-7507-4ae4-bea1-b707245f3a5e';
-  static readonly REV_SHOT_UUID = '63b04ce0-ec4d-4e48-859d-3cc6b88953ed';
-  static readonly REV_SPIN_UUID = '5e407265-3a30-4415-a8d2-a3abb4f0799a';
 
   private static clips: Map<string, AudioClip> = new Map();
   private static bgmSource: AudioSource | null = null;
@@ -59,10 +56,7 @@ export class TableAudio {
       TableAudio.TURN_UUID,
       TableAudio.WIN_UUID,
       TableAudio.LOSE_UUID,
-      TableAudio.CARD_FLIP_UUID,
-      TableAudio.REV_CLICK_UUID,
-      TableAudio.REV_SHOT_UUID,
-      TableAudio.REV_SPIN_UUID
+      TableAudio.CARD_FLIP_UUID
     ];
     for (const uuid of list) {
       assetManager.loadAny({ uuid }, (err, clip) => {
@@ -160,18 +154,6 @@ export class TableAudio {
 
   static playLose(): void {
     TableAudio.playOneShot(TableAudio.LOSE_UUID, 0.60);
-  }
-
-  static playRevolverClick(): void {
-    TableAudio.playOneShot(TableAudio.REV_CLICK_UUID, 0.50);
-  }
-
-  static playRevolverShot(): void {
-    TableAudio.playOneShot(TableAudio.REV_SHOT_UUID, 0.70);
-  }
-
-  static playRevolverSpin(): void {
-    TableAudio.playOneShot(TableAudio.REV_SPIN_UUID, 0.45);
   }
 
   private static playOneShot(uuid: string, vol: number): void {
