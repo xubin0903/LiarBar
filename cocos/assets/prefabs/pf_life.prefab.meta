@@ -1,0 +1,11 @@
+{
+  "ver": "1.1.50",
+  "importer": "prefab",
+  "imported": true,
+  "uuid": "813f6275-1a92-434f-f7c6-92adce3f4567",
+  "files": [".json"],
+  "subMetas": {},
+  "userData": {
+    "syncNodeName": "pf_life"
+  }
+}

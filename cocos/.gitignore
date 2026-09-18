@@ -1,0 +1,31 @@
+#///////////////////////////
+# Cocos Creator 3.8.x
+#///////////////////////////
+library/
+temp/
+local/
+build/
+native/
+*.log
+*.log.*
+
+#//////////////////////////
+# NPM / extensions
+#//////////////////////////
+node_modules/
+extensions/**/node_modules/
+
+#//////////////////////////
+# IDE
+#//////////////////////////
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+#//////////////////////////
+# MCP secrets (do not commit tokens)
+#//////////////////////////
+settings/mcp-server.json
+settings/v2/packages/mcp-server.json

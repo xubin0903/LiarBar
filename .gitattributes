@@ -1,0 +1,2 @@
+# Markdown 按文本、LF 检出，便于审阅端按 UTF-8 打开
+*.md text eol=lf

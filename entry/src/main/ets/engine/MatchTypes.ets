@@ -1,0 +1,144 @@
+import { MatchDefaults } from '../config/MatchDefaults';
+import {
+  BetPick,
+  ChallengeResult,
+  EventKind,
+  LifeReason,
+  Phase,
+  PlayStyle,
+  SeatRole,
+  SeatStatus,
+  TableMode,
+  TurnWindow
+} from './Phase';
+
+export interface CardModel {
+  cardId: string;
+  rank: string;
+}
+
+export interface ClaimModel {
+  claimId: string;
+  rank: string;
+  firstActorSeatId: number;
+  announcedAt: number;
+}
+
+export interface PlayModel {
+  playId: string;
+  actorSeatId: number;
+  count: number;
+  style: PlayStyle;
+  speech: string;
+  namedSeatId: number;
+  isFirstOfRound: boolean;
+  committedAt: number;
+}
+
+export interface FaceBet {
+  seatId: number;
+  pick: BetPick;
+}
+
+export interface ChallengeModel {
+  challengeId: string;
+  challengerSeatId: number;
+  targetPlayId: string;
+  ritualSkipped: boolean;
+  ritualBeat: string;
+  result: string;
+  fakeCount: number;
+  judgedAt: number;
+  bets: FaceBet[];
+}
+
+export interface SeatModel {
+  seatId: number;
+  role: SeatRole;
+  aiPersona: string;
+  nickname: string;
+  status: SeatStatus;
+  isHost: boolean;
+  faceScore: number;
+  /** Alive token for candle UI (1/0). Not 3-life formula. */
+  lives: number;
+  lastDelta: number;
+  lastReason: LifeReason;
+  handCount: number;
+  consecutiveTimeouts: number;
+}
+
+export interface MatchEvent {
+  kind: EventKind;
+  seatId: number;
+  detail: string;
+  at: number;
+}
+
+export interface RecapRow {
+  seatId: number;
+  nickname: string;
+  playCount: number;
+  fakeHandCount: number;
+  challengeCount: number;
+  challengeHits: number;
+}
+
+export interface MatchSnapshot {
+  matchId: string;
+  seed: number;
+  config: MatchDefaults;
+  phase: Phase;
+  turnWindow: TurnWindow;
+  tableMode: TableMode;
+  silentMode: boolean;
+  currentSeatId: number;
+  currentClaim: ClaimModel | null;
+  lastPlay: PlayModel | null;
+  /** Seats that emptied this land (RoundSafeWait contributors). Not whole-match place. */
+  emptyOrder: number[];
+  /**
+   * Deprecated under revolver v1 — engine keeps false.
+   * HandEmptyGate replaces RoundWin→RedealAll.
+   */
+  roundWinPending: boolean;
+  /** ≥3 EmptySafe3: next must choose 你/上家. */
+  emptySafePending?: boolean;
+  /** =2: force challenge emptier's last hand. */
+  forceChallengeEmpty?: boolean;
+  /** Emptier seat for HandEmptyGate. */
+  emptyHandSeatId?: number;
+  /** Seats in RoundSafeWait (≥3 不质疑你). */
+  roundSafeWaitSeats?: number[];
+  /** Frozen · 废左轮. Always −1 on primary path. */
+  chamberIndex?: number;
+  /** Frozen · 废左轮. Always −1 on primary path. */
+  liveChamberIndex?: number;
+  /** Legacy field: true iff last PenaltyExtinguish1 eliminated (lives→0). */
+  lastShotLive?: boolean;
+  /** Legacy field: seat that took last PenaltyExtinguish1 (−1 none). */
+  lastShooterSeatId?: number;
+  lastPenalizedSeatId: number;
+  roundIndex: number;
+  playIndexInRound: number;
+  stallSkipCount: number;
+  winnerSeatId: number;
+  canChallenge: boolean;
+  hasCards: boolean;
+  turnRemainMs: number;
+  ritualBeat: string;
+  revealOpen: boolean;
+  dealerKey: string;
+  dealerLine: string;
+  highlightLine: string;
+  selfHand: CardModel[];
+  lastPlayRanks: string[];
+  seats: SeatModel[];
+  challenge: ChallengeModel | null;
+  eventLog: MatchEvent[];
+  recap: RecapRow[];
+  startedAt: number;
+  endedAt: number;
+}
+
+export { BetPick, ChallengeResult, EventKind, LifeReason, PlayStyle };

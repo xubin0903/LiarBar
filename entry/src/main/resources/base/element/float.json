@@ -1,0 +1,27 @@
+{
+  "float": [
+    { "name": "page_text_size", "value": "16vp" },
+    { "name": "title_text_size", "value": "28vp" },
+    { "name": "subtitle_text_size", "value": "14vp" },
+    { "name": "btn_height", "value": "48vp" },
+    { "name": "caption_text_size", "value": "12vp" },
+    { "name": "cta_height", "value": "56vp" },
+    { "name": "cta_radius", "value": "10vp" },
+    { "name": "panel_radius", "value": "12vp" },
+    { "name": "dealer_bust_w", "value": "140vp" },
+    { "name": "dealer_bust_h", "value": "186vp" },
+    { "name": "card_w", "value": "56vp" },
+    { "name": "card_h", "value": "78vp" },
+    { "name": "card_face_w", "value": "80vp" },
+    { "name": "card_face_h", "value": "112vp" },
+    { "name": "card_radius", "value": "10vp" },
+    { "name": "card_raise", "value": "12vp" },
+    { "name": "life_pip_self", "value": "32vp" },
+    { "name": "life_pip_self_small", "value": "22vp" },
+    { "name": "life_pip_seat", "value": "21vp" },
+    { "name": "life_pip_seat_small", "value": "17vp" },
+    { "name": "debug_open_size", "value": "30vp" },
+    { "name": "play_confirm_w", "value": "140vp" },
+    { "name": "play_confirm_h", "value": "56vp" }
+  ]
+}

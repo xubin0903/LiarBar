@@ -21,9 +21,24 @@ _ppt_text.txt
 # build / local
 dist/
 build/
+**/build/
 .ohos/
+**/.ohos/
 .cxx/
 local.properties
+/oh_modules
+**/oh_modules
+/.hvigor
+**/.hvigor
+**/.test
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.preview
+
+# python
+__pycache__/
+*.py[cod]
 
 # secrets
 .env

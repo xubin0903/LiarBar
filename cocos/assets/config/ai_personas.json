@@ -1,0 +1,56 @@
+{
+  "schema_version": "0.2",
+  "challenge_p_min": 0.05,
+  "challenge_p_max": 0.85,
+  "strong_hand_min_truth": 3,
+  "personas": {
+    "TIMID": {
+      "persona_id": "AI_TIMID",
+      "display_name": "怂货",
+      "p_play_truth_when_can": 0.85,
+      "p_prefer_slam": 0.10,
+      "p_prefer_hesitate_bluff": 0.15,
+      "avg_play_count_bias": 1,
+      "base_p_challenge": 0.12,
+      "bonus_after_consecutive_play": 0.05,
+      "bonus_on_slam": 0.05,
+      "penalty_strong_hand": -0.05,
+      "p_emote_after_play": 0.2,
+      "p_knock": 0.05,
+      "p_sign_no": 0.05,
+      "p_name": 0.05
+    },
+    "SHARK": {
+      "persona_id": "AI_SHARK",
+      "display_name": "老千",
+      "p_play_truth_when_can": 0.45,
+      "p_prefer_slam": 0.35,
+      "p_prefer_hesitate_bluff": 0.25,
+      "avg_play_count_bias": 2,
+      "base_p_challenge": 0.28,
+      "bonus_after_consecutive_play": 0.08,
+      "bonus_on_slam": 0.10,
+      "penalty_strong_hand": -0.02,
+      "p_emote_after_play": 0.5,
+      "p_knock": 0.15,
+      "p_sign_no": 0.15,
+      "p_name": 0.25
+    },
+    "KAREN": {
+      "persona_id": "AI_KAREN",
+      "display_name": "杠精",
+      "p_play_truth_when_can": 0.55,
+      "p_prefer_slam": 0.25,
+      "p_prefer_hesitate_bluff": 0.20,
+      "avg_play_count_bias": 1.5,
+      "base_p_challenge": 0.42,
+      "bonus_after_consecutive_play": 0.10,
+      "bonus_on_slam": 0.12,
+      "penalty_strong_hand": 0,
+      "p_emote_after_play": 0.45,
+      "p_knock": 0.25,
+      "p_sign_no": 0.35,
+      "p_name": 0.20
+    }
+  }
+}
