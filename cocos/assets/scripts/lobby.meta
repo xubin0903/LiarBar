@@ -1,8 +1,8 @@
 {
   "ver": "4.0.24",
-  "importer": "typescript",
+  "importer": "directory",
   "imported": true,
-  "uuid": "c4a0e91b-7d2f-4f6a-9b3e-1a8c5d0e4f72",
+  "uuid": "c88884d5-ab04-403a-aca9-2352bd2147cd",
   "files": [],
   "subMetas": {},
   "userData": {}

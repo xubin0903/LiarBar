@@ -1,34 +1,25 @@
 /**
- * K4 对局桌驱动：挂 MatchEngine + MatchEvents + Cues。
+ * 对局桌入口：只挂舞台 + Presenter。
  * 锁：DRAW_TO_FLIP=1000 / REVEAL_HOLD=3000 / HAND_RING_GAP=24% / 禁 padB 顶高。
- * 中顶只 timer；法官句左上；荷官回池旁；手牌沉底。
- * 合入 ≠ 终验。
+ * 场景是舞台；座位/牌/入口/烛来自 Prefab 或已有挂点。
  */
-import {
-  _decorator,
-  assetManager,
-  Component,
-  JsonAsset,
-  Label,
-  Node,
-  Sprite,
-  SpriteFrame,
-  UITransform
-} from 'cc';
+import { _decorator, assetManager, Component, JsonAsset, Prefab, SpriteFrame } from 'cc';
 import { ConfigRepository } from '../config/ConfigRepository';
 import { MatchEngine } from '../engine/MatchEngine';
-import { MatchEngineEvent } from '../engine/MatchEvents';
-import {
-  DRAW_TO_FLIP_MS,
-  HAND_RING_GAP_PCT,
-  REVEAL_HOLD_MS
-} from './Cues';
+import { SF } from './ArtIds';
+import { DRAW_TO_FLIP_MS, HAND_RING_GAP_PCT, REVEAL_HOLD_MS } from './Cues';
+import { LayoutService } from './Layout';
+import { TableFactory, TablePrefabs } from './TableFactory';
+import { TablePresenter } from './TablePresenter';
+import { CardView } from './views/CardView';
+import { HandView } from './views/HandView';
+import { PoolView } from './views/PoolView';
+import { SeatView } from './views/SeatView';
 
 const { ccclass, property } = _decorator;
 
 const TAG = 'TableScene';
 
-/** assets/config/*.json UUID（.meta 真源） */
 const CFG_UUID = {
   matchDefaults: '38481e0f-ac4e-4c4f-9f0e-91a48002239b',
   deck: '3b7830a6-e668-43c7-b2b0-b891826ad2f4',
@@ -37,7 +28,14 @@ const CFG_UUID = {
   demo: 'aacb4c15-595f-492d-a332-9060e05b94b3'
 };
 
-const CARD_BACK_SF = 'd4e69b17-fd30-468e-a36f-0b4ecb4985e0@f9941';
+const PREFAB_UUID = {
+  seat: '4d9b2e31-7c5e-4f0b-b382-5e6f8a9b0123',
+  card: '3c8a1f20-6b4d-4e9a-a271-4d5e7f8a9012',
+  dealer: '5e0c3f42-8d6f-401c-c493-6f7a9b0c1234',
+  challenge: '6f1d4053-9e70-412d-d5a4-708bac1d2345',
+  reveal: '702e5164-0f81-423e-e6b5-819cbd2e3456',
+  life: '813f6275-1a92-434f-f7c6-92adce3f4567'
+};
 
 @ccclass('TableScene')
 export class TableScene extends Component {
@@ -45,184 +43,111 @@ export class TableScene extends Component {
   cardBack: SpriteFrame | null = null;
 
   private engine: MatchEngine = new MatchEngine();
-  private eventCursor: number = 0;
-  private statusLabel: Label | null = null;
-  private judgeLabel: Label | null = null;
-  private timerLabel: Label | null = null;
-  private poolCountLabel: Label | null = null;
-  private handRoot: Node | null = null;
-  private seatRoots: { [seat: number]: Node } = {};
+  private layout = new LayoutService();
+  private presenter: TablePresenter | null = null;
 
   onLoad(): void {
-    this.bindNodes();
-    this.assertLocksInScene();
-    void this.bootDemo();
-  }
-
-  private bindNodes(): void {
-    const root = this.node;
-    this.handRoot = this.findDeep(root, 'lb_cmp_hand');
-    this.seatRoots[0] = this.findDeep(root, 'lb_cmp_seat_self');
-    this.seatRoots[1] = this.findDeep(root, 'lb_cmp_seat_p1');
-    this.seatRoots[2] = this.findDeep(root, 'lb_cmp_seat_p2');
-    this.seatRoots[3] = this.findDeep(root, 'lb_cmp_seat_p3');
-    this.judgeLabel = this.labelOf(this.findDeep(root, 'lb_txt_judge'));
-    this.timerLabel = this.labelOf(this.findDeep(root, 'lb_txt_timer'));
-    this.poolCountLabel = this.labelOf(this.findDeep(root, 'lb_txt_pool_count'));
-    this.statusLabel = this.labelOf(this.findDeep(root, 'lb_cmp_table_tip'));
-    if (this.timerLabel) {
-      this.timerLabel.string = '--';
-    }
-    if (this.judgeLabel) {
-      this.judgeLabel.string = '准备开局…';
-    }
-  }
-
-  /** 场景注释/常量锁检查：1000/3000/24；禁 padB 顶高。 */
-  private assertLocksInScene(): void {
     if (DRAW_TO_FLIP_MS !== 1000 || REVEAL_HOLD_MS !== 3000 || HAND_RING_GAP_PCT !== 24) {
       console.error(TAG, 'Cues lock broken — refuse boot');
       return;
     }
-    const gap = this.findDeep(this.node, 'lb_cmp_ring_hand_gap');
-    if (gap) {
-      const ui = gap.getComponent(UITransform);
-      const h = ui ? ui.contentSize.height : 0;
-      // 设计高 720 × 24% = 172.8；允许 ±2
-      if (Math.abs(h - 720 * (HAND_RING_GAP_PCT / 100)) > 2) {
-        console.warn(TAG, `GAP height ${h} ≠ 24% of 720`);
-      }
-    }
-    const bottom = this.findDeep(this.node, 'lb_cmp_bottom_band');
-    if (bottom) {
-      // padB 只消化底 inset；K4 预览 padB=0，禁止用底 padding 顶高手牌
-      console.log(TAG, 'padB lock: bottom_band Widget bottom=0 (禁加大 padB 顶高手牌)');
-    }
-    console.log(
-      TAG,
-      `locks DRAW_TO_FLIP=${DRAW_TO_FLIP_MS} REVEAL_HOLD=${REVEAL_HOLD_MS} GAP=${HAND_RING_GAP_PCT}%`
-    );
+    void this.boot();
   }
 
-  private async bootDemo(): Promise<void> {
+  private async boot(): Promise<void> {
     try {
       await this.loadConfigs();
+      const frames = await this.loadFrames([
+        SF.cardBack,
+        SF.doubt,
+        SF.believe,
+        SF.playerIdle,
+        SF.dealerIdle,
+        SF.sharkIdle,
+        SF.karenIdle,
+        SF.timidIdle,
+        SF.candleFull,
+        SF.candleBody,
+        SF.candleFace,
+        SF.candleStem,
+        SF.flameFull0,
+        SF.flameFull1,
+        SF.flameFull2,
+        SF.flameFull3,
+        SF.flameBurn0,
+        SF.flameBurn1,
+        SF.flameBurn2,
+        SF.flameBurn3,
+        SF.poolSlot,
+        SF.tableBg,
+        SF.tableBgLand
+      ]);
+      const prefabs = await this.loadPrefabs();
+      console.log(
+        TAG,
+        `prefabs card=${!!prefabs.card} seat=${!!prefabs.seat} dealer=${!!prefabs.dealer} life=${!!prefabs.life} challenge=${!!prefabs.challenge}`
+      );
       if (!this.cardBack) {
-        this.cardBack = await this.loadSpriteFrame(CARD_BACK_SF);
+        this.cardBack = frames[SF.cardBack] || null;
       }
+      const factory = new TableFactory(prefabs, frames);
+      const stage = this.layout.collect(this.node);
+      factory.ensureHandCards(stage.hand);
+      factory.ensureSelfSeat(stage.seatSelf);
+      factory.ensureChallenge(this.node);
+      factory.dressTable(stage);
+      const filled = this.layout.collect(this.node);
+      this.layout.apply(filled);
+
+      const cards = filled.cards.map((n) => new CardView(n));
+      const hand = new HandView(cards);
+      const seats: SeatView[] = [];
+      for (const id of [0, 1, 2, 3]) {
+        const n = filled.seats[id];
+        if (n) {
+          seats.push(new SeatView(n, id, prefabs.card, this.cardBack));
+        }
+      }
+      const pool = filled.pool ? new PoolView(filled.pool, prefabs.card, this.cardBack) : null;
+      this.presenter = new TablePresenter(this.engine, filled, hand, seats, this.cardBack, pool);
+      const burn = [
+        frames[SF.flameBurn0] || frames[SF.flameFull0],
+        frames[SF.flameBurn1] || frames[SF.flameFull1],
+        frames[SF.flameBurn2] || frames[SF.flameFull2],
+        frames[SF.flameBurn3] || frames[SF.flameFull3]
+      ].filter((sf): sf is SpriteFrame => !!sf);
+      this.presenter.setBurnFrames(burn);
+      this.presenter.resetCopy();
+      this.unschedule(this.onFlameTick);
+      this.schedule(this.onFlameTick, 0.14);
+
       const ok = this.engine.startMatch({
         nickname: '你',
         playerCount: 4,
         silent: true
       });
       if (!ok) {
-        this.setJudge('开局失败：配置未就绪');
         return;
       }
-      this.pumpEvents();
-      this.setJudge('引擎已开局');
-      this.setTip(`发牌中 · flip=${DRAW_TO_FLIP_MS}ms hold=${REVEAL_HOLD_MS}ms`);
-      if (this.timerLabel) {
-        this.timerLabel.string = `${Math.floor(REVEAL_HOLD_MS / 1000)}s`;
-      }
-      // 最小演示：DEAL → dealDone → CLAIM，手牌可见
+      this.presenter.pump();
       this.scheduleOnce(() => {
         this.engine.dealDone();
-        this.pumpEvents();
-        const snap = this.engine.current();
-        const claim = snap && snap.currentClaim ? snap.currentClaim.rank : '?';
-        this.setTip(`宣称 ${claim} · 手牌已发`);
-        this.renderSelfHand();
+        if (this.presenter) {
+          this.presenter.pump();
+        }
       }, 0.35);
+      console.log(
+        TAG,
+        `locks DRAW_TO_FLIP=${DRAW_TO_FLIP_MS} REVEAL_HOLD=${REVEAL_HOLD_MS} GAP=${HAND_RING_GAP_PCT}%`
+      );
     } catch (e) {
-      console.error(TAG, 'bootDemo failed', e);
-      this.setJudge('引擎启动异常');
+      console.error(TAG, 'boot failed', e);
     }
   }
 
-  private pumpEvents(): void {
-    const evs: MatchEngineEvent[] = this.engine.drainEvents(this.eventCursor);
-    for (let i = 0; i < evs.length; i++) {
-      const ev = evs[i];
-      this.eventCursor = ev.seq;
-      this.onEngineEvent(ev);
-    }
-  }
-
-  private onEngineEvent(ev: MatchEngineEvent): void {
-    if (ev.name === 'MatchStarted') {
-      this.setJudge('引擎已开局');
-      return;
-    }
-    if (ev.name === 'Dealt') {
-      const seat = Number(ev.payload['seat']);
-      const count = Number(ev.payload['count']);
-      this.showSeatDeal(seat, count);
-      if (this.poolCountLabel && seat === 0) {
-        this.poolCountLabel.string = '';
-      }
-      return;
-    }
-    if (ev.name === 'ClaimSet') {
-      const rank = String(ev.payload['rank'] ?? '');
-      const claimNode = this.findDeep(this.node, 'lb_txt_claim');
-      const lab = this.labelOf(claimNode);
-      if (lab) {
-        lab.string = `本局宣称：${rank}`;
-      }
-    }
-  }
-
-  private showSeatDeal(seat: number, count: number): void {
-    if (seat === 0) {
-      // DEAL 阶段 snapshot.selfHand 为空；按 Dealt.count 亮手牌占位
-      this.renderSelfHandSlots(count);
-      return;
-    }
-    const root = this.seatRoots[seat];
-    if (!root || !this.cardBack) {
-      return;
-    }
-    let pile = root.getChildByName('lb_seat_deal_pile');
-    if (!pile) {
-      pile = new Node('lb_seat_deal_pile');
-      root.addChild(pile);
-      pile.setPosition(0, -48, 0);
-    }
-    pile.removeAllChildren();
-    const n = Math.min(count, 5);
-    for (let i = 0; i < n; i++) {
-      const card = new Node(`deal_${i}`);
-      pile.addChild(card);
-      card.setPosition((i - (n - 1) / 2) * 14, i * 2, 0);
-      const ui = card.addComponent(UITransform);
-      ui.setContentSize(36, 50);
-      const sp = card.addComponent(Sprite);
-      sp.sizeMode = Sprite.SizeMode.CUSTOM;
-      sp.spriteFrame = this.cardBack;
-    }
-  }
-
-  private renderSelfHand(): void {
-    const snap = this.engine.current();
-    const count = snap && snap.selfHand && snap.selfHand.length > 0 ? snap.selfHand.length : 5;
-    this.renderSelfHandSlots(count);
-  }
-
-  private renderSelfHandSlots(count: number): void {
-    if (!this.handRoot) {
-      return;
-    }
-    for (let i = 0; i < 5; i++) {
-      const card = this.handRoot.getChildByName(`lb_cmp_card_${i}`);
-      if (!card) {
-        continue;
-      }
-      card.active = i < count;
-      const sp = card.getComponent(Sprite);
-      if (sp && this.cardBack) {
-        sp.spriteFrame = this.cardBack;
-      }
+  private onFlameTick(): void {
+    if (this.presenter) {
+      this.presenter.tickLives();
     }
   }
 
@@ -257,51 +182,82 @@ export class TableScene extends Component {
     });
   }
 
-  private loadSpriteFrame(uuid: string): Promise<SpriteFrame> {
-    return new Promise((resolve, reject) => {
-      assetManager.loadAny({ uuid }, (err, asset) => {
-        if (err || !asset) {
-          reject(err ?? new Error(`sprite ${uuid}`));
-          return;
+  private loadPrefabs(): Promise<TablePrefabs> {
+    const keys = Object.keys(PREFAB_UUID) as (keyof typeof PREFAB_UUID)[];
+    const ids = keys.map((k) => ({ uuid: PREFAB_UUID[k] }));
+    return new Promise((resolve) => {
+      assetManager.loadAny(ids, (err, assets) => {
+        const empty: TablePrefabs = {
+          seat: null,
+          card: null,
+          dealer: null,
+          challenge: null,
+          reveal: null,
+          life: null
+        };
+        if (err) {
+          console.warn(TAG, 'prefab load warning', err);
         }
-        resolve(asset as SpriteFrame);
+        const list = (assets as Prefab[]) || [];
+        const out: TablePrefabs = { ...empty };
+        for (let i = 0; i < keys.length; i++) {
+          const uuid = PREFAB_UUID[keys[i]];
+          out[keys[i]] = this.pickPrefab(list, uuid);
+        }
+        resolve(out);
       });
     });
   }
 
-  private findDeep(root: Node | null, name: string): Node | null {
-    if (!root) {
-      return null;
-    }
-    if (root.name === name) {
-      return root;
-    }
-    const kids = root.children;
-    for (let i = 0; i < kids.length; i++) {
-      const hit = this.findDeep(kids[i], name);
-      if (hit) {
-        return hit;
+  private pickPrefab(list: Prefab[], uuid: string): Prefab | null {
+    for (let i = 0; i < list.length; i++) {
+      const p = list[i];
+      if (!p) {
+        continue;
+      }
+      const u = (p as unknown as { _uuid?: string; uuid?: string })._uuid || p.uuid;
+      if (u === uuid) {
+        return p;
       }
     }
     return null;
   }
 
-  private labelOf(n: Node | null): Label | null {
-    if (!n) {
-      return null;
-    }
-    return n.getComponent(Label);
-  }
-
-  private setJudge(text: string): void {
-    if (this.judgeLabel) {
-      this.judgeLabel.string = text;
-    }
-  }
-
-  private setTip(text: string): void {
-    if (this.statusLabel) {
-      this.statusLabel.string = text;
-    }
+  private loadFrames(ids: string[]): Promise<{ [uuid: string]: SpriteFrame }> {
+    return new Promise((resolve, reject) => {
+      const valid = ids.filter((id) => !!id);
+      assetManager.loadAny(
+        valid.map((uuid) => ({ uuid })),
+        (err, assets) => {
+          if (err) {
+            console.warn(TAG, 'frame load partial', err);
+          }
+          const map: { [uuid: string]: SpriteFrame } = {};
+          const list = (assets as SpriteFrame[]) || [];
+          for (let i = 0; i < list.length; i++) {
+            const sf = list[i];
+            if (!sf) {
+              continue;
+            }
+            const u = (sf as unknown as { _uuid?: string })._uuid || sf.uuid;
+            if (u) {
+              map[u] = sf;
+              const bare = u.split('@')[0];
+              map[bare] = sf;
+            }
+          }
+          for (let j = 0; j < valid.length; j++) {
+            if (list[j] && !map[valid[j]]) {
+              map[valid[j]] = list[j];
+            }
+          }
+          if (Object.keys(map).length === 0 && err) {
+            reject(err);
+            return;
+          }
+          resolve(map);
+        }
+      );
+    });
   }
 }

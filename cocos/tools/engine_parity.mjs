@@ -95,7 +95,7 @@ function checkMatchEventsNames() {
 
 function runTsHarness() {
   mkdirSync(outDir, { recursive: true });
-  const r = spawnSync('npx', ['--yes', 'tsx', harness], {
+  const r = spawnSync('npx', ['--yes', 'tsx', `"${harness}"`], {
     cwd: root,
     encoding: 'utf8',
     shell: true,

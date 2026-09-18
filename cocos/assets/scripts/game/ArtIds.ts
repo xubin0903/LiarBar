@@ -1,0 +1,26 @@
+/** SpriteFrame UUID（`.meta` 真源 + `@f9941`）。禁止改像素。 */
+export const SF = {
+  tableBg: 'fd75330e-f29c-4b99-b486-6ca908522ba9@f9941',
+  tableBgLand: 'c17a8ada-baee-4843-9e88-125b88b5e4dc@f9941',
+  cardBack: 'd4e69b17-fd30-468e-a36f-0b4ecb4985e0@f9941',
+  poolSlot: 'ebd0ab01-8402-4101-abaf-344a1aca9d4c@f9941',
+  dealerIdle: 'ef4c044d-3c50-4c65-9cd5-3db74cd52ca6@f9941',
+  playerIdle: 'd7f4f032-e0bd-44f2-be7b-95b23838ccc3@f9941',
+  sharkIdle: '5c036081-25c8-4fdd-8519-6f4148c85707@f9941',
+  karenIdle: 'b5f8395a-0487-4d20-85d2-ccbf794feae2@f9941',
+  timidIdle: 'b2c77873-59b1-444e-9a77-1a9d4340b756@f9941',
+  doubt: 'f4dc4d38-f126-4147-b291-3bd93a9f7bb4@f9941',
+  believe: 'ac64144e-1d78-4bbe-b282-cdeaaa1248c9@f9941',
+  candleFull: '8c013291-848c-4178-8a4a-79804a7073da@f9941',
+  candleBody: 'a4774af4-a31c-4b76-860b-9dde39a2914b@f9941',
+  candleFace: '2790496d-05a3-4eab-b1d5-bb5fb811e68c@f9941',
+  candleStem: '6e1a4c8b-2f70-4d3e-9a15-8c0d47e2b196@f9941',
+  flameFull0: '3c91b217-b748-4448-ba2e-9ee7f736d9b3@f9941',
+  flameFull1: 'da883676-f947-4fcf-bb04-ef08ed74a8f7@f9941',
+  flameFull2: '5f80cb2e-73f7-4610-8f9b-ba9c27c73638@f9941',
+  flameFull3: 'eb8c7a0b-0c0d-4e41-8d8a-6e78362acd77@f9941',
+  flameBurn0: '71b25d9c-3081-4e4f-ab26-9d1e58f3c207@f9941',
+  flameBurn1: '82c36ead-4192-4f50-bc37-ae2f6904d318@f9941',
+  flameBurn2: '93d47fbe-52a3-4061-cd48-bf307a15e429@f9941',
+  flameBurn3: 'a4e580cf-63b4-4172-de59-c0418b26f53a@f9941'
+};
