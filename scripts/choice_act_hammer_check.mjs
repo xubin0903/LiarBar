@@ -3,7 +3,7 @@
  * Spec check: 质疑/相信桌槌 + 调试二键 (#236 / 质疑相信-桌槌表现).
  * Cloud has no DevEco — this is not CompileArkTS. 合入 ≠ 终验.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -50,10 +50,23 @@ if (ids.includes("CHOICE_ACT: string = 'lb_cmp_choice_act'") &&
     ids.includes("DEBUG_HAMMER_BELIEVE: string = 'lb_btn_debug_hammer_believe'") &&
     ids.includes("HAMMER_HIT: string = 'lb_sfx_hammer_hit'") &&
     ids.includes("HAMMER_REST: string = 'lb_sfx_hammer_rest'") &&
-    ids.includes("FX_MALLET: string = 'art_fx_mallet'")) {
-  pass('ids: choice act layer + debug hammer + sfx + art_fx_mallet reserved');
+    ids.includes("FX_MALLET: string = 'art_fx_mallet'") &&
+    ids.includes("FX_MALLET_UP: string = 'art_fx_mallet_up'") &&
+    ids.includes("FX_MALLET_HIT: string = 'art_fx_mallet_hit'") &&
+    !ids.includes('P0 geometry')) {
+  pass('ids: choice act layer + debug hammer + sfx + #238 mallet frames');
 } else {
   fail('locked hammer ids missing');
+}
+
+const actHold = Number((/static readonly HOLD_MS:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
+if (actHold >= 800 &&
+    choiceFx.includes('已换绑 #238') &&
+    !choiceFx.includes('DRAW_TO_FLIP_MS') &&
+    !choiceFx.includes('REVEAL_HOLD_MS')) {
+  pass(`HOLD_MS=${actHold} (≥800 / 0.8～1.2s); 已换绑 #238; open-card gates absent`);
+} else {
+  fail(`HOLD_MS/bind comment drifted hold=${actHold}`);
 }
 
 if (strings.includes('lb_str_debug_hammer_doubt') &&
@@ -71,11 +84,22 @@ if (table.includes('choiceActLayer()') &&
     table.includes('HammerFx({') &&
     table.includes('ControlIds.CHOICE_ACT') &&
     table.includes('HitTestMode.None') &&
-    hammer.includes('HitTestMode.None') &&
-    hammer.includes('art_fx_mallet')) {
+    hammer.includes('HitTestMode.None')) {
   pass('HammerFx hang point on Table choiceActLayer (HitTest None)');
 } else {
   fail('HammerFx hang point missing');
+}
+
+const hammerCode = hammer.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+if (/\$r\('app\.media\.art_fx_mallet'\)/.test(hammerCode) &&
+    hammerCode.includes("$r('app.media.art_fx_mallet_up')") &&
+    hammerCode.includes("$r('app.media.art_fx_mallet_hit')") &&
+    hammerCode.includes('Image(') &&
+    !hammerCode.includes('tavern_brass') &&
+    !hammerCode.includes('tavern_mute')) {
+  pass('HammerFx binds #238 art_fx_mallet frames (not geometry)');
+} else {
+  fail('HammerFx still geometry or missing art_fx_mallet bind');
 }
 
 if (table.includes('ControlIds.DEBUG_HAMMER_DOUBT') &&
@@ -158,6 +182,19 @@ if (audio.includes('playOptional') &&
   pass('SFX: hammer hit/rest optional no-op; no flip/launch/commit impersonation');
 } else {
   fail('hammer SFX missing or impersonates old slots');
+}
+
+const hitWav = 'entry/src/main/resources/rawfile/audio/sfx/sfx_hammer_hit.wav';
+const restWav = 'entry/src/main/resources/rawfile/audio/sfx/sfx_hammer_rest.wav';
+if (existsSync(join(root, hitWav)) && statSync(join(root, hitWav)).size >= 8000 &&
+    existsSync(join(root, restWav)) && statSync(join(root, restWav)).size >= 5000 &&
+    audio.includes("PATH_HAMMER_HIT: string = 'audio/sfx/sfx_hammer_hit.wav'") &&
+    audio.includes("PATH_HAMMER_REST: string = 'audio/sfx/sfx_hammer_rest.wav'") &&
+    audio.includes('loadOptional(PATH_HAMMER_HIT)') &&
+    audio.includes('loadOptional(PATH_HAMMER_REST)')) {
+  pass('hammer SFX rawfile present; TableAudio loadOptional');
+} else {
+  fail('hammer SFX rawfile or loadOptional missing');
 }
 
 if (choiceFx.includes('RAISE_ROT') &&

@@ -3,7 +3,7 @@
  * Visual/SFX only. Does not change open-card 1000/3000 gates
  * or Trust|Challenge rule semantics.
  *
- * Art slot reserved: art_fx_mallet (warm wood + brass). P0 = geometry stand-in.
+ * Art: 已换绑 #238 art_fx_mallet / art_fx_mallet_up / art_fx_mallet_hit.
  * SFX slots: lb_sfx_hammer_hit / lb_sfx_hammer_rest. Never flip / launch / land.
  */
 export class ChoiceActFx {
@@ -11,8 +11,8 @@ export class ChoiceActFx {
   static readonly KIND_DOUBT: number = 1;
   static readonly KIND_BELIEVE: number = 2;
 
-  static readonly MALLET_W: number = 28;
-  static readonly MALLET_H: number = 52;
+  static readonly MALLET_W: number = 72;
+  static readonly MALLET_H: number = 72;
   static readonly HEAD_H: number = 14;
   static readonly HANDLE_W: number = 8;
 
@@ -26,7 +26,7 @@ export class ChoiceActFx {
   static readonly REST_MS: number = 140;
   static readonly FADE_MS: number = 80;
   /** Debug / leftover auto-hide after the beat (not a reveal gate). */
-  static readonly HOLD_MS: number = 360;
+  static readonly HOLD_MS: number = 1000;
 
   static readonly LIFT_VP: number = 26;
   static readonly SHAKE_VP: number = 3;

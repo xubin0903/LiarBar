@@ -181,9 +181,11 @@ export class SfxIds {
   static readonly HAMMER_REST: string = 'lb_sfx_hammer_rest';
 }
 
-/** Media file names. art_fx_mallet reserved until art lands (P0 geometry). */
+/** Media file names. #238 mallet frames. */
 export class ArtIds {
   static readonly FX_MALLET: string = 'art_fx_mallet';
+  static readonly FX_MALLET_UP: string = 'art_fx_mallet_up';
+  static readonly FX_MALLET_HIT: string = 'art_fx_mallet_hit';
 }
 
 export class PersistNs {

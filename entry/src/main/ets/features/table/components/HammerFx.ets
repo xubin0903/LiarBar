@@ -3,7 +3,7 @@ import { ChoiceActFx } from '../ChoiceActFx';
 
 /**
  * lb_cmp_choice_act mallet sprite.
- * Image+animateTo when art_fx_mallet lands; P0 is warm-wood geometry (no Spine).
+ * #238 frames: rest / raise / smash. No Spine.
  * HitTest None — never covers pool / hand / candles.
  */
 @Component
@@ -19,33 +19,41 @@ export struct HammerFx {
 
   build() {
     if (this.visible) {
-      Column() {
-        // Head (brass hoop) — reserved swap: Image($r('app.media.art_fx_mallet'))
-        Column()
-          .width(ChoiceActFx.MALLET_W)
-          .height(ChoiceActFx.HEAD_H)
-          .backgroundColor($r('app.color.tavern_brass'))
-          .borderRadius(4)
-        // Handle (warm wood)
-        Column()
-          .width(ChoiceActFx.HANDLE_W)
-          .height(ChoiceActFx.MALLET_H - ChoiceActFx.HEAD_H)
-          .backgroundColor($r('app.color.tavern_mute'))
-          .borderRadius(3)
-          .margin({ top: -2 })
-      }
-      .id(`${ControlIds.CHOICE_ACT}_mallet`)
-      .width(ChoiceActFx.MALLET_W)
-      .height(ChoiceActFx.MALLET_H)
-      .alignItems(HorizontalAlign.Center)
-      .position({ x: this.x + this.shake, y: this.y + this.lift })
-      .rotate({
-        angle: this.rot,
-        centerX: ChoiceActFx.MALLET_W / 2,
-        centerY: ChoiceActFx.MALLET_H - 4
-      })
-      .opacity(this.fade)
-      .hitTestBehavior(HitTestMode.None)
+      Image(this.malletSrc())
+        .id(`${ControlIds.CHOICE_ACT}_mallet`)
+        .width(ChoiceActFx.MALLET_W)
+        .height(ChoiceActFx.MALLET_H)
+        .objectFit(ImageFit.Contain)
+        .position({ x: this.x + this.shake, y: this.y + this.lift })
+        .rotate({
+          angle: this.displayRot(),
+          centerX: ChoiceActFx.MALLET_W / 2,
+          centerY: ChoiceActFx.MALLET_H / 2
+        })
+        .opacity(this.fade)
+        .hitTestBehavior(HitTestMode.None)
     }
+  }
+
+  /** 质疑抬起 → up；砸下/短震 → hit；相信搁置/默认 → rest. */
+  private malletSrc(): Resource {
+    if (this.kind === ChoiceActFx.KIND_DOUBT) {
+      if (this.shake !== 0 || this.lift > -ChoiceActFx.LIFT_VP) {
+        return $r('app.media.art_fx_mallet_hit');
+      }
+      return $r('app.media.art_fx_mallet_up');
+    }
+    return $r('app.media.art_fx_mallet');
+  }
+
+  /**
+   * #238 rest frame is already horizontal. Subtract REST_ROT so believe
+   * lands on the painted pose while Table still drives this.rot.
+   */
+  private displayRot(): number {
+    if (this.kind === ChoiceActFx.KIND_BELIEVE) {
+      return this.rot - ChoiceActFx.REST_ROT;
+    }
+    return this.rot;
   }
 }
