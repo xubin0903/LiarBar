@@ -570,11 +570,11 @@
     },
     {
       "name": "lb_str_believe_no_act",
-      "value": "相信无锤搁"
+      "value": "相信无常驻锤"
     },
     {
       "name": "_comment_lb_str_believe_no_act",
-      "value": "S19-2"
+      "value": "S19-2. FAIL if believe path has no resting mallet by avatar (not about rest anim)."
     },
     {
       "name": "lb_str_choice_act_self_only",
@@ -623,6 +623,30 @@
     {
       "name": "_comment_lb_str_debug_hammer_believe",
       "value": "调试面板按钮"
+    },
+    {
+      "name": "lb_str_hammer_on_cards",
+      "value": "锤压在牌上"
+    },
+    {
+      "name": "_comment_lb_str_hammer_on_cards",
+      "value": "S19-7"
+    },
+    {
+      "name": "lb_str_believe_hammer_moves",
+      "value": "相信还在动"
+    },
+    {
+      "name": "_comment_lb_str_believe_hammer_moves",
+      "value": "S19-8"
+    },
+    {
+      "name": "lb_str_hammer_smash_on_pool",
+      "value": "砸点贴牌心"
+    },
+    {
+      "name": "_comment_lb_str_hammer_smash_on_pool",
+      "value": "S19-9"
     }
   ]
 }
