@@ -10,7 +10,7 @@
 
 **第2节测试纸（合入≠终验）：** [局内质疑入口验收勾选清单](./局内质疑入口验收勾选清单.md)（**v0.2.1 · C2**）。入口文案以对局主闸纸 **质疑\|相信** 为准。
 
-**桌槌表现测试纸（合入≠终验 · S19 · 对齐 #236/#238/#239）：** [局内质疑相信-桌槌表现验收勾选清单](./局内质疑相信-桌槌表现验收勾选清单.md)（**v0.1.1 · H1～H6 = S19-1～6**）。质疑=抬砸 / 相信=搁置；调试二键 `调试·质疑锤`/`调试·相信锤` 只播本地、零业务；正式全员同轨（F2）；`art_fx_mallet` + SFX `lb_sfx_hammer_hit`/`rest`；定格主读 **0.8～1.2s（HOLD→1000ms）**；失败键 `challenge_no_act` / `believe_no_act` / `choice_act_self_only` / `choice_act_same_pose` / `choice_act_blocks` / `debug_hammer_has_logic`。开牌 `DRAW_TO_FLIP=1000`/`REVEAL_HOLD=3000` **不动**。交叉 [17a](../04-设计/17a-局内桌槌表现规格.md)。未 Rebuild 勿勾。
+**桌槌表现测试纸（合入≠终验 · S19 · 对齐 #243/#244/#245）：** [局内质疑相信-桌槌表现验收勾选清单](./局内质疑相信-桌槌表现验收勾选清单.md)（**v0.2.0 · H1～H9 = S19-1～9**）。四座常驻锚；质疑=就地抬砸回搁 / 相信=静置（废 rest 动画）；调试二键只播本地、零业务；正式 ACK 后质疑座播砸、相信座静置（F2）；`art_fx_mallet` 新图 + `lb_sfx_hammer_hit` 加重；定格主读 **0.8～1.2s（HOLD→1000ms）**；失败键含 `hammer_on_cards` / `believe_hammer_moves` / `hammer_smash_on_pool`（S19-7～9）。开牌 `DRAW_TO_FLIP=1000`/`REVEAL_HOLD=3000` **不动**。交叉 [17a](../04-设计/17a-局内桌槌表现规格.md)。未 Rebuild 勿勾。
 
 **轮胜重发测试纸（已冻）：** [局内轮胜重发验收勾选清单](./局内轮胜重发验收勾选清单.md)。**SUPERSEDED**（旧 R1 RoundWin 路径）。
 
