@@ -543,6 +543,86 @@
     {
       "name": "_comment_lb_str_center_top_claim_stack",
       "value": "S18-28. FAIL if CenterTop stacks claim/judge over timer-only."
+    },
+    {
+      "name": "lb_str_choice_doubt_call",
+      "value": "不信！揭开！"
+    },
+    {
+      "name": "_comment_lb_str_choice_doubt_call",
+      "value": "口播/飞词：质疑（P0 可弱化）"
+    },
+    {
+      "name": "lb_str_choice_believe_call",
+      "value": "过。下一家。"
+    },
+    {
+      "name": "_comment_lb_str_choice_believe_call",
+      "value": "口播/飞词：相信（P0 可弱化）"
+    },
+    {
+      "name": "lb_str_challenge_no_act",
+      "value": "质疑无锤砸"
+    },
+    {
+      "name": "_comment_lb_str_challenge_no_act",
+      "value": "S19-1"
+    },
+    {
+      "name": "lb_str_believe_no_act",
+      "value": "相信无锤搁"
+    },
+    {
+      "name": "_comment_lb_str_believe_no_act",
+      "value": "S19-2"
+    },
+    {
+      "name": "lb_str_choice_act_self_only",
+      "value": "锤仅自己见"
+    },
+    {
+      "name": "_comment_lb_str_choice_act_self_only",
+      "value": "S19-3"
+    },
+    {
+      "name": "lb_str_choice_act_same_pose",
+      "value": "砸与搁不可辨"
+    },
+    {
+      "name": "_comment_lb_str_choice_act_same_pose",
+      "value": "S19-4"
+    },
+    {
+      "name": "lb_str_choice_act_blocks",
+      "value": "锤挡池或手"
+    },
+    {
+      "name": "_comment_lb_str_choice_act_blocks",
+      "value": "S19-5"
+    },
+    {
+      "name": "lb_str_debug_hammer_has_logic",
+      "value": "调试锤走了业务"
+    },
+    {
+      "name": "_comment_lb_str_debug_hammer_has_logic",
+      "value": "S19-6"
+    },
+    {
+      "name": "lb_str_debug_hammer_doubt",
+      "value": "调试·质疑锤"
+    },
+    {
+      "name": "_comment_lb_str_debug_hammer_doubt",
+      "value": "调试面板按钮"
+    },
+    {
+      "name": "lb_str_debug_hammer_believe",
+      "value": "调试·相信锤"
+    },
+    {
+      "name": "_comment_lb_str_debug_hammer_believe",
+      "value": "调试面板按钮"
     }
   ]
 }

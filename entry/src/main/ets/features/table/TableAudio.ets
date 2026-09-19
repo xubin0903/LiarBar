@@ -23,6 +23,8 @@ const PATH_REVEAL_FLIP: string = 'audio/sfx/sfx_reveal_flip.wav';
 const PATH_REV_CLICK: string = 'audio/sfx/sfx_revolver_click.wav';
 const PATH_REV_SHOT: string = 'audio/sfx/sfx_revolver_shot.wav';
 const PATH_REV_SPIN: string = 'audio/sfx/sfx_revolver_spin.wav';
+const PATH_HAMMER_HIT: string = 'audio/sfx/sfx_hammer_hit.wav';
+const PATH_HAMMER_REST: string = 'audio/sfx/sfx_hammer_rest.wav';
 const PATH_TURN: string = 'audio/sfx/sfx_turn_tick.wav';
 const PATH_STARE: string = 'audio/sfx/sfx_named_stare.wav';
 const PATH_WIN: string = 'audio/sfx/sfx_result_win.wav';
@@ -60,6 +62,8 @@ export class TableAudio {
   static readonly REVOLVER_CLICK: string = SfxIds.REVOLVER_CLICK;
   static readonly REVOLVER_SHOT: string = SfxIds.REVOLVER_SHOT;
   static readonly REVOLVER_SPIN: string = SfxIds.REVOLVER_SPIN;
+  static readonly HAMMER_HIT: string = SfxIds.HAMMER_HIT;
+  static readonly HAMMER_REST: string = SfxIds.HAMMER_REST;
   static readonly TURN_TICK: string = SfxIds.TURN_TICK;
   static readonly NAMED_STARE: string = SfxIds.NAMED_STARE;
   static readonly RESULT_WIN: string = SfxIds.RESULT_WIN;
@@ -89,6 +93,8 @@ export class TableAudio {
   static readonly VOL_REV_CLICK: number = 0.42;
   static readonly VOL_REV_SHOT: number = 0.48;
   static readonly VOL_REV_SPIN: number = 0.40;
+  static readonly VOL_HAMMER_HIT: number = 0.46;
+  static readonly VOL_HAMMER_REST: number = 0.34;
   static readonly VOL_TURN: number = 0.22;
   static readonly VOL_STARE: number = 0.40;
   static readonly VOL_RESULT: number = 0.44;
@@ -120,6 +126,8 @@ export class TableAudio {
   private static revClickId: number = -1;
   private static revShotId: number = -1;
   private static revSpinId: number = -1;
+  private static hammerHitId: number = -1;
+  private static hammerRestId: number = -1;
   private static turnId: number = -1;
   private static stareId: number = -1;
   private static winId: number = -1;
@@ -236,6 +244,8 @@ export class TableAudio {
       TableAudio.revClickId = await TableAudio.loadPath(PATH_REV_CLICK);
       TableAudio.revShotId = await TableAudio.loadPath(PATH_REV_SHOT);
       TableAudio.revSpinId = await TableAudio.loadPath(PATH_REV_SPIN);
+      TableAudio.hammerHitId = await TableAudio.loadOptional(PATH_HAMMER_HIT);
+      TableAudio.hammerRestId = await TableAudio.loadOptional(PATH_HAMMER_REST);
       TableAudio.turnId = await TableAudio.loadPath(PATH_TURN);
       TableAudio.stareId = await TableAudio.loadPath(PATH_STARE);
       TableAudio.winId = await TableAudio.loadPath(PATH_WIN);
@@ -366,6 +376,22 @@ export class TableAudio {
       'pendingRevSpin');
   }
 
+  /**
+   * #236 质疑砸槌. Missing wav = silent no-op.
+   * Never flip / launch / land / enter / commit.
+   */
+  static playHammerHit(): void {
+    TableAudio.playOptional(SfxIds.HAMMER_HIT, TableAudio.hammerHitId, TableAudio.VOL_HAMMER_HIT);
+  }
+
+  /**
+   * #236 相信搁槌. Missing wav = silent no-op.
+   * Never flip / launch / land / enter / commit.
+   */
+  static playHammerRest(): void {
+    TableAudio.playOptional(SfxIds.HAMMER_REST, TableAudio.hammerRestId, TableAudio.VOL_HAMMER_REST);
+  }
+
   static playStyleAtPeak(style: PlayStyle): void {
     if (TableAudio.silent) {
       Logger.info(TAG, `play-style ${style} skipped (silent)`);
@@ -435,6 +461,8 @@ export class TableAudio {
     TableAudio.revClickId = -1;
     TableAudio.revShotId = -1;
     TableAudio.revSpinId = -1;
+    TableAudio.hammerHitId = -1;
+    TableAudio.hammerRestId = -1;
     TableAudio.turnId = -1;
     TableAudio.stareId = -1;
     TableAudio.winId = -1;
@@ -752,6 +780,30 @@ export class TableAudio {
     const soundId: number = await pool.load(rawFd.fd, rawFd.offset, rawFd.length);
     await ctx.resourceManager.closeRawFd(path);
     return soundId;
+  }
+
+  /** Missing hammer wav must not fail the table pool. */
+  private static async loadOptional(path: string): Promise<number> {
+    try {
+      return await TableAudio.loadPath(path);
+    } catch (err) {
+      Logger.info(TAG, `${path} missing — silent slot`);
+      return -1;
+    }
+  }
+
+  /** No pending retry — empty slot stays silent (do not impersonate flip/launch). */
+  private static playOptional(idName: string, soundId: number, volume: number): void {
+    if (TableAudio.silent) {
+      Logger.info(TAG, `${idName} skipped (silent)`);
+      return;
+    }
+    if (soundId < 0 || TableAudio.pool === null) {
+      Logger.info(TAG, `${idName} no-op (slot empty)`);
+      return;
+    }
+    Logger.info(TAG, `${idName} play`);
+    TableAudio.playShot(soundId, volume);
   }
 
   private static clearPendings(): void {
