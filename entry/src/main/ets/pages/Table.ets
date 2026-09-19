@@ -161,15 +161,14 @@ struct Table {
   @State debugSfxRenderer: boolean = true;
   /** EXP 5: debug panel touch-down earlier arm vs playFlip-only. */
   @State debugSfxArm: boolean = true;
-  /** #236 · 全员桌槌层（正式 ACK / 调试二键同一套）. */
+  /** #243 · 四座常驻桌槌；choiceActOn = 该座正在抬砸. */
   @State choiceActOn: boolean = false;
   @State choiceActKind: number = 0;
-  @State choiceActX: number = 0;
-  @State choiceActY: number = 0;
   @State choiceActRot: number = 0;
   @State choiceActLift: number = 0;
   @State choiceActShake: number = 0;
   @State choiceActFade: number = 1;
+  @State malletPosTick: number = 0;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -389,7 +388,7 @@ struct Table {
         // Separate from DealFx.flyOn. Do not raise padB / GAP.
         this.playFlyLayer()
 
-        // #236 全员桌槌：行动座身前；HitTest None；不挡池/手/烛.
+        // #243 四座常驻桌槌：头像旁空位；HitTest None；禁挡手牌/确认条/池.
         this.choiceActLayer()
 
         // 18 reveal dim (bg only) + stage. Same overlay band as play fly.
@@ -2306,21 +2305,30 @@ struct Table {
   @Builder
   choiceActLayer() {
     Stack() {
-      HammerFx({
-        visible: this.choiceActOn,
-        kind: this.choiceActKind,
-        x: this.choiceActX,
-        y: this.choiceActY,
-        rot: this.choiceActRot,
-        lift: this.choiceActLift,
-        shake: this.choiceActShake,
-        fade: this.choiceActFade
-      })
+      this.residentMallet(TableCompass.BOTTOM)
+      this.residentMallet(TableCompass.RIGHT)
+      this.residentMallet(TableCompass.TOP)
+      this.residentMallet(TableCompass.LEFT)
     }
     .id(ControlIds.CHOICE_ACT)
     .width('100%')
     .height('100%')
     .hitTestBehavior(HitTestMode.None)
+  }
+
+  @Builder
+  residentMallet(seatId: number) {
+    HammerFx({
+      visible: true,
+      seatId: seatId,
+      kind: this.malletKindOf(seatId),
+      x: this.malletXOf(seatId),
+      y: this.malletYOf(seatId),
+      rot: this.malletRotOf(seatId),
+      lift: this.malletLiftOf(seatId),
+      shake: this.malletShakeOf(seatId),
+      fade: 1
+    })
   }
 
   @Builder
@@ -2706,7 +2714,7 @@ struct Table {
   }
 
   /**
-   * #236 debug · 质疑锤. Local self seat only. Zero engine / reveal / lives.
+   * #243 debug · 质疑锤. Local self seat only. Zero engine / reveal / lives.
    */
   private onDebugHammerDoubt(): void {
     if (!DebugBuild.lifeDecShown()) {
@@ -2717,14 +2725,13 @@ struct Table {
   }
 
   /**
-   * #236 debug · 相信锤. Local self seat only. Zero engine / reveal / lives.
+   * #243 debug · 相信锤. Confirm resident rest. Zero motion / engine / reveal.
    */
   private onDebugHammerBelieve(): void {
     if (!DebugBuild.lifeDecShown()) {
       return;
     }
-    this.playChoiceAct(TableCompass.BOTTOM, ChoiceActFx.KIND_BELIEVE);
-    Logger.info(TAG, 'debug hammer believe localSeat=0 zero-logic');
+    Logger.info(TAG, 'debug hammer believe no-anim rest-visible localSeat=0 zero-logic');
   }
 
   private noteChoiceAwait(seatId: number, playId: string): void {
@@ -2739,7 +2746,7 @@ struct Table {
 
   /**
    * AI Trust: await seat played or skipped without CHALLENGE_RITUAL.
-   * Human Believe already plays + clears await in onChallengeBelieve.
+   * #243: believe = resident rest, no hammer motion (S19-8).
    */
   private maybePlayChoiceActTrust(snap: MatchSnapshot): void {
     if (this.choiceAwaitSeat < 0) {
@@ -2756,9 +2763,7 @@ struct Table {
       this.clearChoiceAwait();
       return;
     }
-    const seat: number = this.choiceAwaitSeat;
     this.clearChoiceAwait();
-    this.playChoiceAct(seat, ChoiceActFx.KIND_BELIEVE);
   }
 
   private playChoiceActForChallenge(snap: MatchSnapshot): void {
@@ -2774,92 +2779,90 @@ struct Table {
     this.playChoiceAct(snap.challenge.challengerSeatId, ChoiceActFx.KIND_DOUBT);
   }
 
-  /** Formal + debug share this visual/SFX. No engine calls. */
+  /** Formal + debug share this smash. Believe/Trust never calls it. No engine. */
   private playChoiceAct(seatId: number, kind: number): void {
+    if (kind !== ChoiceActFx.KIND_DOUBT) {
+      return;
+    }
     this.cancelChoiceActTimer();
     this.choiceActGen = this.choiceActGen + 1;
     const gen: number = this.choiceActGen;
     this.choiceActSeat = seatId;
-    this.choiceActKind = kind;
-    const pos: number[] = this.choiceActPosOf(seatId, kind);
-    this.choiceActX = pos[0];
-    this.choiceActY = pos[1];
+    this.choiceActKind = ChoiceActFx.KIND_DOUBT;
     this.choiceActShake = 0;
     this.choiceActFade = 1;
     this.choiceActOn = true;
-    if (kind === ChoiceActFx.KIND_DOUBT) {
-      this.choiceActRot = ChoiceActFx.RAISE_ROT;
-      this.choiceActLift = -ChoiceActFx.LIFT_VP;
+    this.choiceActRot = ChoiceActFx.RAISE_ROT;
+    this.choiceActLift = -ChoiceActFx.LIFT_VP;
+    this.choiceActTimer = setTimeout((): void => {
+      this.choiceActTimer = -1;
+      if (gen !== this.choiceActGen) {
+        return;
+      }
+      const smash: AnimateParam = {
+        duration: ChoiceActFx.SMASH_MS,
+        curve: Curve.EaseIn
+      };
+      animateTo(smash, (): void => {
+        this.choiceActRot = ChoiceActFx.DOWN_ROT;
+        this.choiceActLift = 0;
+      });
+      TableAudio.playHammerHit();
       this.choiceActTimer = setTimeout((): void => {
         this.choiceActTimer = -1;
         if (gen !== this.choiceActGen) {
           return;
         }
-        const smash: AnimateParam = {
-          duration: ChoiceActFx.SMASH_MS,
-          curve: Curve.EaseIn
+        const shakeOn: AnimateParam = {
+          duration: ChoiceActFx.SHAKE_MS / 2,
+          curve: Curve.EaseOut
         };
-        animateTo(smash, (): void => {
-          this.choiceActRot = ChoiceActFx.DOWN_ROT;
-          this.choiceActLift = 0;
+        animateTo(shakeOn, (): void => {
+          this.choiceActShake = ChoiceActFx.SHAKE_VP;
         });
-        TableAudio.playHammerHit();
         this.choiceActTimer = setTimeout((): void => {
           this.choiceActTimer = -1;
           if (gen !== this.choiceActGen) {
             return;
           }
-          const shakeOn: AnimateParam = {
+          const shakeOff: AnimateParam = {
             duration: ChoiceActFx.SHAKE_MS / 2,
-            curve: Curve.EaseOut
+            curve: Curve.EaseIn
           };
-          animateTo(shakeOn, (): void => {
-            this.choiceActShake = ChoiceActFx.SHAKE_VP;
+          animateTo(shakeOff, (): void => {
+            this.choiceActShake = 0;
           });
           this.choiceActTimer = setTimeout((): void => {
             this.choiceActTimer = -1;
             if (gen !== this.choiceActGen) {
               return;
             }
-            const shakeOff: AnimateParam = {
-              duration: ChoiceActFx.SHAKE_MS / 2,
-              curve: Curve.EaseIn
-            };
-            animateTo(shakeOff, (): void => {
-              this.choiceActShake = 0;
-            });
+            this.choiceActTimer = setTimeout((): void => {
+              this.choiceActTimer = -1;
+              if (gen !== this.choiceActGen) {
+                return;
+              }
+              const rest: AnimateParam = {
+                duration: ChoiceActFx.REST_MS,
+                curve: Curve.EaseOut
+              };
+              animateTo(rest, (): void => {
+                this.choiceActRot = 0;
+                this.choiceActLift = 0;
+              });
+              this.choiceActTimer = setTimeout((): void => {
+                this.choiceActTimer = -1;
+                if (gen !== this.choiceActGen) {
+                  return;
+                }
+                this.choiceActOn = false;
+                this.choiceActKind = ChoiceActFx.KIND_NONE;
+              }, ChoiceActFx.REST_MS);
+            }, ChoiceActFx.HOLD_MS);
           }, ChoiceActFx.SHAKE_MS / 2);
-        }, ChoiceActFx.SMASH_MS);
-      }, ChoiceActFx.LIFT_MS);
-      this.armChoiceActAutoHide(ChoiceActFx.smashTotalMs() + ChoiceActFx.HOLD_MS);
-      return;
-    }
-    this.choiceActRot = ChoiceActFx.REST_FROM_ROT;
-    this.choiceActLift = -4;
-    const rest: AnimateParam = {
-      duration: ChoiceActFx.REST_MS,
-      curve: Curve.EaseOut
-    };
-    animateTo(rest, (): void => {
-      this.choiceActRot = ChoiceActFx.REST_ROT;
-      this.choiceActLift = 2;
-    });
-    TableAudio.playHammerRest();
-    this.armChoiceActAutoHide(ChoiceActFx.REST_MS + ChoiceActFx.HOLD_MS);
-  }
-
-  private armChoiceActAutoHide(delayMs: number): void {
-    if (this.choiceActHideTimer >= 0) {
-      clearTimeout(this.choiceActHideTimer);
-    }
-    const gen: number = this.choiceActGen;
-    this.choiceActHideTimer = setTimeout((): void => {
-      this.choiceActHideTimer = -1;
-      if (gen !== this.choiceActGen) {
-        return;
-      }
-      this.retractChoiceAct();
-    }, delayMs);
+        }, ChoiceActFx.SHAKE_MS / 2);
+      }, ChoiceActFx.SMASH_MS);
+    }, ChoiceActFx.LIFT_MS);
   }
 
   private retractChoiceAct(): void {
@@ -2872,27 +2875,12 @@ struct Table {
       this.choiceActHideTimer = -1;
     }
     this.choiceActGen = this.choiceActGen + 1;
-    if (!this.choiceActOn) {
-      return;
-    }
-    const gen: number = this.choiceActGen;
-    const fade: AnimateParam = {
-      duration: ChoiceActFx.FADE_MS,
-      curve: Curve.EaseOut
-    };
-    animateTo(fade, (): void => {
-      this.choiceActFade = 0;
-    });
-    this.choiceActHideTimer = setTimeout((): void => {
-      this.choiceActHideTimer = -1;
-      if (gen !== this.choiceActGen) {
-        return;
-      }
-      this.choiceActOn = false;
-      this.choiceActFade = 1;
-      this.choiceActShake = 0;
-      this.choiceActKind = ChoiceActFx.KIND_NONE;
-    }, ChoiceActFx.FADE_MS);
+    this.choiceActOn = false;
+    this.choiceActFade = 1;
+    this.choiceActShake = 0;
+    this.choiceActLift = 0;
+    this.choiceActRot = 0;
+    this.choiceActKind = ChoiceActFx.KIND_NONE;
   }
 
   private cancelChoiceActTimer(): void {
@@ -2907,28 +2895,99 @@ struct Table {
     }
   }
 
-  /**
-   * Seat-front slot. Smash vs rest use different offsets (S19-4).
-   * Stay off pool / hand row / self candles (S19-5).
-   */
-  private choiceActPosOf(seatId: number, kind: number): number[] {
-    const restX: number = kind === ChoiceActFx.KIND_BELIEVE ? ChoiceActFx.REST_SLOT_X : 0;
-    const restY: number = kind === ChoiceActFx.KIND_BELIEVE ? ChoiceActFx.REST_SLOT_Y : 0;
-    if (seatId === TableCompass.BOTTOM) {
-      const lift: number = this.challengeFrontLiftVp();
-      let x: number = this.stackW / 2 - this.padL + ChoiceActFx.SELF_SIDE_VP + restX;
-      let y: number = this.playH - lift - 6 + restY;
-      if (this.playH <= 0) {
-        y = 200 + restY;
-      }
-      return [x, y];
+  private malletKindOf(seatId: number): number {
+    if (this.choiceActOn && this.choiceActSeat === seatId &&
+      this.choiceActKind === ChoiceActFx.KIND_DOUBT) {
+      return ChoiceActFx.KIND_DOUBT;
     }
+    return ChoiceActFx.KIND_NONE;
+  }
+
+  private malletXOf(seatId: number): number {
+    if (this.malletPosTick < 0) {
+      return 0;
+    }
+    return this.choiceActPosOf(seatId)[0];
+  }
+
+  private malletYOf(seatId: number): number {
+    if (this.malletPosTick < 0) {
+      return 0;
+    }
+    return this.choiceActPosOf(seatId)[1];
+  }
+
+  private malletRotOf(seatId: number): number {
+    if (this.choiceActOn && this.choiceActSeat === seatId) {
+      return this.choiceActRot;
+    }
+    return 0;
+  }
+
+  private malletLiftOf(seatId: number): number {
+    if (this.choiceActOn && this.choiceActSeat === seatId) {
+      return this.choiceActLift;
+    }
+    return 0;
+  }
+
+  private malletShakeOf(seatId: number): number {
+    if (this.choiceActOn && this.choiceActSeat === seatId) {
+      return this.choiceActShake;
+    }
+    return 0;
+  }
+
+  /**
+   * Per-seat avatar-side empty slot (#243 v0.2). Four distinct anchors.
+   * Smash uses the same placement (in-place lift/smash). Never lb_cmp_hand /
+   * confirm bar / lb_cmp_pool / ring–hand belt / pool heart (S19-7 / S19-9).
+   */
+  private choiceActPosOf(seatId: number): number[] {
     const origin: number[] = this.toPlayOverlay(this.seatXs[seatId], this.seatYs[seatId]);
-    const mid: number[] = this.poolCenterOverlay();
-    const inward: number = ChoiceActFx.INWARD_PCT;
-    const x: number = origin[0] + (mid[0] - origin[0]) * inward + restX;
-    const y: number = origin[1] + (mid[1] - origin[1]) * inward + restY;
-    return [x, y];
+    const measured: boolean = this.seatWs[seatId] > 0 && this.seatHs[seatId] > 0;
+    if (seatId === TableCompass.BOTTOM) {
+      if (!measured) {
+        return [ChoiceActFx.SELF_FALLBACK_X,
+          this.choiceActFallbackPlayH() + ChoiceActFx.SELF_FALLBACK_DY];
+      }
+      return [origin[0] + ChoiceActFx.SELF_ANCHOR_DX,
+        origin[1] + ChoiceActFx.SELF_ANCHOR_DY];
+    }
+    if (seatId === TableCompass.LEFT) {
+      if (!measured) {
+        return [ChoiceActFx.LEFT_FALLBACK_X, ChoiceActFx.LEFT_FALLBACK_Y];
+      }
+      return [origin[0] + this.seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX,
+        origin[1] + ChoiceActFx.LEFT_ANCHOR_DY];
+    }
+    if (seatId === TableCompass.RIGHT) {
+      if (!measured) {
+        return [this.choiceActFallbackPlayW() + ChoiceActFx.RIGHT_FALLBACK_DX,
+          ChoiceActFx.RIGHT_FALLBACK_Y];
+      }
+      return [origin[0] + ChoiceActFx.RIGHT_ANCHOR_DX,
+        origin[1] + ChoiceActFx.RIGHT_ANCHOR_DY];
+    }
+    if (!measured) {
+      return [ChoiceActFx.TOP_FALLBACK_X, ChoiceActFx.TOP_FALLBACK_Y];
+    }
+    return [origin[0] + ChoiceActFx.TOP_ANCHOR_DX,
+      origin[1] + ChoiceActFx.TOP_ANCHOR_DY];
+  }
+
+  private choiceActFallbackPlayH(): number {
+    if (this.playH > 0) {
+      return this.playH;
+    }
+    return 220;
+  }
+
+  private choiceActFallbackPlayW(): number {
+    if (this.stackW > 0) {
+      return this.stackW - this.padL;
+    }
+    return 320;
   }
 
   private isEmptySafePending(snap: MatchSnapshot): boolean {
@@ -3473,8 +3532,7 @@ struct Table {
       return;
     }
     this.revealDeferTries = 0;
-    // Reveal 起势：收锤走锤自己的砸拍，不改 DRAW_TO_FLIP_MS / REVEAL_HOLD_MS.
-    this.armChoiceActAutoHide(ChoiceActFx.smashTotalMs());
+    // Reveal 起势：四槌常驻回搁，不改 DRAW_TO_FLIP_MS / REVEAL_HOLD_MS.
     const n: number = PlayFlyFx.clampCount(ranks.length);
     const w: number = PlayFlyFx.pileWidth(n);
     const h: number = PlayFlyFx.pileHeight();
@@ -3591,8 +3649,6 @@ struct Table {
     Logger.info(TAG, fromTimeout ? 'AwaitChallenge timeout Believe' : 'AwaitChallenge Believe');
     this.challengeResolvedPlayId = this.challengeTargetPlayId;
     this.clearChoiceAwait();
-    this.playChoiceAct(snap !== null ? snap.currentSeatId : TableCompass.BOTTOM,
-      ChoiceActFx.KIND_BELIEVE);
     this.closeChallengeEntry(true);
   }
 
@@ -3850,6 +3906,7 @@ struct Table {
     if (h > 0) {
       this.seatHs[seatId] = h;
     }
+    this.malletPosTick = this.malletPosTick + 1;
   }
 
   private localOf(area: Area): number[] {
