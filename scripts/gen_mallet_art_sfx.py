@@ -1,17 +1,24 @@
 #!/usr/bin/env python3
-"""桌槌 P0 assets: art_fx_mallet frames + sfx_hammer_hit/rest.
+"""桌槌 P0 assets (PM reject redo): art_fx_mallet frames + sfx_hammer_hit/rest.
+
+PM REJECT (#238 on develop):
+  - Mallet overlaps hand cards / silhouette unreadable as a mallet
+  - Must redo: instantly recognizable wooden mallet; clear RAISE + SMASH frames
+  - Heavier wood-knock SFX
+  - Believe = rest pose ONLY (no animation)
 
 Call ids (Aron A / design #236):
-  lb_sfx_hammer_hit  — Challenge raise→smash wood knock (~80–120ms)
-  lb_sfx_hammer_rest — Believe mallet rest beside seat (shorter soft place)
+  lb_sfx_hammer_hit  — Challenge raise→smash wood knock (~100–140ms, heavier)
+  lb_sfx_hammer_rest — Believe rest settle (soft optional place; no anim)
 
 Art slots:
-  art_fx_mallet.png      — rest / base pose (horizontal beside seat)
-  art_fx_mallet_up.png   — raised pose (smash frame 1)
-  art_fx_mallet_hit.png  — smash impact (smash frame 2)
+  art_fx_mallet.png      — REST / believe (hammer lying on side; safe inset ≥20%)
+  art_fx_mallet_up.png   — RAISE (head up, about to strike)
+  art_fx_mallet_hit.png  — SMASH (head down + small impact marks)
 
-Warm brown wood + brass hoop. Distinct poses (not same-pose-recolor).
-Zero .ets. Ban beep / sine tip / old flip/launch fake.
+Canvas ~360²; draw mallet SMALLER in frame with ≥20% edge safe margin
+so UI can sit above hand cards. Warm tavern wood + brass. T-silhouette
+(carpenter mallet / wooden gavel) — NOT abstract blob. Zero .ets.
 Seeds fixed for reproducibility.
 """
 
@@ -61,17 +68,20 @@ FROZEN = (
 )
 
 SIZE = 360
+SAFE_INSET = 0.20  # ≥20% edges — UI above hand cards
 SR = 48000
-HIT_DUR_S = 0.100
-REST_DUR_S = 0.064
-HIT_PEAK_DB = -9.5
-REST_PEAK_DB = -10.5
+# Heavier hit: longer body, louder peak (−6..−8 dBFS)
+HIT_DUR_S = 0.120
+REST_DUR_S = 0.052
+HIT_PEAK_DB = -7.0
+REST_PEAK_DB = -14.0
 LEAD_THRESH_DB = -40.0
 
 # Warm brown wood + copper/brass hoop (night tavern)
 WOOD = (0x8B, 0x55, 0x2E)
 WOOD_DK = (0x5A, 0x32, 0x1A)
 WOOD_LT = (0xB0, 0x78, 0x48)
+WOOD_MID = (0x9A, 0x62, 0x38)
 BRASS_DK = (0x8A, 0x6E, 0x3E)
 HANDLE = (0x6E, 0x42, 0x28)
 HANDLE_LT = (0x9A, 0x68, 0x40)
@@ -145,131 +155,174 @@ def clear_zero_rgb(arr: np.ndarray) -> np.ndarray:
     return arr
 
 
+def _draw_local_mallet(ld: ImageDraw.ImageDraw, cx: int, cy: int, sc: float, impact: bool) -> tuple[int, int, int, int]:
+    """Draw carpenter-mallet T in local space: handle +X, head = fat block at +X end.
+
+    Returns approximate local AABB of opaque paint (before rotation) for docs.
+    Head is a short thick barrel with flat striking faces — clear T at thumbnail.
+    """
+    # Handle shaft (slight taper toward free end) — keep thinner than head for T-read
+    hl = int(122 * sc)
+    hw0 = int(8 * sc)   # free end
+    hw1 = int(11 * sc)  # near head
+    hx0 = cx - int(62 * sc)
+    hx1 = hx0 + hl
+    # Tapered rounded shaft via stacked rects
+    for i in range(hl):
+        t = i / max(1, hl - 1)
+        hw = int(hw0 + (hw1 - hw0) * t)
+        x = hx0 + i
+        ld.line([(x, cy - hw), (x, cy + hw)], fill=rgba(HANDLE, 255), width=1)
+    # Soften shaft edges with rounded caps
+    ld.ellipse((hx0 - hw0, cy - hw0, hx0 + hw0, cy + hw0), fill=rgba(HANDLE, 255))
+    # Highlight stripe along top of handle
+    ld.line(
+        [(hx0 + 6, cy - max(2, hw0 - 3)), (hx1 - 10, cy - max(3, hw1 - 4))],
+        fill=rgba(mix(HANDLE_LT, CANDLE, 0.3), 190),
+        width=2,
+    )
+    # Grain ticks on handle
+    for gx in range(hx0 + 14, hx1 - 16, 11):
+        ld.line([(gx, cy - 5), (gx + 1, cy + 5)], fill=rgba(GRAIN, 100), width=1)
+
+    # Brass ferrule at neck
+    fx0 = hx1 - int(14 * sc)
+    fy0 = cy - int(13 * sc)
+    fx1 = hx1 + int(3 * sc)
+    fy1 = cy + int(13 * sc)
+    ld.rounded_rectangle((fx0, fy0, fx1, fy1), radius=3, fill=rgba(mix(BRASS, BRASS_DK, 0.3), 255))
+    ld.line([(fx0 + 2, fy0 + 3), (fx1 - 2, fy0 + 3)], fill=rgba(mix(BRASS, CANDLE, 0.4), 200), width=1)
+    ld.line([(fx0 + 2, fy1 - 3), (fx1 - 2, fy1 - 3)], fill=rgba(BRASS_DK, 160), width=1)
+
+    # --- Head: fat rectangular barrel perpendicular to handle (classic T) ---
+    # Along handle (X): short; perpendicular (Y): tall → unmistakable mallet head
+    head_len = int(48 * sc)   # along handle (short barrel)
+    head_thk = int(72 * sc)   # perpendicular — clearly taller than handle → T read
+    hcx = hx1 + head_len // 2 - int(4 * sc)
+    hcy = cy
+    x0 = hcx - head_len // 2
+    y0 = hcy - head_thk // 2
+    x1 = hcx + head_len // 2
+    y1 = hcy + head_thk // 2
+
+    # Soft under-shadow of head
+    ld.ellipse(
+        (x0 + 4, y1 - 8, x1 + 6, y1 + int(10 * sc)),
+        fill=rgba(SHADOW, 70),
+    )
+    # Main barrel body
+    ld.rounded_rectangle((x0, y0, x1, y1), radius=max(6, int(8 * sc)), fill=rgba(WOOD, 255))
+    # Inner mid wood
+    inset = max(3, int(5 * sc))
+    ld.rounded_rectangle(
+        (x0 + inset, y0 + inset, x1 - inset, y1 - inset),
+        radius=max(4, int(6 * sc)),
+        fill=rgba(mix(WOOD, WOOD_MID, 0.45), 255),
+    )
+    # Top highlight
+    ld.arc(
+        (x0 + 4, y0 + 2, x1 - 4, y0 + head_thk // 2),
+        200,
+        340,
+        fill=rgba(mix(WOOD_LT, CANDLE, 0.35), 180),
+        width=3,
+    )
+    # Wood grain arcs on face of head
+    for gy in range(y0 + 12, y1 - 10, 9):
+        ld.arc(
+            (x0 + 6, gy - 14, x1 - 6, gy + 14),
+            200,
+            340,
+            fill=rgba(GRAIN, 70),
+            width=1,
+        )
+    # Brass bands near both striking faces
+    bw = max(3, int(4 * sc))
+    for ox in (x0 + 5, x1 - 5 - bw):
+        ld.rectangle((ox, y0 + 3, ox + bw, y1 - 3), fill=rgba(mix(BRASS, BRASS_DK, 0.25), 255))
+        ld.line([(ox, y0 + 4), (ox + bw, y0 + 4)], fill=rgba(mix(BRASS, CANDLE, 0.35), 180), width=1)
+
+    # Flat striking faces (darker end-caps) — left = heel, right = face
+    face_w = max(5, int(7 * sc))
+    for ex0, ex1 in ((x0 - 1, x0 + face_w), (x1 - face_w, x1 + 1)):
+        ld.rounded_rectangle(
+            (ex0, y0 + 4, ex1, y1 - 4),
+            radius=3,
+            fill=rgba(mix(WOOD_DK, WOOD, 0.25), 255),
+        )
+    # End-face ring highlight on striking face (+X)
+    er = max(6, int(9 * sc))
+    ld.ellipse(
+        (x1 - er // 2 - 1, hcy - er, x1 + er // 2 - 3, hcy + er),
+        outline=rgba(mix(WOOD_LT, CANDLE, 0.2), 150),
+        width=2,
+    )
+
+    if impact:
+        # Impact marks / dust at striking face (+X end, toward strike)
+        face_x = x1
+        for i, ang in enumerate((-35, -15, 0, 15, 35, -50, 50)):
+            rad = math.radians(ang)
+            L = 22 + (i % 3) * 6
+            x_a = face_x
+            y_a = hcy
+            x_b = x_a + int(L * math.cos(rad))
+            y_b = y_a + int(L * math.sin(rad))
+            ld.line(
+                [(x_a, y_a), (x_b, y_b)],
+                fill=rgba(mix(CANDLE, PAPER, 0.35), 150 - i * 12),
+                width=2 + (1 if i < 3 else 0),
+            )
+        for dx, dy, r in ((18, 14, 8), (26, -10, 7), (14, 22, 6), (30, 4, 5)):
+            ld.ellipse(
+                (face_x + dx - r, hcy + dy - r // 2, face_x + dx + r, hcy + dy + r // 2),
+                fill=rgba(mix(PAPER, BRASS, 0.12), 50),
+            )
+
+    # Local AABB (generous)
+    pad = 8
+    return (hx0 - hw0 - pad, min(y0, cy - hw1) - pad, x1 + face_w + pad + (36 if impact else 0), max(y1, cy + hw1) + pad)
+
+
 def draw_mallet(
     angle_deg: float,
     *,
     impact: bool = False,
     motion_blur: bool = False,
     seed: int = SEED_ART,
+    scale: float = 0.78,
 ) -> Image.Image:
-    """Draw a wooden tavern mallet at angle (0=head right, -90=head up)."""
+    """Draw wooden tavern carpenter-mallet at angle (0=head right, -90=head up).
+
+    Mallet is drawn SMALLER than canvas with ≥20% safe edge inset so UI can
+    sit above hand cards without silhouette clash.
+    """
     s = SIZE
     canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(canvas)
     cx, cy = s // 2, s // 2
     rng = np.random.default_rng(seed + int(angle_deg * 10) + (7 if impact else 0))
 
-    # Soft contact shadow under head when resting / hitting
-    if abs(angle_deg) < 25 or impact:
-        shadow_r = 38 if impact else 28
-        sx = cx + int(70 * math.cos(math.radians(angle_deg)))
-        sy = cy + int(70 * math.sin(math.radians(angle_deg))) + (8 if impact else 14)
+    # Soft ground shadow when resting / hitting (under head region after rotate)
+    if abs(angle_deg) < 30 or impact:
+        shadow_r = int(34 if impact else 26)
+        sx = cx + int(48 * math.cos(math.radians(angle_deg)) * scale)
+        sy = cy + int(48 * math.sin(math.radians(angle_deg)) * scale) + (6 if impact else 12)
         d.ellipse(
             (sx - shadow_r, sy - shadow_r // 2, sx + shadow_r, sy + shadow_r // 2),
-            fill=rgba(SHADOW, 70 if impact else 55),
+            fill=rgba(SHADOW, 65 if impact else 50),
         )
 
-    # Build mallet in local space then rotate: handle along +X, head at +X end
     local = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     ld = ImageDraw.Draw(local)
+    _draw_local_mallet(ld, cx, cy, scale, impact)
 
-    # Handle (shaft) — long wood stick
-    hx0, hy0 = cx - 110, cy - 10
-    hx1, hy1 = cx + 55, cy + 10
-    ld.rounded_rectangle((hx0, hy0, hx1, hy1), radius=8, fill=rgba(HANDLE, 255))
-    # Handle highlight
-    ld.rounded_rectangle(
-        (hx0 + 4, hy0 + 2, hx1 - 8, hy0 + 7),
-        radius=4,
-        fill=rgba(mix(HANDLE_LT, CANDLE, 0.25), 180),
-    )
-    # Grain lines on handle
-    for gx in range(hx0 + 12, hx1 - 10, 14):
-        ld.line([(gx, hy0 + 3), (gx + 2, hy1 - 3)], fill=rgba(GRAIN, 90), width=1)
-
-    # Brass ferrule / hoop near head
-    fx0, fy0 = cx + 40, cy - 14
-    fx1, fy1 = cx + 58, cy + 14
-    ld.rounded_rectangle((fx0, fy0, fx1, fy1), radius=3, fill=rgba(mix(BRASS, BRASS_DK, 0.35), 255))
-    ld.rounded_rectangle(
-        (fx0 + 2, fy0 + 2, fx1 - 2, fy0 + 6),
-        radius=2,
-        fill=rgba(mix(BRASS, CANDLE, 0.35), 200),
-    )
-    ld.line([(fx0 + 3, fy1 - 3), (fx1 - 3, fy1 - 3)], fill=rgba(BRASS_DK, 160), width=1)
-
-    # Mallet head — barrel of warm wood
-    head_cx, head_cy = cx + 88, cy
-    hw, hh = 52, 36
-    # Outer shadow edge
-    ld.ellipse(
-        (head_cx - hw + 2, head_cy - hh + 4, head_cx + hw + 2, head_cy + hh + 4),
-        fill=rgba(SHADOW, 80),
-    )
-    ld.ellipse(
-        (head_cx - hw, head_cy - hh, head_cx + hw, head_cy + hh),
-        fill=rgba(WOOD, 255),
-    )
-    # Inner darker end grain
-    ld.ellipse(
-        (head_cx - hw + 8, head_cy - hh + 6, head_cx + hw - 8, head_cy + hh - 6),
-        fill=rgba(mix(WOOD, WOOD_DK, 0.35), 255),
-    )
-    # End-face circle (hitting face toward +X)
-    face_r = 22
-    ld.ellipse(
-        (head_cx + hw - face_r - 6, head_cy - face_r, head_cx + hw + face_r - 10, head_cy + face_r),
-        fill=rgba(mix(WOOD_DK, WOOD, 0.4), 255),
-    )
-    ld.ellipse(
-        (head_cx + hw - face_r - 2, head_cy - face_r + 4, head_cx + hw + face_r - 14, head_cy + face_r - 4),
-        outline=rgba(mix(WOOD_LT, CANDLE, 0.2), 160),
-        width=2,
-    )
-    # Top highlight arc on head
-    ld.arc(
-        (head_cx - hw + 4, head_cy - hh + 2, head_cx + hw - 4, head_cy + hh - 10),
-        200,
-        340,
-        fill=rgba(mix(WOOD_LT, CANDLE, 0.3), 170),
-        width=3,
-    )
-    # Second brass band on head
-    ld.arc(
-        (head_cx - 18, head_cy - hh + 2, head_cx + 18, head_cy + hh - 2),
-        0,
-        360,
-        fill=rgba(mix(BRASS, BRASS_DK, 0.2), 200),
-        width=3,
-    )
-
-    if impact:
-        # Impact flash / dust wedges near face
-        for i, ang in enumerate((-25, 0, 25, -45, 45)):
-            rad = math.radians(ang)
-            L = 28 + i * 4
-            x0 = head_cx + hw - 4
-            y0 = head_cy
-            x1 = x0 + int(L * math.cos(rad))
-            y1 = y0 + int(L * math.sin(rad))
-            ld.line([(x0, y0), (x1, y1)], fill=rgba(mix(CANDLE, PAPER, 0.4), 140 - i * 18), width=3)
-        # Tiny felt dust puffs
-        for dx, dy, r in ((30, 18, 10), (38, -12, 8), (22, 28, 7)):
-            ld.ellipse(
-                (head_cx + dx - r, head_cy + dy - r // 2, head_cx + dx + r, head_cy + dy + r // 2),
-                fill=rgba(mix(PAPER, BRASS, 0.15), 55),
-            )
-
-    # Rotate around center
-    # PIL rotate: positive = counter-clockwise; our angle_deg is head direction from +X
     rotated = local.rotate(-angle_deg, resample=Image.Resampling.BICUBIC, center=(cx, cy))
     canvas = Image.alpha_composite(canvas, rotated)
 
     if motion_blur:
-        # Slight directional smear for raise pose
-        blur = canvas.filter(ImageFilter.GaussianBlur(1.1))
-        canvas = Image.blend(canvas, blur, 0.35)
-        # Re-composite to keep alpha crisp-ish
+        blur = canvas.filter(ImageFilter.GaussianBlur(0.9))
+        canvas = Image.blend(canvas, blur, 0.28)
         arr = np.array(canvas)
         a = arr[..., 3:4].astype(np.float32) / 255.0
         arr[..., :3] = (arr[..., :3].astype(np.float32) * a).astype(np.uint8)
@@ -278,7 +331,7 @@ def draw_mallet(
     # Film grain on opaque pixels
     arr = np.array(canvas.convert("RGBA"))
     body = arr[..., 3] > 12
-    noise = rng.normal(0.0, 2.2, arr[..., :3].shape)
+    noise = rng.normal(0.0, 2.0, arr[..., :3].shape)
     arr[..., :3] = np.clip(
         arr[..., :3].astype(np.float32) + noise * body[..., None], 0, 255
     ).astype(np.uint8)
@@ -293,44 +346,63 @@ def draw_mallet(
     return Image.fromarray(arr, "RGBA")
 
 
+def assert_safe_inset(im: Image.Image, label: str, min_frac: float = SAFE_INSET) -> tuple[float, float, float, float]:
+    """Opaque bbox must keep ≥ min_frac margin from each edge."""
+    a = np.array(im.convert("RGBA"))[..., 3]
+    ys, xs = np.where(a > 20)
+    if ys.size == 0:
+        raise SystemExit(f"{label}: empty art")
+    l, t, r, b = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+    s = SIZE
+    insets = (l / s, t / s, (s - r) / s, (s - b) / s)
+    if min(insets) < min_frac - 1e-6:
+        raise SystemExit(
+            f"{label}: safe inset fail LTRB={[round(x, 3) for x in insets]} need ≥{min_frac}"
+        )
+    return insets
+
+
 def make_hammer_hit() -> np.ndarray:
-    """Wood table knock: warm mid body + short wood crack. 80–120ms."""
+    """Heavier wood table knock: strong mid body + hard face crack. 100–140ms."""
     rng = np.random.default_rng(SEED_HIT)
     n = int(round(HIT_DUR_S * SR))
-    # Wood body thump (table felt + wood)
-    body = band_noise(n, rng, 80.0, 420.0) * exp_from_zero(n, 38.0) * 1.10
+    # Deep wood / table body (heavier than v1)
+    body = band_noise(n, rng, 60.0, 380.0) * exp_from_zero(n, 28.0) * 1.35
     # Mid wood knock
-    knock = band_noise(n, rng, 350.0, 1200.0) * exp_from_zero(n, 55.0) * 0.95
-    # Brief hard face crack (not sine)
-    crack = band_noise(n, rng, 1400.0, 3200.0) * exp_from_zero(n, 110.0) * 0.55
-    # Felt bloom / room
-    felt = band_noise(n, rng, 40.0, 180.0) * exp_from_zero(n, 22.0) * 0.35
-    # Immediate attack — no head silence (first samples already energetic)
-    click_n = min(48, n)
-    click = band_noise(click_n, rng, 800.0, 2800.0) * exp_from_zero(click_n, 180.0) * 0.85
+    knock = band_noise(n, rng, 280.0, 1100.0) * exp_from_zero(n, 48.0) * 1.15
+    # Hard face crack (not sine)
+    crack = band_noise(n, rng, 1200.0, 3400.0) * exp_from_zero(n, 95.0) * 0.75
+    # Felt / room bloom
+    felt = band_noise(n, rng, 35.0, 160.0) * exp_from_zero(n, 18.0) * 0.45
+    # Immediate attack — no head silence
+    click_n = min(64, n)
+    click = band_noise(click_n, rng, 700.0, 3000.0) * exp_from_zero(click_n, 160.0) * 1.05
     y = body + knock + crack + felt
     y[:click_n] += click
     if abs(y[0]) < 1e-4:
-        y[0] = 0.15 if (y[1] if n > 1 else 0.0) >= 0 else -0.15
-    y = apply_hp_warm(y, 35.0)
-    y = apply_lp_warm(y, 4500.0)
-    y *= tail_fade(n, int(0.012 * SR))
+        y[0] = 0.18 if (y[1] if n > 1 else 0.0) >= 0 else -0.18
+    y = apply_hp_warm(y, 30.0)
+    y = apply_lp_warm(y, 4800.0)
+    y *= tail_fade(n, int(0.014 * SR))
     return peak_normalize(y, HIT_PEAK_DB)
 
 
 def make_hammer_rest() -> np.ndarray:
-    """Soft place-down beside seat: quieter shorter wood settle. ~50–80ms."""
+    """Soft place-down / near-silent settle for rest (believe = no anim). ~45–70ms."""
     rng = np.random.default_rng(SEED_REST)
     n = int(round(REST_DUR_S * SR))
-    # Soft wood set-down
-    set_down = band_noise(n, rng, 120.0, 600.0) * exp_from_zero(n, 48.0) * 0.90
-    # Gentle felt brush
-    brush = band_noise(n, rng, 60.0, 280.0) * exp_from_zero(n, 30.0) * 0.55
-    # Tiny rim tick (brass hoop kiss)
-    tick = band_noise(n, rng, 900.0, 2200.0) * exp_from_zero(n, 140.0) * 0.22
-    y = set_down + brush + tick
-    y = apply_hp_warm(y, 40.0)
-    y = apply_lp_warm(y, 3800.0)
+    # Broadband soft wood settle — keep peak-bin low (no tonal tip)
+    set_down = band_noise(n, rng, 90.0, 650.0) * exp_from_zero(n, 52.0) * 0.85
+    brush = band_noise(n, rng, 40.0, 280.0) * exp_from_zero(n, 32.0) * 0.55
+    air = band_noise(n, rng, 400.0, 2400.0) * exp_from_zero(n, 90.0) * 0.28
+    y = set_down + brush + air
+    # Tiny attack so zero-lead stays 0
+    click_n = min(32, n)
+    y[:click_n] += band_noise(click_n, rng, 500.0, 2200.0) * exp_from_zero(click_n, 200.0) * 0.35
+    if abs(y[0]) < 1e-4:
+        y[0] = 0.08 if (y[1] if n > 1 else 0.0) >= 0 else -0.08
+    y = apply_hp_warm(y, 45.0)
+    y = apply_lp_warm(y, 3600.0)
     y *= tail_fade(n, int(0.010 * SR))
     return peak_normalize(y, REST_PEAK_DB)
 
@@ -416,7 +488,7 @@ def measure(path: Path) -> dict:
     }
 
 
-def gate_common(m: dict, label: str, peak_lo: float = -11.5, peak_hi: float = -8.0) -> None:
+def gate_common(m: dict, label: str, peak_lo: float = -8.5, peak_hi: float = -5.5) -> None:
     if m["sample_rate"] != 48000 or m["channels"] != 1 or m["sample_fmt"] != "pcm16":
         raise SystemExit(f"format {m['sample_rate']}/{m['channels']}/{m['sample_fmt']}")
     pk = float(m["peak_dbfs"])
@@ -432,20 +504,21 @@ def gate_common(m: dict, label: str, peak_lo: float = -11.5, peak_hi: float = -8
 
 
 def gate_hit(m: dict) -> None:
-    gate_common(m, "hit")
+    # Heavier: −8..−6 dBFS, 100–140ms
+    gate_common(m, "hit", peak_lo=-8.5, peak_hi=-5.5)
     dur = float(m["duration_ms"])
-    if dur < 80.0 - 0.05 or dur > 120.0 + 0.05:
-        raise SystemExit(f"hit duration {dur:.2f}ms not in 80–120")
+    if dur < 100.0 - 0.05 or dur > 140.0 + 0.05:
+        raise SystemExit(f"hit duration {dur:.2f}ms not in 100–140")
     if float(m["band_200_800"]) < 15.0:
         raise SystemExit("hit missing wood mid body")
 
 
 def gate_rest(m: dict) -> None:
-    gate_common(m, "rest", peak_lo=-12.5, peak_hi=-8.0)
+    # Soft settle — quieter than hit
+    gate_common(m, "rest", peak_lo=-16.5, peak_hi=-11.0)
     dur = float(m["duration_ms"])
-    if dur < 45.0 - 0.05 or dur > 90.0 + 0.05:
-        raise SystemExit(f"rest duration {dur:.2f}ms not in 45–90")
-    # Rest should be softer / shorter than hit
+    if dur < 40.0 - 0.05 or dur > 80.0 + 0.05:
+        raise SystemExit(f"rest duration {dur:.2f}ms not in 40–80")
     if dur >= HIT_DUR_S * 1000.0:
         raise SystemExit("rest must be shorter than hit")
 
@@ -466,7 +539,6 @@ def assert_art_distinct(rest: Image.Image, up: Image.Image, hit: Image.Image) ->
     a = np.array(rest.convert("RGBA"))
     b = np.array(up.convert("RGBA"))
     c = np.array(hit.convert("RGBA"))
-    # Alpha-mask Hamming-ish: fraction of pixels where alpha presence differs
     am = (a[..., 3] > 20).astype(np.float32)
     bm = (b[..., 3] > 20).astype(np.float32)
     cm = (c[..., 3] > 20).astype(np.float32)
@@ -477,16 +549,10 @@ def assert_art_distinct(rest: Image.Image, up: Image.Image, hit: Image.Image) ->
         raise SystemExit(
             f"art poses too similar (alpha mask): rest/up={diff_ru:.4f} rest/hit={diff_rh:.4f}"
         )
-    # RGB mean on overlapping body — also require non-trivial difference
-    for label, x, y in (("rest/up", a, b), ("rest/hit", a, c), ("up/hit", b, c)):
-        mask = (x[..., 3] > 20) & (y[..., 3] > 20)
-        if mask.sum() < 200:
-            continue
-        d = float(np.mean(np.abs(x[mask, :3].astype(np.float32) - y[mask, :3].astype(np.float32))))
-        # up vs hit may share colors; rest vs raised must differ spatially (already checked)
-        if label.startswith("rest") and d < 1.0 and False:
-            raise SystemExit(f"{label} RGB too close ({d:.2f})")
-    print(f"  art pose distinct: rest/up alpha-diff={diff_ru:.3f} rest/hit={diff_rh:.3f} up/hit={diff_uh:.3f}")
+    print(
+        f"  art pose distinct: rest/up alpha-diff={diff_ru:.3f} "
+        f"rest/hit={diff_rh:.3f} up/hit={diff_uh:.3f}"
+    )
 
 
 def print_metrics(label: str, call_id: str, m: dict) -> None:
@@ -519,15 +585,25 @@ def print_metrics(label: str, call_id: str, m: dict) -> None:
 def main() -> None:
     frozen_before = {p: sha256_file(p) for p in FROZEN if p.exists()}
 
-    # --- Art ---
-    # Rest: nearly horizontal, head to the right (beside seat)
-    rest = draw_mallet(8.0, impact=False, motion_blur=False, seed=SEED_ART)
-    # Up: raised ~ -70° (head up / back)
-    up = draw_mallet(-72.0, impact=False, motion_blur=True, seed=SEED_ART + 1)
-    # Hit: smash down ~ +55° with impact FX
-    hit = draw_mallet(55.0, impact=True, motion_blur=False, seed=SEED_ART + 2)
+    # Scale chosen so all poses keep ≥20% edge safe inset
+    SC = 0.70
+
+    # REST / believe: lying on side, head right — NO animation
+    rest = draw_mallet(5.0, impact=False, motion_blur=False, seed=SEED_ART, scale=SC)
+    # RAISE: head up, about to strike
+    up = draw_mallet(-78.0, impact=False, motion_blur=True, seed=SEED_ART + 1, scale=SC)
+    # SMASH: head down + impact marks
+    hit = draw_mallet(68.0, impact=True, motion_blur=False, seed=SEED_ART + 2, scale=SC)
 
     assert_art_distinct(rest, up, hit)
+    rest_in = assert_safe_inset(rest, "rest")
+    up_in = assert_safe_inset(up, "up")
+    hit_in = assert_safe_inset(hit, "hit")
+    print(
+        f"  safe inset ≥{SAFE_INSET:.0%}: rest LTRB={[round(x, 3) for x in rest_in]} "
+        f"up={[round(x, 3) for x in up_in]} hit={[round(x, 3) for x in hit_in]}"
+    )
+
     MEDIA.mkdir(parents=True, exist_ok=True)
     save_png(rest, OUT_REST)
     save_png(up, OUT_UP)
@@ -545,12 +621,10 @@ def main() -> None:
     gate_hit(hit_m)
     gate_rest(rest_m)
 
-    # Hit should be louder / denser mid than rest
-    if float(hit_m["peak_dbfs"]) < float(rest_m["peak_dbfs"]) - 0.2:
-        # hit peak target -9.5, rest -10.5 — hit should be higher (less negative)
-        pass
     if float(hit_m["duration_ms"]) <= float(rest_m["duration_ms"]):
         raise SystemExit("hit must be longer than rest")
+    if float(hit_m["peak_dbfs"]) <= float(rest_m["peak_dbfs"]):
+        raise SystemExit("hit must be louder (higher peak) than rest")
 
     assert_frozen_untouched(frozen_before)
 
@@ -559,7 +633,8 @@ def main() -> None:
     print("frozen slots not written: flip / extinguish / launch / land / challenge / reveal")
     for path, digest in frozen_before.items():
         print(f"  {path.name} sha256 {digest}")
-    print("zero .ets · seed art/hit=20260919 rest=20260920")
+    print("zero .ets · PM reject redo · seed art/hit=20260919 rest=20260920")
+    print(f"SAFE_INSET={SAFE_INSET} SC={SC} HIT_PEAK_DB={HIT_PEAK_DB} HIT_DUR_S={HIT_DUR_S}")
 
 
 if __name__ == "__main__":
