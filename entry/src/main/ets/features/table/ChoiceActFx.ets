@@ -4,7 +4,7 @@
  * Visual/SFX only. Does not change open-card 1000/3000 gates
  * or Trust|Challenge rule semantics.
  *
- * Art: 已换绑 #238/#244 art_fx_mallet / art_fx_mallet_up / art_fx_mallet_hit.
+ * Art: 已换绑 #238/#244/#248 art_fx_mallet / art_fx_mallet_up / art_fx_mallet_hit.
  * SFX slots: lb_sfx_hammer_hit / lb_sfx_hammer_rest. Never flip / launch / land.
  *
  * S19-7 锤压在牌上 / S19-8 相信还在动 / S19-9 砸点贴牌心.

@@ -3,7 +3,7 @@ import { ChoiceActFx } from '../ChoiceActFx';
 
 /**
  * lb_cmp_choice_act mallet sprite. One instance per seat (resident rest).
- * #238/#244 frames: rest / raise / smash. No Spine.
+ * #238/#244/#248 frames: rest / raise / smash. No Spine.
  * HitTest None — never covers pool / hand / candles.
  */
 @Component

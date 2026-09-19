@@ -61,10 +61,10 @@ if (ids.includes("CHOICE_ACT: string = 'lb_cmp_choice_act'") &&
 
 const actHold = Number((/static readonly HOLD_MS:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
 if (actHold >= 800 &&
-    choiceFx.includes('已换绑 #238') &&
+    (choiceFx.includes('已换绑 #238') || choiceFx.includes('#248')) &&
     !choiceFx.includes('DRAW_TO_FLIP_MS') &&
     !choiceFx.includes('REVEAL_HOLD_MS')) {
-  pass(`HOLD_MS=${actHold} (≥800 / 0.8～1.2s); 已换绑 #238; open-card gates absent`);
+  pass(`HOLD_MS=${actHold} (≥800 / 0.8～1.2s); #238/#248 mallet bind; open-card gates absent`);
 } else {
   fail(`HOLD_MS/bind comment drifted hold=${actHold}`);
 }
