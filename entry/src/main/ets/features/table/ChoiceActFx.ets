@@ -40,31 +40,32 @@ export class ChoiceActFx {
   static readonly REST_ROT: number = 82;
 
   /**
-   * Per-seat avatar-side anchors. Do not reuse one pair for all four.
-   * self: above left dock portrait — never lb_cmp_hand / ring–hand belt.
+   * Per-seat avatar-side anchors (17a v0.2.0 §2). Do not reuse one pair.
+   * self / p3 / p2 / p1 each own DX/DY. Outer blank — never toward pool.
    */
+  /** self: above left-dock portrait — never lb_cmp_hand / ring–hand belt. */
   static readonly SELF_ANCHOR_DX: number = 4;
   static readonly SELF_ANCHOR_DY: number = -80;
   static readonly SELF_FALLBACK_X: number = 12;
   static readonly SELF_FALLBACK_DY: number = -160;
 
-  /** L p3: right of portrait column, not toward pool heart. */
-  static readonly LEFT_ANCHOR_DX: number = 8;
-  static readonly LEFT_ANCHOR_DY: number = -6;
-  static readonly LEFT_FALLBACK_X: number = 16;
+  /** p3 左座: 头像左侧外侧/下侧空白，不朝池内收. */
+  static readonly LEFT_ANCHOR_DX: number = -80;
+  static readonly LEFT_ANCHOR_DY: number = 8;
+  static readonly LEFT_FALLBACK_X: number = 8;
   static readonly LEFT_FALLBACK_Y: number = 110;
 
-  /** R p1: left of portrait column, not toward pool heart. */
-  static readonly RIGHT_ANCHOR_DX: number = -80;
-  static readonly RIGHT_ANCHOR_DY: number = -6;
-  static readonly RIGHT_FALLBACK_DX: number = -88;
-  static readonly RIGHT_FALLBACK_Y: number = 110;
+  /** p1 右座: 头像右侧外侧/下侧空白，不朝池内收. */
+  static readonly RIGHT_ANCHOR_DX: number = 8;
+  static readonly RIGHT_ANCHOR_DY: number = 10;
+  static readonly RIGHT_FALLBACK_DX: number = -8;
+  static readonly RIGHT_FALLBACK_Y: number = 120;
 
-  /** Top p2: right of 44vp portrait; DY must not walk down into pool. */
-  static readonly TOP_ANCHOR_DX: number = 52;
-  static readonly TOP_ANCHOR_DY: number = 4;
-  static readonly TOP_FALLBACK_X: number = 220;
-  static readonly TOP_FALLBACK_Y: number = 18;
+  /** p2 对家: 头像左侧水平旁缝；DY 不朝下走进池. */
+  static readonly TOP_ANCHOR_DX: number = -80;
+  static readonly TOP_ANCHOR_DY: number = 0;
+  static readonly TOP_FALLBACK_X: number = 200;
+  static readonly TOP_FALLBACK_Y: number = 16;
 
   static smashTotalMs(): number {
     return ChoiceActFx.LIFT_MS + ChoiceActFx.SMASH_MS + ChoiceActFx.SHAKE_MS;

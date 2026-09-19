@@ -2939,7 +2939,7 @@ struct Table {
   }
 
   /**
-   * Per-seat avatar-side empty slot (#243 v0.2). Four distinct anchors.
+   * Per-seat avatar-side empty slot (17a v0.2.0 §2 / #243). Four distinct anchors.
    * Smash uses the same placement (in-place lift/smash). Never lb_cmp_hand /
    * confirm bar / lb_cmp_pool / ring–hand belt / pool heart (S19-7 / S19-9).
    */
@@ -2947,6 +2947,7 @@ struct Table {
     const origin: number[] = this.toPlayOverlay(this.seatXs[seatId], this.seatYs[seatId]);
     const measured: boolean = this.seatWs[seatId] > 0 && this.seatHs[seatId] > 0;
     if (seatId === TableCompass.BOTTOM) {
+      // self: 底带左槽头像上侧旁缝，不进手牌行.
       if (!measured) {
         return [ChoiceActFx.SELF_FALLBACK_X,
           this.choiceActFallbackPlayH() + ChoiceActFx.SELF_FALLBACK_DY];
@@ -2955,20 +2956,23 @@ struct Table {
         origin[1] + ChoiceActFx.SELF_ANCHOR_DY];
     }
     if (seatId === TableCompass.LEFT) {
+      // p3: 左边竖直中 · 头像左侧外侧空白，不朝池内收.
       if (!measured) {
         return [ChoiceActFx.LEFT_FALLBACK_X, ChoiceActFx.LEFT_FALLBACK_Y];
       }
-      return [origin[0] + this.seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX,
+      return [origin[0] + ChoiceActFx.LEFT_ANCHOR_DX,
         origin[1] + ChoiceActFx.LEFT_ANCHOR_DY];
     }
     if (seatId === TableCompass.RIGHT) {
+      // p1: 右边竖直中 · 头像右侧外侧空白，不朝池内收.
       if (!measured) {
         return [this.choiceActFallbackPlayW() + ChoiceActFx.RIGHT_FALLBACK_DX,
           ChoiceActFx.RIGHT_FALLBACK_Y];
       }
-      return [origin[0] + ChoiceActFx.RIGHT_ANCHOR_DX,
+      return [origin[0] + this.seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX,
         origin[1] + ChoiceActFx.RIGHT_ANCHOR_DY];
     }
+    // p2: 上沿中 · 头像左侧水平旁缝，不朝下贴池.
     if (!measured) {
       return [ChoiceActFx.TOP_FALLBACK_X, ChoiceActFx.TOP_FALLBACK_Y];
     }

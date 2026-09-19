@@ -246,9 +246,9 @@ if (choiceFx.includes('SELF_ANCHOR_DX') &&
     !choiceFx.includes('INWARD_PCT') &&
     !choiceFx.includes('SELF_SIDE_VP') &&
     selfDy < 0 &&
-    leftDx > 0 &&
-    rightDx < 0 &&
-    topDy <= 16 &&
+    leftDx < 0 &&
+    rightDx > 0 &&
+    topDy <= 8 &&
     posBody.includes('TableCompass.BOTTOM') &&
     posBody.includes('TableCompass.LEFT') &&
     posBody.includes('TableCompass.RIGHT') &&
@@ -256,6 +256,8 @@ if (choiceFx.includes('SELF_ANCHOR_DX') &&
     posBody.includes('LEFT_ANCHOR_DX') &&
     posBody.includes('RIGHT_ANCHOR_DX') &&
     posBody.includes('TOP_ANCHOR_DX') &&
+    posBody.includes('seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX') &&
+    !posBody.includes('seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX') &&
     posBody.includes('lb_cmp_hand') &&
     (posBody.includes('avatar') || posBody.includes('头像')) &&
     !posBody.includes('challengeFrontLiftVp') &&
