@@ -132,6 +132,11 @@ export class ControlIds {
   static readonly CHALLENGE_PREV: string = 'lb_btn_challenge_prev';
   static readonly DEBUG_PLAY_REJECT: string = 'lb_btn_debug_play_reject';
   static readonly DEBUG_CHALLENGE_REJECT: string = 'lb_btn_debug_challenge_reject';
+  /** #236 · 全员桌槌层；HitTest None. */
+  static readonly CHOICE_ACT: string = 'lb_cmp_choice_act';
+  /** #236 · 局内调试：只播本地座位锤，零业务. */
+  static readonly DEBUG_HAMMER_DOUBT: string = 'lb_btn_debug_hammer_doubt';
+  static readonly DEBUG_HAMMER_BELIEVE: string = 'lb_btn_debug_hammer_believe';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
@@ -170,6 +175,15 @@ export class SfxIds {
   static readonly REVOLVER_SHOT: string = 'lb_sfx_revolver_shot';
   /** #168 · CollectRedeal / chamber advance. Disk: sfx_revolver_spin.wav. Never flip/launch/land. */
   static readonly REVOLVER_SPIN: string = 'lb_sfx_revolver_spin';
+  /** #236 · 质疑砸槌. Disk optional: sfx_hammer_hit.wav. Never flip/launch/land. */
+  static readonly HAMMER_HIT: string = 'lb_sfx_hammer_hit';
+  /** #236 · 相信搁槌. Disk optional: sfx_hammer_rest.wav. Never flip/launch/land. */
+  static readonly HAMMER_REST: string = 'lb_sfx_hammer_rest';
+}
+
+/** Media file names. art_fx_mallet reserved until art lands (P0 geometry). */
+export class ArtIds {
+  static readonly FX_MALLET: string = 'art_fx_mallet';
 }
 
 export class PersistNs {

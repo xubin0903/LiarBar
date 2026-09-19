@@ -14,10 +14,12 @@ import { TableAudio } from '../features/table/TableAudio';
 import { TableBreakpoints, TableCompass } from '../features/table/TableLayout';
 import { ChallengeEntry } from '../features/table/components/ChallengeEntry';
 import { EmptySafeEntry } from '../features/table/components/EmptySafeEntry';
+import { HammerFx } from '../features/table/components/HammerFx';
 import { PlayFly } from '../features/table/components/PlayFly';
 import { PlayFrontPile } from '../features/table/components/PlayFrontPile';
 import { RevealStage } from '../features/table/components/RevealStage';
 import { ChallengeFx } from '../features/table/ChallengeFx';
+import { ChoiceActFx } from '../features/table/ChoiceActFx';
 import { PlayFlyFx } from '../features/table/PlayFlyFx';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
@@ -159,6 +161,15 @@ struct Table {
   @State debugSfxRenderer: boolean = true;
   /** EXP 5: debug panel touch-down earlier arm vs playFlip-only. */
   @State debugSfxArm: boolean = true;
+  /** #236 · 全员桌槌层（正式 ACK / 调试二键同一套）. */
+  @State choiceActOn: boolean = false;
+  @State choiceActKind: number = 0;
+  @State choiceActX: number = 0;
+  @State choiceActY: number = 0;
+  @State choiceActRot: number = 0;
+  @State choiceActLift: number = 0;
+  @State choiceActShake: number = 0;
+  @State choiceActFade: number = 1;
   @State silentHud: boolean = false;
   @State turnSeat: number = -1;
   @State calledSeat: number = -1;
@@ -223,6 +234,13 @@ struct Table {
   private revealForChallengeId: string = '';
   private npcBubbleTimer: number = -1;
   private challengeDebugReject: boolean = false;
+  private choiceActTimer: number = -1;
+  private choiceActHideTimer: number = -1;
+  private choiceActGen: number = 0;
+  private choiceActSeat: number = 0;
+  private choiceAwaitSeat: number = -1;
+  private choiceAwaitPlayId: string = '';
+  private choiceActForChallengeId: string = '';
   private rollbackHand: CardModel[] = [];
   private rollbackSelected: string[] = [];
   private queuedPlayId: string = '';
@@ -293,6 +311,7 @@ struct Table {
     this.cancelRevealTimer();
     this.cancelChallengeTimer();
     this.cancelNpcBubbleTimer();
+    this.cancelChoiceActTimer();
     AppRuntime.director.playBusy = false;
     if (this.hintTimer >= 0) {
       clearTimeout(this.hintTimer);
@@ -369,6 +388,9 @@ struct Table {
         // 16 play fly + pool hand. Above heart, below confirm bar.
         // Separate from DealFx.flyOn. Do not raise padB / GAP.
         this.playFlyLayer()
+
+        // #236 全员桌槌：行动座身前；HitTest None；不挡池/手/烛.
+        this.choiceActLayer()
 
         // 18 reveal dim (bg only) + stage. Same overlay band as play fly.
         this.revealLayer()
@@ -1145,6 +1167,36 @@ struct Table {
         .onClick(() => {
           this.onDebugChallengeReject();
         })
+      Text($r('app.string.lb_str_debug_hammer_doubt'))
+        .id(ControlIds.DEBUG_HAMMER_DOUBT)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor($r('app.color.tavern_accent'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugHammerDoubt();
+        })
+      Text($r('app.string.lb_str_debug_hammer_believe'))
+        .id(ControlIds.DEBUG_HAMMER_BELIEVE)
+        .fontColor($r('app.color.tavern_shadow'))
+        .fontSize($r('app.float.caption_text_size'))
+        .padding({
+          left: 10,
+          right: 10,
+          top: 4,
+          bottom: 4
+        })
+        .backgroundColor($r('app.color.tavern_accent'))
+        .borderRadius(6)
+        .onClick(() => {
+          this.onDebugHammerBelieve();
+        })
     }
     .id(ControlIds.DEBUG_LIFE)
     .padding(8)
@@ -1506,6 +1558,9 @@ struct Table {
     this.resetPlayFlyUi();
     this.resetRevealUi();
     this.revealForChallengeId = '';
+    this.retractChoiceAct();
+    this.clearChoiceAwait();
+    this.choiceActForChallengeId = '';
     this.closeChallengeEntry(false);
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
@@ -1574,6 +1629,7 @@ struct Table {
     this.applyTimer(snap);
     // Land may share the in-flight stamp; still (re)gate AwaitChallenge / EmptySafe.
     if (snap.phase === Phase.TURN) {
+      this.maybePlayChoiceActTrust(snap);
       this.syncEmptySafeEntry(snap);
       this.syncChallengeEntry(snap);
       // F2: AI TrustOrChallenge — dealer enter + thinking bubble table-wide.
@@ -1606,6 +1662,8 @@ struct Table {
       this.challengeResolvedPlayId = '';
       this.challengeEnterPlayId = '';
       this.revealForChallengeId = '';
+      this.choiceActForChallengeId = '';
+      this.clearChoiceAwait();
       this.clearChallengeBroadcast();
       if (this.hiddenCardIds.length > 0) {
         this.hiddenCardIds = [];
@@ -2246,6 +2304,26 @@ struct Table {
   }
 
   @Builder
+  choiceActLayer() {
+    Stack() {
+      HammerFx({
+        visible: this.choiceActOn,
+        kind: this.choiceActKind,
+        x: this.choiceActX,
+        y: this.choiceActY,
+        rot: this.choiceActRot,
+        lift: this.choiceActLift,
+        shake: this.choiceActShake,
+        fade: this.choiceActFade
+      })
+    }
+    .id(ControlIds.CHOICE_ACT)
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.None)
+  }
+
+  @Builder
   playFlyLayer() {
     Stack() {
       // Pool hand lives on dealPileAnchor (stack-local). Fly only here.
@@ -2518,6 +2596,7 @@ struct Table {
     this.confirmBusy = false;
     AppRuntime.director.playBusy = false;
     this.resetRevealUi();
+    this.retractChoiceAct();
     this.closeChallengeEntry(false);
   }
 
@@ -2626,6 +2705,232 @@ struct Table {
     Logger.info(TAG, 'debug challenge reject armed');
   }
 
+  /**
+   * #236 debug · 质疑锤. Local self seat only. Zero engine / reveal / lives.
+   */
+  private onDebugHammerDoubt(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    this.playChoiceAct(TableCompass.BOTTOM, ChoiceActFx.KIND_DOUBT);
+    Logger.info(TAG, 'debug hammer doubt localSeat=0 zero-logic');
+  }
+
+  /**
+   * #236 debug · 相信锤. Local self seat only. Zero engine / reveal / lives.
+   */
+  private onDebugHammerBelieve(): void {
+    if (!DebugBuild.lifeDecShown()) {
+      return;
+    }
+    this.playChoiceAct(TableCompass.BOTTOM, ChoiceActFx.KIND_BELIEVE);
+    Logger.info(TAG, 'debug hammer believe localSeat=0 zero-logic');
+  }
+
+  private noteChoiceAwait(seatId: number, playId: string): void {
+    this.choiceAwaitSeat = seatId;
+    this.choiceAwaitPlayId = playId;
+  }
+
+  private clearChoiceAwait(): void {
+    this.choiceAwaitSeat = -1;
+    this.choiceAwaitPlayId = '';
+  }
+
+  /**
+   * AI Trust: await seat played or skipped without CHALLENGE_RITUAL.
+   * Human Believe already plays + clears await in onChallengeBelieve.
+   */
+  private maybePlayChoiceActTrust(snap: MatchSnapshot): void {
+    if (this.choiceAwaitSeat < 0) {
+      return;
+    }
+    if (snap.lastPlay === null) {
+      this.clearChoiceAwait();
+      return;
+    }
+    if (snap.lastPlay.playId === this.choiceAwaitPlayId && snap.currentSeatId === this.choiceAwaitSeat) {
+      return;
+    }
+    if (snap.challenge !== null) {
+      this.clearChoiceAwait();
+      return;
+    }
+    const seat: number = this.choiceAwaitSeat;
+    this.clearChoiceAwait();
+    this.playChoiceAct(seat, ChoiceActFx.KIND_BELIEVE);
+  }
+
+  private playChoiceActForChallenge(snap: MatchSnapshot): void {
+    if (snap.challenge === null) {
+      return;
+    }
+    const chId: string = snap.challenge.challengeId;
+    if (this.choiceActForChallengeId === chId) {
+      return;
+    }
+    this.choiceActForChallengeId = chId;
+    this.clearChoiceAwait();
+    this.playChoiceAct(snap.challenge.challengerSeatId, ChoiceActFx.KIND_DOUBT);
+  }
+
+  /** Formal + debug share this visual/SFX. No engine calls. */
+  private playChoiceAct(seatId: number, kind: number): void {
+    this.cancelChoiceActTimer();
+    this.choiceActGen = this.choiceActGen + 1;
+    const gen: number = this.choiceActGen;
+    this.choiceActSeat = seatId;
+    this.choiceActKind = kind;
+    const pos: number[] = this.choiceActPosOf(seatId, kind);
+    this.choiceActX = pos[0];
+    this.choiceActY = pos[1];
+    this.choiceActShake = 0;
+    this.choiceActFade = 1;
+    this.choiceActOn = true;
+    if (kind === ChoiceActFx.KIND_DOUBT) {
+      this.choiceActRot = ChoiceActFx.RAISE_ROT;
+      this.choiceActLift = -ChoiceActFx.LIFT_VP;
+      this.choiceActTimer = setTimeout((): void => {
+        this.choiceActTimer = -1;
+        if (gen !== this.choiceActGen) {
+          return;
+        }
+        const smash: AnimateParam = {
+          duration: ChoiceActFx.SMASH_MS,
+          curve: Curve.EaseIn
+        };
+        animateTo(smash, (): void => {
+          this.choiceActRot = ChoiceActFx.DOWN_ROT;
+          this.choiceActLift = 0;
+        });
+        TableAudio.playHammerHit();
+        this.choiceActTimer = setTimeout((): void => {
+          this.choiceActTimer = -1;
+          if (gen !== this.choiceActGen) {
+            return;
+          }
+          const shakeOn: AnimateParam = {
+            duration: ChoiceActFx.SHAKE_MS / 2,
+            curve: Curve.EaseOut
+          };
+          animateTo(shakeOn, (): void => {
+            this.choiceActShake = ChoiceActFx.SHAKE_VP;
+          });
+          this.choiceActTimer = setTimeout((): void => {
+            this.choiceActTimer = -1;
+            if (gen !== this.choiceActGen) {
+              return;
+            }
+            const shakeOff: AnimateParam = {
+              duration: ChoiceActFx.SHAKE_MS / 2,
+              curve: Curve.EaseIn
+            };
+            animateTo(shakeOff, (): void => {
+              this.choiceActShake = 0;
+            });
+          }, ChoiceActFx.SHAKE_MS / 2);
+        }, ChoiceActFx.SMASH_MS);
+      }, ChoiceActFx.LIFT_MS);
+      this.armChoiceActAutoHide(ChoiceActFx.smashTotalMs() + ChoiceActFx.HOLD_MS);
+      return;
+    }
+    this.choiceActRot = ChoiceActFx.REST_FROM_ROT;
+    this.choiceActLift = -4;
+    const rest: AnimateParam = {
+      duration: ChoiceActFx.REST_MS,
+      curve: Curve.EaseOut
+    };
+    animateTo(rest, (): void => {
+      this.choiceActRot = ChoiceActFx.REST_ROT;
+      this.choiceActLift = 2;
+    });
+    TableAudio.playHammerRest();
+    this.armChoiceActAutoHide(ChoiceActFx.REST_MS + ChoiceActFx.HOLD_MS);
+  }
+
+  private armChoiceActAutoHide(delayMs: number): void {
+    if (this.choiceActHideTimer >= 0) {
+      clearTimeout(this.choiceActHideTimer);
+    }
+    const gen: number = this.choiceActGen;
+    this.choiceActHideTimer = setTimeout((): void => {
+      this.choiceActHideTimer = -1;
+      if (gen !== this.choiceActGen) {
+        return;
+      }
+      this.retractChoiceAct();
+    }, delayMs);
+  }
+
+  private retractChoiceAct(): void {
+    if (this.choiceActTimer >= 0) {
+      clearTimeout(this.choiceActTimer);
+      this.choiceActTimer = -1;
+    }
+    if (this.choiceActHideTimer >= 0) {
+      clearTimeout(this.choiceActHideTimer);
+      this.choiceActHideTimer = -1;
+    }
+    this.choiceActGen = this.choiceActGen + 1;
+    if (!this.choiceActOn) {
+      return;
+    }
+    const gen: number = this.choiceActGen;
+    const fade: AnimateParam = {
+      duration: ChoiceActFx.FADE_MS,
+      curve: Curve.EaseOut
+    };
+    animateTo(fade, (): void => {
+      this.choiceActFade = 0;
+    });
+    this.choiceActHideTimer = setTimeout((): void => {
+      this.choiceActHideTimer = -1;
+      if (gen !== this.choiceActGen) {
+        return;
+      }
+      this.choiceActOn = false;
+      this.choiceActFade = 1;
+      this.choiceActShake = 0;
+      this.choiceActKind = ChoiceActFx.KIND_NONE;
+    }, ChoiceActFx.FADE_MS);
+  }
+
+  private cancelChoiceActTimer(): void {
+    this.choiceActGen = this.choiceActGen + 1;
+    if (this.choiceActTimer >= 0) {
+      clearTimeout(this.choiceActTimer);
+      this.choiceActTimer = -1;
+    }
+    if (this.choiceActHideTimer >= 0) {
+      clearTimeout(this.choiceActHideTimer);
+      this.choiceActHideTimer = -1;
+    }
+  }
+
+  /**
+   * Seat-front slot. Smash vs rest use different offsets (S19-4).
+   * Stay off pool / hand row / self candles (S19-5).
+   */
+  private choiceActPosOf(seatId: number, kind: number): number[] {
+    const restX: number = kind === ChoiceActFx.KIND_BELIEVE ? ChoiceActFx.REST_SLOT_X : 0;
+    const restY: number = kind === ChoiceActFx.KIND_BELIEVE ? ChoiceActFx.REST_SLOT_Y : 0;
+    if (seatId === TableCompass.BOTTOM) {
+      const lift: number = this.challengeFrontLiftVp();
+      let x: number = this.stackW / 2 - this.padL + ChoiceActFx.SELF_SIDE_VP + restX;
+      let y: number = this.playH - lift - 6 + restY;
+      if (this.playH <= 0) {
+        y = 200 + restY;
+      }
+      return [x, y];
+    }
+    const origin: number[] = this.toPlayOverlay(this.seatXs[seatId], this.seatYs[seatId]);
+    const mid: number[] = this.poolCenterOverlay();
+    const inward: number = ChoiceActFx.INWARD_PCT;
+    const x: number = origin[0] + (mid[0] - origin[0]) * inward + restX;
+    const y: number = origin[1] + (mid[1] - origin[1]) * inward + restY;
+    return [x, y];
+  }
+
   private isEmptySafePending(snap: MatchSnapshot): boolean {
     return snap.emptySafePending === true;
   }
@@ -2650,6 +2955,7 @@ struct Table {
       return;
     }
     this.challengeEnterPlayId = playId;
+    this.noteChoiceAwait(snap.currentSeatId, playId);
     // R5: NPC await must also keep pool hand count = lastPlay.count visible.
     this.ensurePoolHandFromLastPlay(snap);
     this.challengeDealerEnter = this.readChallengeDealerEnter();
@@ -2713,7 +3019,10 @@ struct Table {
         TableAudio.playChallengeCommit();
         Logger.info(TAG, `${SfxIds.CHALLENGE_COMMIT} F2 AI challenge broadcast`);
       }
+      this.playChoiceActForChallenge(snap);
       this.beginRevealAfterAck(snap);
+    } else {
+      this.playChoiceActForChallenge(snap);
     }
   }
 
@@ -2919,6 +3228,7 @@ struct Table {
       return;
     }
     this.challengeTargetPlayId = snap.lastPlay.playId;
+    this.noteChoiceAwait(snap.currentSeatId, this.challengeTargetPlayId);
     this.challengeEntryOn = true;
     this.challengeCommitBusy = false;
     this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
@@ -3102,6 +3412,7 @@ struct Table {
       if (after.challenge !== null) {
         this.revealForChallengeId = after.challenge.challengeId;
       }
+      this.playChoiceActForChallenge(after);
       // Human challenger: 自位不用 NPC bubble; table-wide RevealStage is the cue.
       this.beginRevealAfterAck(after);
     } else {
@@ -3162,6 +3473,8 @@ struct Table {
       return;
     }
     this.revealDeferTries = 0;
+    // Reveal 起势：收锤走锤自己的砸拍，不改 DRAW_TO_FLIP_MS / REVEAL_HOLD_MS.
+    this.armChoiceActAutoHide(ChoiceActFx.smashTotalMs());
     const n: number = PlayFlyFx.clampCount(ranks.length);
     const w: number = PlayFlyFx.pileWidth(n);
     const h: number = PlayFlyFx.pileHeight();
@@ -3277,6 +3590,9 @@ struct Table {
     }
     Logger.info(TAG, fromTimeout ? 'AwaitChallenge timeout Believe' : 'AwaitChallenge Believe');
     this.challengeResolvedPlayId = this.challengeTargetPlayId;
+    this.clearChoiceAwait();
+    this.playChoiceAct(snap !== null ? snap.currentSeatId : TableCompass.BOTTOM,
+      ChoiceActFx.KIND_BELIEVE);
     this.closeChallengeEntry(true);
   }
 
