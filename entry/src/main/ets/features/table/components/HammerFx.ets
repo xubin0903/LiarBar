@@ -2,13 +2,14 @@ import { ControlIds } from '../../../common/Ids';
 import { ChoiceActFx } from '../ChoiceActFx';
 
 /**
- * lb_cmp_choice_act mallet sprite.
- * #238 frames: rest / raise / smash. No Spine.
+ * lb_cmp_choice_act mallet sprite. One instance per seat (resident rest).
+ * #238/#244 frames: rest / raise / smash. No Spine.
  * HitTest None — never covers pool / hand / candles.
  */
 @Component
 export struct HammerFx {
-  @Prop visible: boolean = false;
+  @Prop visible: boolean = true;
+  @Prop seatId: number = 0;
   @Prop kind: number = 0;
   @Prop x: number = 0;
   @Prop y: number = 0;
@@ -20,7 +21,7 @@ export struct HammerFx {
   build() {
     if (this.visible) {
       Image(this.malletSrc())
-        .id(`${ControlIds.CHOICE_ACT}_mallet`)
+        .id(`${ControlIds.CHOICE_ACT}_mallet_${this.seatId}`)
         .width(ChoiceActFx.MALLET_W)
         .height(ChoiceActFx.MALLET_H)
         .objectFit(ImageFit.Contain)
@@ -35,7 +36,7 @@ export struct HammerFx {
     }
   }
 
-  /** 质疑抬起 → up；砸下/短震 → hit；相信搁置/默认 → rest. */
+  /** 质疑抬起 → up；砸下/短震 → hit；常驻搁置 / 相信静置 → rest. */
   private malletSrc(): Resource {
     if (this.kind === ChoiceActFx.KIND_DOUBT) {
       if (this.shake !== 0 || this.lift > -ChoiceActFx.LIFT_VP) {
@@ -46,14 +47,8 @@ export struct HammerFx {
     return $r('app.media.art_fx_mallet');
   }
 
-  /**
-   * #238 rest frame is already horizontal. Subtract REST_ROT so believe
-   * lands on the painted pose while Table still drives this.rot.
-   */
+  /** Rest frame is already horizontal. Doubt uses RAISE/DOWN rot as driven. */
   private displayRot(): number {
-    if (this.kind === ChoiceActFx.KIND_BELIEVE) {
-      return this.rot - ChoiceActFx.REST_ROT;
-    }
     return this.rot;
   }
 }

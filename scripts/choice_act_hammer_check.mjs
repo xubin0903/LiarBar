@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Spec check: 质疑/相信桌槌 + 调试二键 (#236 / 质疑相信-桌槌表现).
+ * Spec check: 四座常驻桌槌 + 质疑就地砸 + 相信静置 (#243 v0.2).
  * Cloud has no DevEco — this is not CompileArkTS. 合入 ≠ 终验.
  */
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -54,7 +54,7 @@ if (ids.includes("CHOICE_ACT: string = 'lb_cmp_choice_act'") &&
     ids.includes("FX_MALLET_UP: string = 'art_fx_mallet_up'") &&
     ids.includes("FX_MALLET_HIT: string = 'art_fx_mallet_hit'") &&
     !ids.includes('P0 geometry')) {
-  pass('ids: choice act layer + debug hammer + sfx + #238 mallet frames');
+  pass('ids: choice act layer + debug hammer + sfx + mallet frames');
 } else {
   fail('locked hammer ids missing');
 }
@@ -74,20 +74,32 @@ if (strings.includes('lb_str_debug_hammer_doubt') &&
     strings.includes('lb_str_debug_hammer_believe') &&
     strings.includes('调试·相信锤') &&
     strings.includes('lb_str_challenge_no_act') &&
-    strings.includes('lb_str_debug_hammer_has_logic')) {
-  pass('string keys: debug labels + S19-1/6');
+    strings.includes('lb_str_debug_hammer_has_logic') &&
+    strings.includes('lb_str_hammer_on_cards') &&
+    strings.includes('锤压在牌上') &&
+    strings.includes('lb_str_believe_hammer_moves') &&
+    strings.includes('相信还在动') &&
+    strings.includes('lb_str_hammer_smash_on_pool') &&
+    strings.includes('砸点贴牌心') &&
+    strings.includes('相信无常驻锤')) {
+  pass('string keys: debug labels + S19-1/6 + S19-7/8/9');
 } else {
   fail('debug / S19 strings missing');
 }
 
 if (table.includes('choiceActLayer()') &&
-    table.includes('HammerFx({') &&
+    table.includes('residentMallet(TableCompass.BOTTOM)') &&
+    table.includes('residentMallet(TableCompass.RIGHT)') &&
+    table.includes('residentMallet(TableCompass.TOP)') &&
+    table.includes('residentMallet(TableCompass.LEFT)') &&
+    table.includes('visible: true') &&
     table.includes('ControlIds.CHOICE_ACT') &&
     table.includes('HitTestMode.None') &&
-    hammer.includes('HitTestMode.None')) {
-  pass('HammerFx hang point on Table choiceActLayer (HitTest None)');
+    hammer.includes('HitTestMode.None') &&
+    hammer.includes('seatId')) {
+  pass('four resident HammerFx hang points (HitTest None, always visible)');
 } else {
-  fail('HammerFx hang point missing');
+  fail('resident four-mallet hang point missing');
 }
 
 const hammerCode = hammer.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
@@ -119,48 +131,70 @@ const believeFn = table.split('private onDebugHammerBelieve')[1] || '';
 const believeBody = believeFn.split('private ', 1)[0];
 const debugBanned = ['intentChallenge', 'beginRevealAfterAck', 'debugDecLife',
   'engine.skip', 'this.pull(', 'chooseEmptyYou', 'chooseEmptyShangjia'];
-const debugClean = [doubtBody, believeBody].every((body) =>
-  body.includes('playChoiceAct') &&
-  body.includes('TableCompass.BOTTOM') &&
-  debugBanned.every((ban) => !body.includes(ban)));
-if (debugClean) {
-  pass('debug hammer: local seat only, zero business');
+const doubtClean = doubtBody.includes('playChoiceAct') &&
+  doubtBody.includes('TableCompass.BOTTOM') &&
+  doubtBody.includes('KIND_DOUBT') &&
+  debugBanned.every((ban) => !doubtBody.includes(ban));
+const believeClean = !believeBody.includes('playChoiceAct') &&
+  !believeBody.includes('animateTo') &&
+  debugBanned.every((ban) => !believeBody.includes(ban));
+if (doubtClean && believeClean) {
+  pass('debug: doubt local smash; believe no-anim; both zero business');
 } else {
-  fail('debug hammer leaked engine / reveal / lives');
+  fail('debug hammer leaked engine / reveal / believe still animates');
 }
 
 if (table.includes('playChoiceActForChallenge') &&
     table.includes('this.playChoiceActForChallenge(after)') &&
     table.includes('this.playChoiceActForChallenge(snap)') &&
     table.includes('ChoiceActFx.KIND_DOUBT') &&
-    table.includes('ChoiceActFx.KIND_BELIEVE') &&
     table.includes('maybePlayChoiceActTrust')) {
-  pass('formal ACK: ChallengeCommit + Trust + AI same playChoiceAct');
+  pass('formal ACK: ChallengeCommit still playChoiceAct smash');
 } else {
-  fail('formal hammer broadcast incomplete');
+  fail('formal doubt hammer broadcast incomplete');
 }
 
 const formalBelieve = table.split('private onChallengeBelieve')[1] || '';
 const formalBelieveBody = formalBelieve.split('private ', 1)[0];
-if (formalBelieveBody.includes('playChoiceAct') &&
-    formalBelieveBody.includes('KIND_BELIEVE') &&
+const trustFn = table.split('private maybePlayChoiceActTrust')[1] || '';
+const trustBody = trustFn.split('private ', 1)[0];
+if (!formalBelieveBody.includes('playChoiceAct') &&
+    !formalBelieveBody.includes('KIND_BELIEVE') &&
     !formalBelieveBody.includes('beginRevealAfterAck') &&
     !formalBelieveBody.includes('playPlayLaunch') &&
-    !formalBelieveBody.includes('playRevealFlip')) {
-  pass('formal Trust plays rest hammer; no reveal/launch/flip');
+    !formalBelieveBody.includes('playRevealFlip') &&
+    !formalBelieveBody.includes('playHammerRest') &&
+    !trustBody.includes('playChoiceAct') &&
+    !trustBody.includes('KIND_BELIEVE')) {
+  pass('S19-8: formal Trust / AI believe do not play hammer motion');
 } else {
-  fail('formal Trust hammer path wrong');
+  fail('formal Trust still plays rest/believe hammer');
+}
+
+const playFn = table.split('private playChoiceAct(')[1] || '';
+const playBody = playFn.split('private retractChoiceAct')[0] || '';
+if (playBody.includes('kind !== ChoiceActFx.KIND_DOUBT') &&
+    playBody.includes('RAISE_ROT') &&
+    playBody.includes('DOWN_ROT') &&
+    playBody.includes('this.choiceActRot = 0') &&
+    playBody.includes('this.choiceActLift = 0') &&
+    !playBody.includes('playHammerRest') &&
+    !playBody.includes('REST_SLOT') &&
+    !playBody.includes('poolCenterOverlay')) {
+  pass('doubt: in-place lift/smash/return-rest; no rest-slot / pool fly');
+} else {
+  fail('playChoiceAct smash path wrong');
 }
 
 const beginFn = table.split('private beginRevealAfterAck')[1] || '';
 const beginBody = beginFn.split('private ranksCsv')[0] || '';
-if (beginBody.includes('armChoiceActAutoHide') &&
-    beginBody.includes('PlayFlyFx.DRAW_TO_FLIP_MS') &&
+if (beginBody.includes('PlayFlyFx.DRAW_TO_FLIP_MS') &&
     beginBody.includes('PlayFlyFx.REVEAL_HOLD_MS') &&
     /DRAW_TO_FLIP_MS[\s\S]{0,400}REVEAL_HOLD_MS[\s\S]{0,200}resetRevealUi/.test(beginBody) &&
     !beginBody.includes('DRAW_TO_FLIP_MS =') &&
-    !beginBody.includes('REVEAL_HOLD_MS =')) {
-  pass('reveal 起势收锤 decoupled; 1000/3000 nest unchanged');
+    !beginBody.includes('REVEAL_HOLD_MS =') &&
+    !beginBody.includes('armChoiceActAutoHide')) {
+  pass('reveal 1000/3000 nest unchanged; smash no longer hides resident mallets');
 } else {
   fail('reveal hammer retract coupled or gate nest broken');
 }
@@ -187,7 +221,7 @@ if (audio.includes('playOptional') &&
 const hitWav = 'entry/src/main/resources/rawfile/audio/sfx/sfx_hammer_hit.wav';
 const restWav = 'entry/src/main/resources/rawfile/audio/sfx/sfx_hammer_rest.wav';
 if (existsSync(join(root, hitWav)) && statSync(join(root, hitWav)).size >= 8000 &&
-    existsSync(join(root, restWav)) && statSync(join(root, restWav)).size >= 5000 &&
+    existsSync(join(root, restWav)) && statSync(join(root, restWav)).size >= 4000 &&
     audio.includes("PATH_HAMMER_HIT: string = 'audio/sfx/sfx_hammer_hit.wav'") &&
     audio.includes("PATH_HAMMER_REST: string = 'audio/sfx/sfx_hammer_rest.wav'") &&
     audio.includes('loadOptional(PATH_HAMMER_HIT)') &&
@@ -197,15 +231,42 @@ if (existsSync(join(root, hitWav)) && statSync(join(root, hitWav)).size >= 8000 
   fail('hammer SFX rawfile or loadOptional missing');
 }
 
-if (choiceFx.includes('RAISE_ROT') &&
-    choiceFx.includes('REST_ROT') &&
-    choiceFx.includes('REST_SLOT_X') &&
-    table.includes('animateTo') &&
-    table.includes('choiceActRot') &&
-    table.includes('choiceActLift')) {
-  pass('smash lift/rotate vs rest flat slot (animateTo)');
+const posIdx = table.indexOf('private choiceActPosOf');
+const posEnd = table.indexOf('private choiceActFallbackPlayH');
+const posBody = posIdx >= 0 && posEnd > posIdx ? table.slice(Math.max(0, posIdx - 420), posEnd) : '';
+const selfDy = Number((/SELF_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
+const leftDx = Number((/LEFT_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
+const rightDx = Number((/RIGHT_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
+const topDy = Number((/TOP_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 99);
+if (choiceFx.includes('SELF_ANCHOR_DX') &&
+    choiceFx.includes('LEFT_ANCHOR_DX') &&
+    choiceFx.includes('RIGHT_ANCHOR_DX') &&
+    choiceFx.includes('TOP_ANCHOR_DX') &&
+    !choiceFx.includes('REST_SLOT_X') &&
+    !choiceFx.includes('INWARD_PCT') &&
+    !choiceFx.includes('SELF_SIDE_VP') &&
+    selfDy < 0 &&
+    leftDx < 0 &&
+    rightDx > 0 &&
+    topDy <= 8 &&
+    posBody.includes('TableCompass.BOTTOM') &&
+    posBody.includes('TableCompass.LEFT') &&
+    posBody.includes('TableCompass.RIGHT') &&
+    posBody.includes('SELF_ANCHOR_DX') &&
+    posBody.includes('LEFT_ANCHOR_DX') &&
+    posBody.includes('RIGHT_ANCHOR_DX') &&
+    posBody.includes('TOP_ANCHOR_DX') &&
+    posBody.includes('seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX') &&
+    !posBody.includes('seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX') &&
+    posBody.includes('lb_cmp_hand') &&
+    (posBody.includes('avatar') || posBody.includes('头像')) &&
+    !posBody.includes('challengeFrontLiftVp') &&
+    !posBody.includes('poolCenterOverlay') &&
+    !posBody.includes('REST_SLOT') &&
+    !posBody.includes('INWARD_PCT')) {
+  pass('S19-7/9: four distinct avatar-side anchors; no hand belt / pool heart');
 } else {
-  fail('hammer poses incomplete');
+  fail('choiceActPosOf still shared-slot or overlaps hand/pool');
 }
 
 if (!engine.includes('playChoiceAct') &&
