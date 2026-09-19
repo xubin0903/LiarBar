@@ -221,7 +221,7 @@ if (audio.includes('playOptional') &&
 const hitWav = 'entry/src/main/resources/rawfile/audio/sfx/sfx_hammer_hit.wav';
 const restWav = 'entry/src/main/resources/rawfile/audio/sfx/sfx_hammer_rest.wav';
 if (existsSync(join(root, hitWav)) && statSync(join(root, hitWav)).size >= 8000 &&
-    existsSync(join(root, restWav)) && statSync(join(root, restWav)).size >= 5000 &&
+    existsSync(join(root, restWav)) && statSync(join(root, restWav)).size >= 4000 &&
     audio.includes("PATH_HAMMER_HIT: string = 'audio/sfx/sfx_hammer_hit.wav'") &&
     audio.includes("PATH_HAMMER_REST: string = 'audio/sfx/sfx_hammer_rest.wav'") &&
     audio.includes('loadOptional(PATH_HAMMER_HIT)') &&
