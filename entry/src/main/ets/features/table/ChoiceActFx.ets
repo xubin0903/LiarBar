@@ -40,7 +40,10 @@ export class ChoiceActFx {
 
   /**
    * Rebuild 朝向锁：锤头朝荷官（仅四向）；砸轨按座分；SELF 金框右空.
-   * Art rest @0° = 柄左锤右. TOP↓ SELF↑ LEFT→ RIGHT←.
+   * 美术主轴：rest/up/hit 槌头朝 +X（右）。旋出：
+   * LEFT→=0 / TOP↓=90 / RIGHT←=180 / SELF↑=270.
+   * 负责人「0=朝上」表 SELF=0/LEFT=90/TOP=180/RIGHT=270 ≡ 本表各+90；
+   * 轴统一票若改主轴，只调 ART_HEAD_OFFSET（现 0）。
    */
   /** self: 金框右侧空地（seatW 外）；禁压头像/烛. */
   static readonly SELF_OUT_GAP: number = 8;
@@ -70,18 +73,22 @@ export class ChoiceActFx {
     return ChoiceActFx.LIFT_MS + ChoiceActFx.SMASH_MS + ChoiceActFx.SHAKE_MS;
   }
 
+  /** Art head=+X offset. 轴统一票改主轴时只动这里. */
+  static readonly ART_HEAD_OFFSET: number = 0;
+
   /** Rest rot: hammer head toward dealer. Compass B=0 R=1 T=2 L=3. */
   static restRotOf(seatId: number): number {
+    let deg: number = 0;
     if (seatId === 0) {
-      return -90;
+      deg = 270;
+    } else if (seatId === 1) {
+      deg = 180;
+    } else if (seatId === 2) {
+      deg = 90;
+    } else {
+      deg = 0;
     }
-    if (seatId === 1) {
-      return 180;
-    }
-    if (seatId === 2) {
-      return 90;
-    }
-    return 0;
+    return deg + ChoiceActFx.ART_HEAD_OFFSET;
   }
 
   /** Raise offset sign along smash axis (away from dealer). */
