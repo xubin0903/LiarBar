@@ -40,14 +40,14 @@ export class ChoiceActFx {
   static readonly REST_ROT: number = 82;
 
   /**
-   * Aron 纠锁：头像旁空白带（朝桌心空位）。停用左右外缘.
-   * LEFT 头像右侧空朝桌 · RIGHT 头像左侧空朝桌 · TOP/self 旁空不压手.
+   * Aron Rebuild 再打回：旁空朝桌 ≠ 硬外偏；禁压脸 / 禁飘桌心.
+   * LEFT 头像右空朝桌 · RIGHT 头像左空朝桌 · TOP 头像左侧旁空离脸 · self 底座旁空不压手.
    */
-  /** self: 头像右旁空；禁压手牌. */
-  static readonly SELF_ANCHOR_DX: number = 48;
-  static readonly SELF_ANCHOR_DY: number = -96;
-  static readonly SELF_FALLBACK_X: number = 56;
-  static readonly SELF_FALLBACK_DY: number = -168;
+  /** self: 贴 40 头像右旁缝；DY 只轻抬，禁 -96 飘到荷官旁. */
+  static readonly SELF_ANCHOR_DX: number = 44;
+  static readonly SELF_ANCHOR_DY: number = -24;
+  static readonly SELF_FALLBACK_X: number = 48;
+  static readonly SELF_FALLBACK_DY: number = -48;
 
   /** p3 左座: 头像右侧空（朝桌）。禁负 DX 贴左缘/刘海. */
   static readonly LEFT_ANCHOR_DX: number = 52;
@@ -61,10 +61,10 @@ export class ChoiceActFx {
   static readonly RIGHT_FALLBACK_DX: number = -120;
   static readonly RIGHT_FALLBACK_Y: number = 120;
 
-  /** p2 对家: 头像旁空；DY 不朝下走进池. */
-  static readonly TOP_ANCHOR_DX: number = -56;
-  static readonly TOP_ANCHOR_DY: number = 0;
-  static readonly TOP_FALLBACK_X: number = 200;
+  /** p2 对家: 头像左侧旁空 = origin - MALLET_W - GAP（整槌离脸，禁压脸）. */
+  static readonly TOP_SIDE_GAP: number = 12;
+  static readonly TOP_ANCHOR_DY: number = 4;
+  static readonly TOP_FALLBACK_X: number = 160;
   static readonly TOP_FALLBACK_Y: number = 16;
 
   static smashTotalMs(): number {

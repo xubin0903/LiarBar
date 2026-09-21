@@ -2939,15 +2939,16 @@ struct Table {
   }
 
   /**
-   * Aron 纠锁：头像旁空白带（朝桌心空位）。停用左右外缘.
-   * LEFT 头像右侧空朝桌 · RIGHT 头像左侧空朝桌 · TOP/self 旁空不压手.
-   * Smash = same placement. Never lb_cmp_hand / pool / candles (S19-7/9).
+   * Aron Rebuild 再打回：旁空朝桌 ≠ 硬外偏.
+   * LEFT 头像右空朝桌 · RIGHT 头像左空朝桌 ·
+   * TOP 头像左旁空整槌离脸 · self 底座头像旁空（禁飘荷官旁 / 禁压手）.
+   * Smash = same placement. Never lb_cmp_hand / pool / face (S19-10/12).
    */
   private choiceActPosOf(seatId: number): number[] {
     const origin: number[] = this.toPlayOverlay(this.seatXs[seatId], this.seatYs[seatId]);
     const measured: boolean = this.seatWs[seatId] > 0 && this.seatHs[seatId] > 0;
     if (seatId === TableCompass.BOTTOM) {
-      // self: 头像旁空（右空），不进手牌行.
+      // self: 底座头像右旁空；轻抬离牌，禁大 DY 飘到荷官右侧半空.
       if (!measured) {
         return [ChoiceActFx.SELF_FALLBACK_X,
           this.choiceActFallbackPlayH() + ChoiceActFx.SELF_FALLBACK_DY];
@@ -2972,11 +2973,11 @@ struct Table {
       return [origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.RIGHT_SIDE_GAP,
         origin[1] + ChoiceActFx.RIGHT_ANCHOR_DY];
     }
-    // p2: 头像旁空，不朝下贴池.
+    // p2: 头像左侧旁空 = 整槌在头像左外，禁压脸.
     if (!measured) {
       return [ChoiceActFx.TOP_FALLBACK_X, ChoiceActFx.TOP_FALLBACK_Y];
     }
-    return [origin[0] + ChoiceActFx.TOP_ANCHOR_DX,
+    return [origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.TOP_SIDE_GAP,
       origin[1] + ChoiceActFx.TOP_ANCHOR_DY];
   }
 
