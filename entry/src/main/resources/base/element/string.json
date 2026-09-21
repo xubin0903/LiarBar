@@ -687,6 +687,14 @@
     {
       "name": "_comment_lb_str_hammer_presses_cards",
       "value": "S19-12. FAIL if mallet presses cards incl. self hand; may cross S19-5/7."
+    },
+    {
+      "name": "lb_str_hammer_face_wrong",
+      "value": "锤头朝向错"
+    },
+    {
+      "name": "_comment_lb_str_hammer_face_wrong",
+      "value": "S19-13. FAIL if mallet head not facing dealer: TOP↓ SELF↑ LEFT→ RIGHT←; or same left smash for all seats."
     }
   ]
 }
