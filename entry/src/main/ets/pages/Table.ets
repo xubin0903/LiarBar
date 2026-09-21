@@ -2792,8 +2792,9 @@ struct Table {
     this.choiceActShake = 0;
     this.choiceActFade = 1;
     this.choiceActOn = true;
-    this.choiceActRot = ChoiceActFx.RAISE_ROT;
-    this.choiceActLift = -ChoiceActFx.LIFT_VP;
+    const restRot: number = ChoiceActFx.restRotOf(seatId);
+    this.choiceActRot = restRot + ChoiceActFx.RAISE_DELTA;
+    this.choiceActLift = ChoiceActFx.raiseLiftSign(seatId) * ChoiceActFx.LIFT_VP;
     this.choiceActTimer = setTimeout((): void => {
       this.choiceActTimer = -1;
       if (gen !== this.choiceActGen) {
@@ -2804,7 +2805,7 @@ struct Table {
         curve: Curve.EaseIn
       };
       animateTo(smash, (): void => {
-        this.choiceActRot = ChoiceActFx.DOWN_ROT;
+        this.choiceActRot = restRot + ChoiceActFx.DOWN_DELTA;
         this.choiceActLift = 0;
       });
       TableAudio.playHammerHit();
@@ -2847,7 +2848,7 @@ struct Table {
                 curve: Curve.EaseOut
               };
               animateTo(rest, (): void => {
-                this.choiceActRot = 0;
+                this.choiceActRot = ChoiceActFx.restRotOf(seatId);
                 this.choiceActLift = 0;
               });
               this.choiceActTimer = setTimeout((): void => {
@@ -2921,7 +2922,7 @@ struct Table {
     if (this.choiceActOn && this.choiceActSeat === seatId) {
       return this.choiceActRot;
     }
-    return 0;
+    return ChoiceActFx.restRotOf(seatId);
   }
 
   private malletLiftOf(seatId: number): number {
@@ -2939,21 +2940,20 @@ struct Table {
   }
 
   /**
-   * Aron Rebuild 再打回：旁空朝桌 ≠ 硬外偏.
-   * LEFT 头像右空朝桌 · RIGHT 头像左空朝桌 ·
-   * TOP 头像左旁空整槌离脸 · self 底座头像旁空（禁飘荷官旁 / 禁压手）.
+   * Rebuild 朝向锁：旁空朝桌 + 锤头朝荷官.
+   * LEFT 右空 · RIGHT 左空 · TOP 左旁空离脸 · self 金框右空.
    * Smash = same placement. Never lb_cmp_hand / pool / face (S19-10/12).
    */
   private choiceActPosOf(seatId: number): number[] {
     const origin: number[] = this.toPlayOverlay(this.seatXs[seatId], this.seatYs[seatId]);
     const measured: boolean = this.seatWs[seatId] > 0 && this.seatHs[seatId] > 0;
     if (seatId === TableCompass.BOTTOM) {
-      // self: 底座头像右旁空；轻抬离牌，禁大 DY 飘到荷官右侧半空.
+      // self: 金框右侧空地；禁压头像/烛 / 禁飘荷官旁.
       if (!measured) {
         return [ChoiceActFx.SELF_FALLBACK_X,
           this.choiceActFallbackPlayH() + ChoiceActFx.SELF_FALLBACK_DY];
       }
-      return [origin[0] + ChoiceActFx.SELF_ANCHOR_DX,
+      return [origin[0] + this.seatWs[seatId] + ChoiceActFx.SELF_OUT_GAP,
         origin[1] + ChoiceActFx.SELF_ANCHOR_DY];
     }
     if (seatId === TableCompass.LEFT) {
