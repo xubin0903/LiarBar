@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""桌槌 P0 assets: art_fx_mallet* · 2.5D 假透视砸 · 主轴槌头朝 +X · table-prop.
+"""桌槌 P0 assets: art_fx_mallet* · 方案A 假俯视加强 · 主轴槌头朝 +X · table-prop.
 
-PM LOCK (2.5D from-above smash · axis unify · after #251/#264):
-  - Smash reads as 2.5D "from above down" (假透视), NOT sideways swing
-  - ALL three frames share SAME principal axis: mallet HEAD toward +X (right)
-  - REST = still table-prop, head +X
-  - UP   = raised above table: slight scale-up + faux foreshorten (fake top-down);
-           SAME axis (+X) — NOT head-up baked angle
-  - HIT  = slam onto table: contact shadow + dust punch under head;
-           still readable wood mallet; SAME axis (+X) — NOT head-down bake
-  - Client rotates by seat 0/90/180/270; DO NOT bake 4-dir × 3 = 12 frames
+PM LOCK (Plan A · fake top-down · after #268 still-flat Rebuild):
+  - UP   = VISIBLE top-face ellipse on head (copper band RING + top highlight);
+           handle clearly shorter+thicker (perspective foreshorten);
+           slightly larger canvas fill than REST ("raised nearer")
+  - HIT  = stronger contact ellipse shadow + short radial dust under head;
+           head slightly flattened against table
+  - ALL three frames: principal axis mallet HEAD toward +X (right)
+  - DO NOT bake 4-dir × 3 = 12; no mid transition frame
+  - REST leave unless axis broken; SFX WAV bytes UNCHANGED
   - Table-prop: canvas 512²; safe inset ≤8%; silhouette ~85% fill
-  - Clear wooden mallet: cylinder head + tapered handle + grain + brass
-  - Keep heavy hit SFX bytes as-is (prefer leave WAV; ~−6 dBFS)
+  - Warm tavern wood cylinder head + taper handle + brass
+  - Must read as 2.5D top-down, NOT flat side view
   - Zero .ets. 合入 ≠ 终验. S19-7 = layout not art.
 
 Call ids:
@@ -21,8 +21,8 @@ Call ids:
 
 Art slots (all head → +X):
   art_fx_mallet.png      — REST / believe (static, head +X)
-  art_fx_mallet_up.png   — RAISE (2.5D raised foreshorten, head +X)
-  art_fx_mallet_hit.png  — SMASH (table impact shadow/dust, head +X)
+  art_fx_mallet_up.png   — RAISE (Plan A top-face ellipse + foreshorten, head +X)
+  art_fx_mallet_hit.png  — SMASH (stronger contact shadow/radial dust, head +X)
 
 Canvas 512²; safe inset ≤8%; mallet silhouette ~85% fill. Zero .ets. Seeds fixed.
 """
@@ -97,7 +97,7 @@ HANDLE_TIP = (0x5A, 0x34, 0x1C)
 GRAIN = (0x42, 0x22, 0x10)
 
 # New seeds so rebuild differs from rejected #248 thumbnail bytes
-SEED_ART = 202609214
+SEED_ART = 202609217  # Plan A re-bake (after #268 flat)
 SEED_HIT = 202609192  # keep hit Foley character (~−6 dBFS) unless tiny
 SEED_REST = 202609193
 
@@ -174,36 +174,40 @@ def _draw_cylinder_head(
     impact: bool,
     raised: bool = False,
 ) -> tuple[int, int, int, int]:
-    """2.5D faux top-down wooden cylinder head (axis ⊥ handle, along Y).
+    """2.5D wooden cylinder head (axis ⊥ handle, along Y).
 
-    Barrel / drum mallet head — warm tavern wood + metal bands.
-    raised: more top-face ellipse (foreshorten / fake perspective from above).
-    impact: contact dust punch under head (vertical smash read), keep wood readable.
+    Plan A raised: DOMINANT top-face ellipse + copper band RING + top highlight
+    (fake top-down — NOT pure side silhouette).
+    impact: stronger contact ellipse + short radial dust; keep wood readable.
     """
     x0 = hcx - head_len // 2
     x1 = hcx + head_len // 2
     y0 = hcy - head_rad
     y1 = hcy + head_rad
-    r_edge = max(12, head_rad // 2)  # rounded barrel silhouette
+    r_edge = max(12, head_rad // 2)
 
-    # Soft under-shadow (raised = lighter/higher; impact = stronger contact pool)
+    # --- Ground / contact shadow ---
     if impact:
-        # Heavy contact shadow under head — reads as slamming onto table from above
-        sh_rx = head_len // 2 + 18
-        sh_ry = max(10, head_rad // 3 + 6)
+        # Stronger contact ellipse under head (table slam from above)
+        sh_rx = head_len // 2 + 28
+        sh_ry = max(14, head_rad // 2 + 10)
         ld.ellipse(
-            (hcx - sh_rx, hcy + head_rad // 3, hcx + sh_rx + 4, hcy + head_rad // 3 + sh_ry * 2),
-            fill=rgba(SHADOW, 130),
+            (hcx - sh_rx, hcy + head_rad // 4, hcx + sh_rx + 6, hcy + head_rad // 4 + sh_ry * 2 + 8),
+            fill=rgba(SHADOW, 165),
         )
         ld.ellipse(
-            (hcx - sh_rx + 8, hcy + head_rad // 4, hcx + sh_rx - 4, hcy + head_rad // 4 + sh_ry),
+            (hcx - sh_rx + 10, hcy + head_rad // 5, hcx + sh_rx - 2, hcy + head_rad // 5 + sh_ry + 4),
+            fill=rgba(SHADOW, 120),
+        )
+        ld.ellipse(
+            (hcx - sh_rx // 2, hcy + 2, hcx + sh_rx // 2 + 8, hcy + sh_ry),
             fill=rgba(SHADOW, 90),
         )
     elif raised:
         # Distant soft blob — object floats above table
         ld.ellipse(
-            (x0 + 10, y1 + 2, x1 - 6, y1 + max(8, head_rad // 5)),
-            fill=rgba(SHADOW, 40),
+            (x0 + 14, y1 + 6, x1 - 8, y1 + max(10, head_rad // 4)),
+            fill=rgba(SHADOW, 28),
         )
     else:
         ld.ellipse(
@@ -211,25 +215,96 @@ def _draw_cylinder_head(
             fill=rgba(SHADOW, 80),
         )
 
-    # Main barrel body — solid rounded rect first (smooth silhouette)
+    if raised:
+        # ===== Plan A UP: top-face ellipse dominates (假俯视) =====
+        # Thin side rim underneath (depth cue) then big top plate
+        side_drop = max(10, head_rad // 5)
+        ld.rounded_rectangle(
+            (x0 + 2, y1 - side_drop - 4, x1 - 2, y1),
+            radius=max(6, side_drop // 2),
+            fill=rgba(WOOD_DK, 255),
+        )
+        # Dominant TOP FACE ellipse (looking down onto barrel)
+        top_pad_x = 2
+        top_pad_y = max(4, head_rad // 8)
+        ld.ellipse(
+            (x0 - top_pad_x, y0 - 4, x1 + top_pad_x, y1 - side_drop + 6),
+            fill=rgba(mix(WOOD_LT, CANDLE, 0.22), 255),
+        )
+        # Inner wood plate
+        ld.ellipse(
+            (x0 + 6, y0 + 4, x1 - 6, y1 - side_drop - 2),
+            fill=rgba(mix(WOOD, WOOD_LT, 0.45), 255),
+        )
+        # Soft radial top highlight (nearer = brighter center-top)
+        ld.ellipse(
+            (x0 + head_len // 5, y0 + 8, x1 - head_len // 8, hcy - head_rad // 6),
+            fill=rgba(mix(WOOD_LT, CANDLE, 0.55), 160),
+        )
+        # Copper / brass band RING on top face (elliptical — key Plan A cue)
+        ring_inset = max(8, head_len // 10)
+        ld.ellipse(
+            (x0 + ring_inset, y0 + 6, x1 - ring_inset, y1 - side_drop - 4),
+            outline=rgba(mix(BRASS, CANDLE, 0.25), 255),
+            width=max(5, head_len // 14),
+        )
+        ld.ellipse(
+            (x0 + ring_inset + 3, y0 + 9, x1 - ring_inset - 3, y1 - side_drop - 7),
+            outline=rgba(mix(BRASS, CANDLE, 0.55), 200),
+            width=2,
+        )
+        # Second tighter ring near center for metal read
+        ring2 = max(14, head_len // 5)
+        ld.ellipse(
+            (hcx - head_len // 3, y0 + ring2, hcx + head_len // 3, y1 - side_drop - ring2 // 2),
+            outline=rgba(mix(BRASS_DK, IRON, 0.3), 160),
+            width=2,
+        )
+        # Grain arcs on top plate
+        for rr in (0.35, 0.55, 0.72):
+            rx = max(8, int(head_len * rr * 0.42))
+            ry = max(6, int(head_rad * rr * 0.7))
+            ld.ellipse(
+                (hcx - rx, hcy - ry - 2, hcx + rx, hcy + ry - 4),
+                outline=rgba(GRAIN, 90),
+                width=1,
+            )
+        # +X striking face hint (keeps axis readable: head toward +X)
+        cap_rx = max(8, head_len // 7)
+        ld.ellipse(
+            (x1 - cap_rx // 2, y0 + head_rad // 4, x1 + cap_rx // 2 + 2, y1 - side_drop - 2),
+            fill=rgba(mix(WOOD_CORE, WOOD_DK, 0.25), 230),
+        )
+        for rr in (0.4, 0.65):
+            rx = max(3, int(cap_rx * rr * 0.7))
+            ry = max(4, int(head_rad * rr * 0.55))
+            ld.ellipse(
+                (x1 - rx, hcy - ry - 2, x1 + int(rx * 0.35), hcy + ry - 4),
+                outline=rgba(GRAIN, 120),
+                width=1,
+            )
+        # Outline of top plate
+        ld.ellipse(
+            (x0 - top_pad_x, y0 - 4, x1 + top_pad_x, y1 - side_drop + 6),
+            outline=rgba(mix(WOOD_DK, GRAIN, 0.4), 220),
+            width=3,
+        )
+        face_x = x1 + cap_rx // 2
+        pad = 6
+        return (
+            x0 - top_pad_x - pad,
+            y0 - 8 - pad,
+            face_x + pad,
+            y1 + pad + 8,
+        )
+
+    # ===== REST / HIT side-barrel body (HIT gets squash + stronger FX) =====
     ld.rounded_rectangle(
         (x0, y0, x1, y1),
         radius=r_edge,
         fill=rgba(WOOD, 255),
     )
-    # Mid lighter band (cylinder equator lit)
     mid_h = max(8, head_rad // 2)
-    if raised:
-        # Faux foreshorten: taller lit top plate reads as looking down onto raised head
-        top_h = max(10, int(head_rad * 0.72))
-        ld.ellipse(
-            (x0 + 4, y0 + 2, x1 - 4, y0 + top_h + 8),
-            fill=rgba(mix(WOOD_LT, CANDLE, 0.25), 255),
-        )
-        ld.ellipse(
-            (x0 + 10, y0 + 6, x1 - 10, y0 + top_h),
-            fill=rgba(mix(WOOD, WOOD_LT, 0.55), 220),
-        )
     ld.rounded_rectangle(
         (x0 + 3, hcy - mid_h, x1 - 3, hcy + mid_h),
         radius=max(6, mid_h // 2),
@@ -252,14 +327,12 @@ def _draw_cylinder_head(
         width=3,
     )
 
-    # Elliptical end-caps (cylinder faces)
+    # Elliptical end-caps
     cap_rx = max(8, head_len // 6)
-    # Left heel
     ld.ellipse(
         (x0 - cap_rx // 2, y0 + 3, x0 + cap_rx, y1 - 3),
         fill=rgba(mix(WOOD_DK, WOOD, 0.35), 255),
     )
-    # Right striking face with tree-ring grain (classic mallet end)
     ld.ellipse(
         (x1 - cap_rx, y0 + 3, x1 + cap_rx // 2, y1 - 3),
         fill=rgba(mix(WOOD_CORE, WOOD_DK, 0.3), 255),
@@ -272,13 +345,12 @@ def _draw_cylinder_head(
             outline=rgba(GRAIN, 130),
             width=1,
         )
-    # Face lit glint
     ld.ellipse(
         (x1 - 5, hcy - head_rad // 4, x1 + 1, hcy + 1),
         fill=rgba(mix(WOOD_LT, CANDLE, 0.3), 110),
     )
 
-    # Wood grain arcs wrapping barrel (curved = cylinder, not flat board)
+    # Wood grain arcs
     for gy_off in (-head_rad * 2 // 5, -head_rad // 8, head_rad // 5, head_rad * 2 // 5):
         gy = hcy + int(gy_off)
         if gy <= y0 + 6 or gy >= y1 - 6:
@@ -291,7 +363,7 @@ def _draw_cylinder_head(
             width=1,
         )
 
-    # Metal bands — bright brass, near both ends (readable at thumbnail)
+    # Metal bands
     bw = max(5, head_len // 10)
     for ox in (x0 + 5, x1 - 5 - bw):
         ld.rectangle((ox, y0 + 2, ox + bw, y1 - 2), fill=rgba(mix(BRASS, CANDLE, 0.15), 255))
@@ -305,14 +377,12 @@ def _draw_cylinder_head(
             fill=rgba(mix(IRON, BRASS_DK, 0.4), 200),
             width=1,
         )
-        # rivets
         for ry in (hcy - head_rad // 3, hcy, hcy + head_rad // 3):
             ld.ellipse(
                 (ox + bw // 2 - 2, ry - 2, ox + bw // 2 + 2, ry + 2),
                 fill=rgba(mix(BRASS, CANDLE, 0.3), 220),
             )
 
-    # Dark outline to lock silhouette (thicker at table-prop scale)
     ld.rounded_rectangle(
         (x0, y0, x1, y1),
         radius=r_edge,
@@ -322,42 +392,45 @@ def _draw_cylinder_head(
 
     face_x = x1 + cap_rx // 2
     if impact:
-        # Dust punch UNDER / around head — vertical 2.5D table slam (not sideways swing)
-        dust_y = hcy + head_rad // 2 + 4
+        # Short radial dust under / around head (Plan A HIT)
+        dust_y = hcy + head_rad // 2 + 6
         for i, (dx, dy, rr) in enumerate(
             (
-                (-18, 6, 7), (0, 10, 9), (16, 5, 7), (-28, 2, 5), (28, 3, 5),
-                (-10, 14, 6), (12, 14, 6), (-36, 8, 4), (34, 9, 4),
-                (-4, 18, 5), (8, 17, 4), (22, 12, 4), (-22, 12, 4),
+                (-20, 4, 8), (0, 12, 11), (18, 4, 8), (-32, 0, 6), (32, 1, 6),
+                (-12, 16, 7), (14, 16, 7), (-40, 8, 5), (38, 9, 5),
+                (-6, 22, 6), (10, 21, 5), (24, 14, 5), (-26, 14, 5),
+                (-48, 12, 4), (46, 13, 4), (0, 28, 5),
             )
         ):
-            a = 70 - i * 3
+            a = 95 - i * 4
             ld.ellipse(
                 (hcx + dx - rr, dust_y + dy - rr // 2, hcx + dx + rr, dust_y + dy + rr // 2),
-                fill=rgba(mix(PAPER, WOOD_LT, 0.2), max(28, a)),
+                fill=rgba(mix(PAPER, WOOD_LT, 0.25), max(30, a)),
             )
-        # Short shock ticks near contact (subtle; axis still +X wood mallet)
-        for ang in (-40, -15, 15, 40):
-            rad = math.radians(ang)
-            L = 16
-            x_b = face_x + int(L * math.cos(rad))
-            y_b = hcy + int(L * math.sin(rad) * 0.55)
+        # Short radial ticks from contact point under head
+        for ang_deg, L in (
+            (-70, 22), (-45, 28), (-20, 24), (20, 24), (45, 28), (70, 22),
+            (-90, 16), (90, 16), (-110, 14), (110, 14),
+        ):
+            rad = math.radians(ang_deg)
+            x_a = hcx + int(8 * math.cos(rad))
+            y_a = dust_y + int(4 * math.sin(rad))
+            x_b = hcx + int(L * math.cos(rad))
+            y_b = dust_y + int(L * 0.55 * abs(math.sin(rad))) + 4
             ld.line(
-                [(face_x - 2, hcy + 2), (x_b, y_b)],
-                fill=rgba(mix(CANDLE, PAPER, 0.3), 120),
+                [(x_a, y_a), (x_b, y_b)],
+                fill=rgba(mix(CANDLE, PAPER, 0.35), 140),
                 width=2,
             )
-        # Tiny grit flecks
-        for dx, dy in ((-14, 20), (6, 22), (20, 16), (-24, 16), (30, 10), (-30, 10)):
-            ld.point((hcx + dx, dust_y + dy), fill=rgba(mix(PAPER, BRASS, 0.1), 90))
+        for dx, dy in ((-16, 24), (8, 26), (22, 18), (-28, 18), (34, 12), (-34, 12), (0, 32)):
+            ld.point((hcx + dx, dust_y + dy), fill=rgba(mix(PAPER, BRASS, 0.15), 110))
 
     pad = 6
-    extra_b = 28 if impact else 0
-    extra_t = 6 if raised else 0
+    extra_b = 48 if impact else 0
     return (
         x0 - cap_rx // 2 - pad,
-        y0 - pad - extra_t,
-        face_x + (18 if impact else cap_rx // 2) + pad,
+        y0 - pad,
+        face_x + (22 if impact else cap_rx // 2) + pad,
         y1 + pad + extra_b,
     )
 
@@ -371,11 +444,9 @@ def _draw_tapered_handle(
     hw1: int,
 ) -> None:
     """Smooth tapered wooden shaft: thin free end → thicker at neck. No stepped toy look."""
-    # Trapezoid body (smooth edges) + slight mid bulge for round-shaft read
     top = [(hx0, cy - hw0), (hx1, cy - hw1)]
     bot = [(hx1, cy + hw1), (hx0, cy + hw0)]
     ld.polygon(top + bot, fill=rgba(HANDLE, 255))
-    # Soft mid-tone inset for round shaft shading
     inset_t = max(2, hw0 // 3)
     inset_b = max(2, hw1 // 3)
     ld.polygon(
@@ -387,19 +458,16 @@ def _draw_tapered_handle(
         ],
         fill=rgba(mix(HANDLE, HANDLE_LT, 0.35), 255),
     )
-    # Top highlight ribbon (smooth, not stepped)
     ld.line(
         [(hx0 + 3, cy - max(2, hw0 - 2)), (hx1 - 3, cy - max(3, hw1 - 3))],
         fill=rgba(mix(HANDLE_LT, CANDLE, 0.4), 200),
         width=2,
     )
-    # Bottom shadow ribbon
     ld.line(
         [(hx0 + 3, cy + max(2, hw0 - 2)), (hx1 - 3, cy + max(3, hw1 - 3))],
         fill=rgba(HANDLE_TIP, 180),
         width=2,
     )
-    # Sparse wood grain (diagonal ticks, not rings that look toy-segmented)
     hl = hx1 - hx0
     for gx in range(hx0 + 14, hx1 - 12, 14):
         t = (gx - hx0) / max(1, hl)
@@ -410,7 +478,6 @@ def _draw_tapered_handle(
             width=1,
         )
 
-    # Rounded free-end pommel
     pom = max(hw0 + 2, 6)
     ld.ellipse(
         (hx0 - pom, cy - pom, hx0 + pom, cy + pom),
@@ -421,7 +488,6 @@ def _draw_tapered_handle(
         fill=rgba(mix(HANDLE_LT, CANDLE, 0.25), 120),
     )
 
-    # Brass ferrule at neck
     fx0 = hx1 - max(12, hw1 + 2)
     fy0 = cy - hw1 - 4
     fx1 = hx1 + 3
@@ -451,33 +517,37 @@ def _draw_local_mallet(
     impact: bool,
     raised: bool = False,
 ) -> tuple[int, int, int, int]:
-    """Draw tavern wooden MALLET in local space: handle +X, cylindrical head at +X.
+    """Draw tavern wooden MALLET: handle +X, cylindrical head at +X.
 
-    Instantly readable: cylindrical barrel head + tapered handle + metal bands.
-    raised: faux foreshorten (slightly shorter handle / fuller top head).
+    Plan A raised: handle clearly shorter+thicker; head top-face ellipse.
+    Plan A impact: head flattened (squash Y).
     """
-    # --- Handle (tapered) ---
-    # Raised foreshorten: handle reads slightly shorter (fake perspective from above)
-    hl = int((112 if raised else 118) * sc)
-    hw0 = int(8 * sc)   # free end (thin)
-    hw1 = int(14 * sc)  # near head (thicker — sturdy mallet, not spoon stem)
-    hx0 = cx - int((60 if raised else 64) * sc)
-    hx1 = hx0 + hl
-
-    # --- Cylindrical head ---
-    # Along handle (X): short barrel length; perpendicular (Y): cylinder radius*2
-    head_len = int((66 if raised else 62) * sc)   # raised: slightly fuller barrel
-    head_rad = int((46 if raised else 42) * sc)   # raised: larger top-down read
+    if raised:
+        # Perspective foreshorten: shorter + thicker handle (假俯视抬起)
+        hl = int(78 * sc)
+        hw0 = int(14 * sc)   # free end thicker than REST
+        hw1 = int(22 * sc)   # neck much thicker
+        hx0 = cx - int(42 * sc)
+        head_len = int(78 * sc)   # fuller top-down barrel
+        head_rad = int(56 * sc)   # larger top-face read
+    else:
+        hl = int(118 * sc)
+        hw0 = int(8 * sc)
+        hw1 = int(14 * sc)
+        hx0 = cx - int(64 * sc)
+        head_len = int(62 * sc)
+        head_rad = int(42 * sc)
     if impact:
-        # Slight squash into table (vertical slam)
-        head_rad = int(head_rad * 0.92)
+        # Flatten head against table (vertical slam squash)
+        head_rad = int(head_rad * 0.72)
+        head_len = int(head_len * 1.08)
+    hx1 = hx0 + hl
     hcx = hx1 + head_len // 2 - int(5 * sc)
     hcy = cy
 
     _draw_tapered_handle(ld, hx0, hx1, cy, hw0, hw1)
     aabb = _draw_cylinder_head(ld, hcx, hcy, head_len, head_rad, impact, raised=raised)
 
-    # Expand AABB to include handle tip
     pad = 6
     return (
         min(aabb[0], hx0 - hw0 - pad),
@@ -518,16 +588,20 @@ def draw_mallet(
 
     # Ground / contact shadow — 2.5D from-above read
     if impact:
-        # Broad table contact pool under whole mallet (head-weighted)
-        shadow_r = int(48 * scale / 2.4)
-        sx = cx + int(40 * scale / 2.4) + nudge_x
-        sy = cy + 22 + lift_y
+        # Plan A: stronger contact ellipse pool under whole mallet (head-weighted)
+        shadow_r = int(62 * scale / 2.4)
+        sx = cx + int(44 * scale / 2.4) + nudge_x
+        sy = cy + 26 + lift_y
         d.ellipse(
-            (sx - shadow_r, sy - shadow_r // 3, sx + shadow_r + 10, sy + shadow_r // 2),
+            (sx - shadow_r, sy - shadow_r // 3, sx + shadow_r + 14, sy + shadow_r // 2 + 6),
+            fill=rgba(SHADOW, 140),
+        )
+        d.ellipse(
+            (sx - shadow_r // 2 - 4, sy - 2, sx + shadow_r // 2 + 24, sy + shadow_r // 3 + 4),
             fill=rgba(SHADOW, 100),
         )
         d.ellipse(
-            (sx - shadow_r // 2, sy - 4, sx + shadow_r // 2 + 20, sy + shadow_r // 3),
+            (sx - shadow_r // 3, sy + 2, sx + shadow_r // 2 + 10, sy + shadow_r // 4 + 8),
             fill=rgba(SHADOW, 70),
         )
     elif raised:
@@ -889,37 +963,42 @@ def main() -> None:
 
     # Scale so all poses fill ~85% (safe inset ≤8%) — table-prop, not thumbnail
     SC = 2.42
-    # UP slightly larger — readable 2.5D raised foreshorten (fake perspective)
-    SC_UP = 2.64
+    # Plan A UP: larger fill than REST ("raised nearer")
+    SC_UP = 3.12
     # Principal axis lock: ALL frames head toward +X (angle=0). Client seat-rotates.
-    # DO NOT bake 4-dir × 3 = 12 frames (only if Rebuild says rotate looks muddy).
+    # DO NOT bake 4-dir × 3 = 12 frames; no mid transition frame.
     AXIS = 0.0
 
-    # REST / believe: still on table, head +X — leave prior bake if fine (old seed)
-    # SEED_ART bumped for UP/HIT only; REST keeps 202609211 so bytes stay if drawing path equal
-    rest = draw_mallet(
-        AXIS, impact=False, motion_blur=False, seed=202609211, scale=SC, lift_y=0
-    )
-    # RAISE: 2.5D from-above — scale-up + foreshorten top; SAME axis head +X
+    # REST / believe: leave prior bytes unless axis broken (Plan A: REST untouched)
+    KEEP_REST_PNG = "755a23398742951ed953793a1629bf64b3bb12d0d69dfbf3f4c30034ab96638b"
+    rest_from_disk = OUT_REST.exists() and sha256_file(OUT_REST) == KEEP_REST_PNG
+    if rest_from_disk:
+        rest = Image.open(OUT_REST).convert("RGBA")
+        print(f"art keep: {OUT_REST.name} sha256 unchanged (Plan A REST leave)")
+    else:
+        rest = draw_mallet(
+            AXIS, impact=False, motion_blur=False, seed=202609211, scale=SC, lift_y=0
+        )
+    # RAISE Plan A: top-face ellipse + shorter/thicker handle; SAME axis head +X
     up = draw_mallet(
         AXIS,
         impact=False,
         motion_blur=True,
         seed=SEED_ART + 1,
         scale=SC_UP,
-        lift_y=-48,
-        nudge_x=-4,
+        lift_y=-36,
+        nudge_x=-2,
         raised=True,
     )
-    # SMASH: table impact + contact shadow / dust punch under head; SAME axis +X
+    # SMASH Plan A: stronger contact ellipse + radial dust; flattened head; SAME axis +X
     hit = draw_mallet(
         AXIS,
         impact=True,
         motion_blur=True,
         seed=SEED_ART + 2,
-        scale=SC,
-        lift_y=10,
-        nudge_x=8,
+        scale=SC * 1.02,
+        lift_y=14,
+        nudge_x=10,
         raised=False,
     )
 
@@ -942,7 +1021,8 @@ def main() -> None:
     )
 
     MEDIA.mkdir(parents=True, exist_ok=True)
-    save_png(rest, OUT_REST)
+    if not rest_from_disk:
+        save_png(rest, OUT_REST)
     save_png(up, OUT_UP)
     save_png(hit, OUT_HIT)
 
@@ -979,8 +1059,8 @@ def main() -> None:
     for path, digest in frozen_before.items():
         print(f"  {path.name} sha256 {digest}")
     print(
-        "zero .ets · 2.5D假透视砸 · 主轴统一槌头朝+X · client 按座 0/90/180/270 旋 · "
-        "四向烤帧禁 · seed art=202609214 hit/rest Foley kept"
+        "zero .ets · 方案A假俯视加强 · 主轴统一槌头朝+X · client 按座 0/90/180/270 旋 · "
+        "四向烤帧禁 · seed art=202609217 hit/rest Foley kept · REST leave"
     )
     print(
         f"SIZE={SIZE} SAFE_INSET_MAX={SAFE_INSET_MAX} SC={SC} SC_UP={SC_UP} AXIS={AXIS} "
