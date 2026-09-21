@@ -703,6 +703,22 @@
     {
       "name": "_comment_lb_str_hammer_smash_flat_slide",
       "value": "S19-14. FAIL if no clear vertical smash read (raise scale up / slam scale down+shadow); planar slide primary also fails. No new key."
+    },
+    {
+      "name": "lb_str_ai_peek",
+      "value": "AI偷看"
+    },
+    {
+      "name": "_comment_lb_str_ai_peek",
+      "value": "S-AI-1. FAIL if AI peeks other seat hidden ranks / unrevealed play / hole cards."
+    },
+    {
+      "name": "lb_str_ai_fake_decision",
+      "value": "AI假决策"
+    },
+    {
+      "name": "_comment_lb_str_ai_fake_decision",
+      "value": "S-AI-2. FAIL if demo_seed force / left-always-doubt / others-always-believe still main path."
     }
   ]
 }
