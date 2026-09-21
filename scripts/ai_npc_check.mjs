@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * S-AI / U-AI gates for 人机对局AI.md v0.1.0 (#276).
+ * S-AI / U-AI gates for 人机对局AI.md v0.1.2 (#276/#280/#282).
  * Cloud has no DevEco — static + formula replay, not CompileArkTS.
  * Fail strings: lb_str_ai_peek / lb_str_ai_fake_decision.
  */
@@ -153,10 +153,20 @@ if (randHalf.test(controller) || randHalf.test(friend) || randHalf.test(runAi)) 
 if (controller.includes('lerp(0.62, 0.28') &&
     controller.includes('0.10 * params.caution - 0.08 * params.aggression') &&
     controller.includes('sFake + sNeed - sRisk') &&
-    controller.includes('forceChallenge2')) {
-  pass('§5 T_base / Score / D4 present in controller');
+    controller.includes('forceChallenge2') &&
+    controller.includes('SOFT_T_LIFT') &&
+    controller.includes('BASE_SENS_SCALE')) {
+  pass('§5 T_base / Score / D4 + v0.1.2 Soft↑/Slam sensitivity split');
 } else {
   fail('score/threshold formulas missing');
+}
+
+if (controller.includes('challenge seat=') && controller.includes('persona=') &&
+    controller.includes('Score=') && controller.includes(' T=') &&
+    controller.includes('intent=') && controller.includes('Logger.info(TAG')) {
+  pass('HiLog challenge seat/persona/Score/T/intent');
+} else {
+  fail('challenge HiLog missing seat/persona/Score/T/intent');
 }
 
 if (director.includes('buildAiInfoSet') && director.includes('decideChallenge') &&
@@ -246,10 +256,23 @@ function scoreFake(info) {
     else if (info.lastPlay.count === 2) sigCount = 0.05;
     const actor = info.seats.find((s) => s.seatId === info.lastPlay.seatId);
     if (actor && actor.handCount <= 2 && info.lastPlay.count >= 2) sigPressure = 0.08;
+    let seen = 0;
+    let fake = 0;
+    const revs = info.history.reveals;
+    const start = revs.length > 5 ? revs.length - 5 : 0;
+    for (let i = start; i < revs.length; i++) {
+      if (revs[i].playSeatId !== info.lastPlay.seatId) continue;
+      seen++;
+      if (revs[i].verdict === 'false') fake++;
+    }
+    sigHistory = (seen === 0 ? 0 : fake / seen) * 0.20;
     if (info.lastPlay.namedSeatId === info.self.seatId) sigNamed = 0.05;
   }
-  const sRaw = sigStyle + sigCount + sigPressure + sigHistory + sigNamed + 0.35 * (1 - density);
-  return clamp(sRaw * (0.5 + p.challengeSensitivity), 0, 1);
+  const densTerm = 0.35 * (1 - density);
+  const susAmp = 0.5 + p.challengeSensitivity;
+  const baseAmp = 0.5 + p.challengeSensitivity * 0.62;
+  return clamp((sigStyle + sigCount) * susAmp +
+    (sigPressure + sigHistory + sigNamed + densTerm) * baseAmp, 0, 1);
 }
 function pressure(info) {
   const handDen = Math.max(1, info.limits.handSizeDefault);
@@ -267,7 +290,9 @@ function scoreRisk(info) {
 }
 function threshold(info) {
   const tBase = lerp(0.62, 0.28, info.params.challengeSensitivity);
-  return clamp(tBase + 0.10 * info.params.caution - 0.08 * info.params.aggression, 0.22, 0.75);
+  let t = tBase + 0.10 * info.params.caution - 0.08 * info.params.aggression;
+  if (info.lastPlay && info.lastPlay.style === 'SOFT') t += 0.08;
+  return clamp(t, 0.22, 0.75);
 }
 function decideChallenge(info, noise = 0) {
   if (info.forceChallenge2) return 'DOUBT';
@@ -372,6 +397,154 @@ if (decideChallenge(d5) === 'SKIP') {
   pass('D5 SOFT → SKIP (not BELIEVE)');
 } else {
   fail(`D5 expected SKIP got ${decideChallenge(d5)}`);
+}
+
+function bandRanks(legalSelf, handCount) {
+  const ranks = [];
+  for (let i = 0; i < legalSelf; i++) ranks.push('A');
+  const junk = ['K', 'Q', 'K', 'Q', 'K'];
+  while (ranks.length < handCount) ranks.push(junk[ranks.length % junk.length]);
+  return ranks;
+}
+
+function bandReveals(legalRev, fakeRev) {
+  const out = [];
+  if (legalRev > 0) {
+    out.push({ playSeatId: 2, ranks: Array(legalRev).fill('A'), verdict: 'true' });
+  }
+  if (fakeRev > 0) {
+    out.push({ playSeatId: 2, ranks: Array(fakeRev).fill('K'), verdict: 'false' });
+  }
+  return out;
+}
+
+function bandInfo(params, spec, style, count) {
+  const seatId = spec.seatId ?? 3;
+  return fixture(params, {
+    seatId,
+    handRanks: bandRanks(spec.legalSelf, spec.handCount),
+    handCount: spec.handCount,
+    lives: spec.lives,
+    lastPlay: {
+      seatId: 2, count, style,
+      namedSeatId: spec.named ? seatId : -1
+    },
+    seats: [
+      { seatId: 0, handCount: 5, lives: 3, alive: true, order: 0, isHuman: true },
+      { seatId: 1, handCount: 5, lives: 3, alive: true, order: 1, isHuman: false },
+      { seatId: 2, handCount: spec.actorHand, lives: 3, alive: true, order: 2, isHuman: false },
+      { seatId: 3, handCount: spec.handCount, lives: spec.lives, alive: true, order: 3, isHuman: false }
+    ],
+    reveals: bandReveals(spec.legalRev, spec.fakeRev)
+  });
+}
+
+function softFamily() {
+  const out = [];
+  for (const legalSelf of [1, 2, 3]) {
+    for (const lives of [2, 3]) {
+      for (const handCount of [4, 5]) {
+        for (const actorHand of [3, 5]) {
+          for (const legalRev of [0, 2, 3]) {
+            out.push({ legalSelf, lives, handCount, actorHand, named: false, legalRev, fakeRev: 0 });
+          }
+        }
+      }
+    }
+  }
+  return out.slice(0, 54);
+}
+
+function slamFamily() {
+  const out = [];
+  for (const legalSelf of [0, 1, 2, 3]) {
+    for (const lives of [2, 3]) {
+      for (const handCount of [3, 4, 5]) {
+        out.push({ legalSelf, lives, handCount, actorHand: 5, named: false, legalRev: 0, fakeRev: 0 });
+      }
+    }
+  }
+  for (const legalSelf of [0, 1, 2, 3]) {
+    for (const lives of [2, 3]) {
+      for (const handCount of [4, 5]) {
+        out.push({ legalSelf, lives, handCount, actorHand: 2, named: false, legalRev: 0, fakeRev: 0 });
+      }
+    }
+  }
+  for (const actorHand of [5, 2]) {
+    for (const legalSelf of [1, 2]) {
+      for (const lives of [3, 2]) {
+        out.push({ legalSelf, lives, handCount: 5, actorHand, named: true, legalRev: 0, fakeRev: 0 });
+      }
+    }
+  }
+  for (const actorHand of [5, 2]) {
+    for (const legalSelf of [1, 2, 3]) {
+      out.push({ legalSelf, lives: 3, handCount: 5, actorHand, named: false, legalRev: 1, fakeRev: 1 });
+    }
+  }
+  return out.slice(0, 54);
+}
+
+function doubtRate(params, family, style, count, seatId) {
+  let n = 0;
+  for (const spec of family) {
+    if (decideChallenge(bandInfo(params, { ...spec, seatId }, style, count)) === 'DOUBT') n++;
+  }
+  return n / family.length;
+}
+
+const softSpecs = softFamily();
+const slamSpecs = slamFamily();
+if (softSpecs.length < 50 || slamSpecs.length < 50) {
+  fail('Soft×1 / Slam×3 families must be n≥50');
+}
+
+const softK = doubtRate(karen, softSpecs, 'SOFT', 1, 3);
+const softS = doubtRate(shark, softSpecs, 'SOFT', 1, 2);
+const softT = doubtRate(timid, softSpecs, 'SOFT', 1, 1);
+if ((1 - softK) >= 0.55 && (1 - softS) >= 0.55 && (1 - softT) >= 0.55 && softK < 0.30) {
+  pass(`U-AI-04b/S-AI-08 Soft×1 believe K=${(1 - softK).toFixed(2)} S=${(1 - softS).toFixed(2)} T=${(1 - softT).toFixed(2)} (Karen doubt ${softK.toFixed(2)}<0.30)`);
+} else {
+  fail(`lb_str_ai_fake_decision Soft×1 band fail K=${softK} S=${softS} T=${softT}`);
+}
+
+const slamK = doubtRate(karen, slamSpecs, 'SLAM', 3, 3);
+const slamS = doubtRate(shark, slamSpecs, 'SLAM', 3, 2);
+const slamTm = doubtRate(timid, slamSpecs, 'SLAM', 3, 1);
+if (slamK >= 0.70 && slamS >= 0.30 && slamS <= 0.60 && slamTm < 0.20 && slamK > slamS && slamS > slamTm) {
+  pass(`U-AI-04c/S-AI-09 Slam×3 K=${slamK.toFixed(2)} S=${slamS.toFixed(2)} T=${slamTm.toFixed(2)}`);
+} else {
+  fail(`lb_str_ai_fake_decision Slam×3 band fail K=${slamK} S=${slamS} T=${slamTm}`);
+}
+
+const soft2K = doubtRate(karen, softSpecs, 'SOFT', 2, 3);
+if (soft2K < 0.85) {
+  pass(`Soft×2 Karen doubt ${soft2K.toFixed(2)} not ~100%`);
+} else {
+  fail(`lb_str_ai_fake_decision Soft×2 Karen still ~always DOUBT (${soft2K})`);
+}
+
+const mix = [];
+for (let i = 0; i < 10; i++) {
+  mix.push({ style: 'SOFT', count: 1, spec: softSpecs[i * 5], personaSeat: { k: 3, s: 2, t: 1 } });
+}
+for (let i = 0; i < 10; i++) {
+  mix.push({ style: 'SLAM', count: 3, spec: slamSpecs[Math.min(i * 5, slamSpecs.length - 1)] });
+}
+let karenAllDoubt = true;
+let othersAllBelieve = true;
+for (const m of mix) {
+  const kd = decideChallenge(bandInfo(karen, { ...m.spec, seatId: 3 }, m.style, m.count));
+  const sd = decideChallenge(bandInfo(shark, { ...m.spec, seatId: 2 }, m.style, m.count));
+  const td = decideChallenge(bandInfo(timid, { ...m.spec, seatId: 1 }, m.style, m.count));
+  if (kd !== 'DOUBT') karenAllDoubt = false;
+  if (sd !== 'BELIEVE' || td !== 'BELIEVE') othersAllBelieve = false;
+}
+if (karenAllDoubt && othersAllBelieve) {
+  fail('ai_fake_decision: mixed 20 collapse Karen-all-DOUBT + others-all-BELIEVE (lb_str_ai_fake_decision)');
+} else {
+  pass('mixed 20: no Karen-all-doubt + others-all-believe collapse');
 }
 
 function playScore(isFake, n, params, legalSelf) {
