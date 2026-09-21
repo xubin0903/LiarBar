@@ -647,6 +647,22 @@
     {
       "name": "_comment_lb_str_hammer_smash_on_pool",
       "value": "S19-9"
+    },
+    {
+      "name": "lb_str_hammer_too_small",
+      "value": "槌过小"
+    },
+    {
+      "name": "_comment_lb_str_hammer_too_small",
+      "value": "S19-10. FAIL if mallet too small to read as main prop beside avatar."
+    },
+    {
+      "name": "lb_str_hammer_anchor_wrong",
+      "value": "四座锚偏/旁空错"
+    },
+    {
+      "name": "_comment_lb_str_hammer_anchor_wrong",
+      "value": "S19-11. FAIL if not beside-avatar empty: L must be avatar-right empty, R avatar-left empty; no hard outer bias."
     }
   ]
 }

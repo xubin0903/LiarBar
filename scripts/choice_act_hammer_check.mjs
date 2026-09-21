@@ -59,6 +59,14 @@ if (ids.includes("CHOICE_ACT: string = 'lb_cmp_choice_act'") &&
   fail('locked hammer ids missing');
 }
 
+const malletW = Number((/static readonly MALLET_W:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
+const malletH = Number((/static readonly MALLET_H:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
+if (malletW >= 108 && malletH >= 108 && malletW === malletH) {
+  pass(`MALLET size ${malletW}x${malletH} (≥108 · #251 真图绑 112)`);
+} else {
+  fail(`MALLET too small ${malletW}x${malletH}`);
+}
+
 const actHold = Number((/static readonly HOLD_MS:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
 if (actHold >= 800 &&
     choiceFx.includes('已换绑 #238') &&
@@ -234,39 +242,43 @@ if (existsSync(join(root, hitWav)) && statSync(join(root, hitWav)).size >= 8000 
 const posIdx = table.indexOf('private choiceActPosOf');
 const posEnd = table.indexOf('private choiceActFallbackPlayH');
 const posBody = posIdx >= 0 && posEnd > posIdx ? table.slice(Math.max(0, posIdx - 420), posEnd) : '';
+const selfDx = Number((/SELF_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const selfDy = Number((/SELF_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const leftDx = Number((/LEFT_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
-const rightDx = Number((/RIGHT_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const topDy = Number((/TOP_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 99);
+// Aron 纠锁：LEFT 必须正 DX（头像右空朝桌）；禁再 leftDx<0 当过关.
 if (choiceFx.includes('SELF_ANCHOR_DX') &&
     choiceFx.includes('LEFT_ANCHOR_DX') &&
-    choiceFx.includes('RIGHT_ANCHOR_DX') &&
+    choiceFx.includes('RIGHT_SIDE_GAP') &&
     choiceFx.includes('TOP_ANCHOR_DX') &&
     !choiceFx.includes('REST_SLOT_X') &&
     !choiceFx.includes('INWARD_PCT') &&
     !choiceFx.includes('SELF_SIDE_VP') &&
+    !choiceFx.includes('RIGHT_ANCHOR_DX') &&
+    selfDx >= 40 &&
     selfDy < 0 &&
-    leftDx < 0 &&
-    rightDx > 0 &&
+    leftDx > 0 &&
     topDy <= 8 &&
     posBody.includes('TableCompass.BOTTOM') &&
     posBody.includes('TableCompass.LEFT') &&
     posBody.includes('TableCompass.RIGHT') &&
     posBody.includes('SELF_ANCHOR_DX') &&
     posBody.includes('LEFT_ANCHOR_DX') &&
-    posBody.includes('RIGHT_ANCHOR_DX') &&
+    posBody.includes('RIGHT_SIDE_GAP') &&
     posBody.includes('TOP_ANCHOR_DX') &&
-    posBody.includes('seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX') &&
+    posBody.includes('origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.RIGHT_SIDE_GAP') &&
+    !posBody.includes('seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX') &&
     !posBody.includes('seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX') &&
+    posBody.includes('朝桌') &&
     posBody.includes('lb_cmp_hand') &&
     (posBody.includes('avatar') || posBody.includes('头像')) &&
     !posBody.includes('challengeFrontLiftVp') &&
     !posBody.includes('poolCenterOverlay') &&
     !posBody.includes('REST_SLOT') &&
     !posBody.includes('INWARD_PCT')) {
-  pass('S19-7/9: four distinct avatar-side anchors; no hand belt / pool heart');
+  pass('S19-7/9: blank toward table; LEFT DX>0; no outer-edge / leftDx<0 pass');
 } else {
-  fail('choiceActPosOf still shared-slot or overlaps hand/pool');
+  fail('choiceActPosOf still outer-edge or leftDx<0 legacy');
 }
 
 if (!engine.includes('playChoiceAct') &&

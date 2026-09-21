@@ -4,7 +4,7 @@
  * Visual/SFX only. Does not change open-card 1000/3000 gates
  * or Trust|Challenge rule semantics.
  *
- * Art: 已换绑 #238/#244 art_fx_mallet / art_fx_mallet_up / art_fx_mallet_hit.
+ * Art: 已换绑 #238/#244/#251 art_fx_mallet*（512² 道具级；显示 112vp）.
  * SFX slots: lb_sfx_hammer_hit / lb_sfx_hammer_rest. Never flip / launch / land.
  *
  * S19-7 锤压在牌上 / S19-8 相信还在动 / S19-9 砸点贴牌心.
@@ -15,8 +15,8 @@ export class ChoiceActFx {
   static readonly KIND_DOUBT: number = 1;
   static readonly KIND_BELIEVE: number = 2;
 
-  static readonly MALLET_W: number = 72;
-  static readonly MALLET_H: number = 72;
+  static readonly MALLET_W: number = 112;
+  static readonly MALLET_H: number = 112;
   static readonly HEAD_H: number = 14;
   static readonly HANDLE_W: number = 8;
 
@@ -32,7 +32,7 @@ export class ChoiceActFx {
   /** Smash-pose readable hold (0.8～1.2s). Not a reveal gate. */
   static readonly HOLD_MS: number = 1000;
 
-  static readonly LIFT_VP: number = 26;
+  static readonly LIFT_VP: number = 36;
   static readonly SHAKE_VP: number = 3;
   static readonly RAISE_ROT: number = -52;
   static readonly DOWN_ROT: number = 10;
@@ -40,29 +40,29 @@ export class ChoiceActFx {
   static readonly REST_ROT: number = 82;
 
   /**
-   * Per-seat avatar-side anchors (17a v0.2.0 §2). Do not reuse one pair.
-   * self / p3 / p2 / p1 each own DX/DY. Outer blank — never toward pool.
+   * Aron 纠锁：头像旁空白带（朝桌心空位）。停用左右外缘.
+   * LEFT 头像右侧空朝桌 · RIGHT 头像左侧空朝桌 · TOP/self 旁空不压手.
    */
-  /** self: above left-dock portrait — never lb_cmp_hand / ring–hand belt. */
-  static readonly SELF_ANCHOR_DX: number = 4;
-  static readonly SELF_ANCHOR_DY: number = -80;
-  static readonly SELF_FALLBACK_X: number = 12;
-  static readonly SELF_FALLBACK_DY: number = -160;
+  /** self: 头像右旁空；禁压手牌. */
+  static readonly SELF_ANCHOR_DX: number = 48;
+  static readonly SELF_ANCHOR_DY: number = -96;
+  static readonly SELF_FALLBACK_X: number = 56;
+  static readonly SELF_FALLBACK_DY: number = -168;
 
-  /** p3 左座: 头像左侧外侧/下侧空白，不朝池内收. */
-  static readonly LEFT_ANCHOR_DX: number = -80;
-  static readonly LEFT_ANCHOR_DY: number = 8;
-  static readonly LEFT_FALLBACK_X: number = 8;
+  /** p3 左座: 头像右侧空（朝桌）。禁负 DX 贴左缘/刘海. */
+  static readonly LEFT_ANCHOR_DX: number = 52;
+  static readonly LEFT_ANCHOR_DY: number = 4;
+  static readonly LEFT_FALLBACK_X: number = 64;
   static readonly LEFT_FALLBACK_Y: number = 110;
 
-  /** p1 右座: 头像右侧外侧/下侧空白，不朝池内收. */
-  static readonly RIGHT_ANCHOR_DX: number = 8;
-  static readonly RIGHT_ANCHOR_DY: number = 10;
-  static readonly RIGHT_FALLBACK_DX: number = -8;
+  /** p1 右座: 头像左侧空朝桌；origin - MALLET_W - SIDE_GAP。禁 seat 右缘外侧. */
+  static readonly RIGHT_SIDE_GAP: number = 8;
+  static readonly RIGHT_ANCHOR_DY: number = 4;
+  static readonly RIGHT_FALLBACK_DX: number = -120;
   static readonly RIGHT_FALLBACK_Y: number = 120;
 
-  /** p2 对家: 头像左侧水平旁缝；DY 不朝下走进池. */
-  static readonly TOP_ANCHOR_DX: number = -80;
+  /** p2 对家: 头像旁空；DY 不朝下走进池. */
+  static readonly TOP_ANCHOR_DX: number = -56;
   static readonly TOP_ANCHOR_DY: number = 0;
   static readonly TOP_FALLBACK_X: number = 200;
   static readonly TOP_FALLBACK_Y: number = 16;
