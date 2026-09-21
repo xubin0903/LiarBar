@@ -167,6 +167,7 @@ struct Table {
   @State choiceActRot: number = 0;
   @State choiceActLift: number = 0;
   @State choiceActScale: number = 1;
+  @State choiceActSquashY: number = 1;
   @State choiceActShake: number = 0;
   @State choiceActFade: number = 1;
   @State malletPosTick: number = 0;
@@ -2328,6 +2329,7 @@ struct Table {
       rot: this.malletRotOf(seatId),
       lift: this.malletLiftOf(seatId),
       scale: this.malletScaleOf(seatId),
+      squashY: this.malletSquashOf(seatId),
       shake: this.malletShakeOf(seatId),
       fade: 1
     })
@@ -2792,13 +2794,23 @@ struct Table {
     this.choiceActSeat = seatId;
     this.choiceActKind = ChoiceActFx.KIND_DOUBT;
     this.choiceActShake = 0;
+    this.choiceActSquashY = 1;
     this.choiceActFade = 1;
     this.choiceActOn = true;
     const restRot: number = ChoiceActFx.restRotOf(seatId);
-    this.choiceActRot = restRot + ChoiceActFx.RAISE_DELTA;
-    // 2.5D：抬 = 放大 + 屏上抬高；禁侧座横滑主轨.
-    this.choiceActLift = -ChoiceActFx.LIFT_VP;
-    this.choiceActScale = ChoiceActFx.RAISE_SCALE;
+    // Start at rest depth, then animate raise (禁瞬间跳抬).
+    this.choiceActRot = restRot;
+    this.choiceActLift = 0;
+    this.choiceActScale = ChoiceActFx.REST_SCALE;
+    const raise: AnimateParam = {
+      duration: ChoiceActFx.LIFT_MS,
+      curve: Curve.EaseOut
+    };
+    animateTo(raise, (): void => {
+      this.choiceActRot = restRot + ChoiceActFx.RAISE_DELTA;
+      this.choiceActLift = -ChoiceActFx.LIFT_VP;
+      this.choiceActScale = ChoiceActFx.RAISE_SCALE;
+    });
     this.choiceActTimer = setTimeout((): void => {
       this.choiceActTimer = -1;
       if (gen !== this.choiceActGen) {
@@ -2812,6 +2824,7 @@ struct Table {
         this.choiceActRot = restRot + ChoiceActFx.DOWN_DELTA;
         this.choiceActLift = 0;
         this.choiceActScale = ChoiceActFx.SMASH_SCALE;
+        this.choiceActSquashY = ChoiceActFx.SQUASH_SCALE_Y;
       });
       TableAudio.playHammerHit();
       this.choiceActTimer = setTimeout((): void => {
@@ -2819,11 +2832,13 @@ struct Table {
         if (gen !== this.choiceActGen) {
           return;
         }
-        const shakeOn: AnimateParam = {
+        // Contact: HIT visible; brief squash release + micro shake along facing (禁横向主移).
+        const unSquash: AnimateParam = {
           duration: ChoiceActFx.SHAKE_MS / 2,
           curve: Curve.EaseOut
         };
-        animateTo(shakeOn, (): void => {
+        animateTo(unSquash, (): void => {
+          this.choiceActSquashY = 1;
           this.choiceActShake = ChoiceActFx.SHAKE_VP;
         });
         this.choiceActTimer = setTimeout((): void => {
@@ -2838,6 +2853,7 @@ struct Table {
           animateTo(shakeOff, (): void => {
             this.choiceActShake = 0;
           });
+          // SMASH_SCALE 持面 220ms（HIT 须可见），再回 REST.
           this.choiceActTimer = setTimeout((): void => {
             this.choiceActTimer = -1;
             if (gen !== this.choiceActGen) {
@@ -2856,6 +2872,7 @@ struct Table {
                 this.choiceActRot = ChoiceActFx.restRotOf(seatId);
                 this.choiceActLift = 0;
                 this.choiceActScale = ChoiceActFx.REST_SCALE;
+                this.choiceActSquashY = 1;
               });
               this.choiceActTimer = setTimeout((): void => {
                 this.choiceActTimer = -1;
@@ -2866,7 +2883,7 @@ struct Table {
                 this.choiceActKind = ChoiceActFx.KIND_NONE;
               }, ChoiceActFx.REST_MS);
             }, ChoiceActFx.HOLD_MS);
-          }, ChoiceActFx.SHAKE_MS / 2);
+          }, ChoiceActFx.CONTACT_HOLD_MS);
         }, ChoiceActFx.SHAKE_MS / 2);
       }, ChoiceActFx.SMASH_MS);
     }, ChoiceActFx.LIFT_MS);
@@ -2887,6 +2904,7 @@ struct Table {
     this.choiceActShake = 0;
     this.choiceActLift = 0;
     this.choiceActScale = ChoiceActFx.REST_SCALE;
+    this.choiceActSquashY = 1;
     this.choiceActRot = 0;
     this.choiceActKind = ChoiceActFx.KIND_NONE;
   }
@@ -2944,6 +2962,13 @@ struct Table {
       return this.choiceActScale;
     }
     return ChoiceActFx.REST_SCALE;
+  }
+
+  private malletSquashOf(seatId: number): number {
+    if (this.choiceActOn && this.choiceActSeat === seatId) {
+      return this.choiceActSquashY;
+    }
+    return 1;
   }
 
   private malletShakeOf(seatId: number): number {

@@ -1,6 +1,6 @@
 /**
  * 质疑/相信桌槌 (#243 v0.2 Rebuild).
- * 四座头像旁常驻搁置；锤头朝荷官分向；相信静置；质疑 2.5D 抬大砸小。
+ * 四座头像旁常驻搁置；锤头朝荷官分向；相信静置；质疑 2.5D P0 加深砸。
  * Visual/SFX only. Does not change open-card 1000/3000 gates
  * or Trust|Challenge rule semantics.
  *
@@ -20,25 +20,29 @@ export class ChoiceActFx {
   static readonly HEAD_H: number = 14;
   static readonly HANDLE_W: number = 8;
 
-  /** 抬起 */
-  static readonly LIFT_MS: number = 80;
-  /** 砸下 */
-  static readonly SMASH_MS: number = 120;
-  /** 短震 */
+  /** 抬起（须 animateTo EaseOut，禁瞬间赋值） */
+  static readonly LIFT_MS: number = 140;
+  /** 砸下 EaseIn */
+  static readonly SMASH_MS: number = 180;
+  /** 短震（朝向微抖，禁横向主移） */
   static readonly SHAKE_MS: number = 80;
+  /** 砸后 SMASH_SCALE 持面，再回 REST */
+  static readonly CONTACT_HOLD_MS: number = 220;
   /** 砸后回搁置 */
   static readonly REST_MS: number = 140;
   static readonly FADE_MS: number = 80;
   /** Smash-pose readable hold (0.8～1.2s). Not a reveal gate. */
   static readonly HOLD_MS: number = 1000;
 
-  /** 2.5D 砸：抬高略抬 Y（屏上为负）；禁侧座 XY 横滑当主轨. */
-  static readonly LIFT_VP: number = 28;
-  static readonly SHAKE_VP: number = 3;
-  /** Raise near/big → smash far/flat. */
-  static readonly RAISE_SCALE: number = 1.2;
-  static readonly SMASH_SCALE: number = 0.92;
+  /** 2.5D P0：抬高 Y（屏上为负）；禁侧座 XY 横滑主轨. */
+  static readonly LIFT_VP: number = 52;
+  static readonly SHAKE_VP: number = 2;
+  /** Raise near/big → smash far/flat（禁只拧两数交差；须配抬插值+影连续+持面）. */
+  static readonly RAISE_SCALE: number = 1.35;
+  static readonly SMASH_SCALE: number = 0.88;
   static readonly REST_SCALE: number = 1.0;
+  /** 接触瞬间极短 squash（Y） */
+  static readonly SQUASH_SCALE_Y: number = 0.82;
   /** Relative to restRot: pull-back / impact. */
   static readonly RAISE_DELTA: number = -52;
   static readonly DOWN_DELTA: number = 10;
@@ -75,7 +79,8 @@ export class ChoiceActFx {
   static readonly TOP_FALLBACK_Y: number = 16;
 
   static smashTotalMs(): number {
-    return ChoiceActFx.LIFT_MS + ChoiceActFx.SMASH_MS + ChoiceActFx.SHAKE_MS;
+    return ChoiceActFx.LIFT_MS + ChoiceActFx.SMASH_MS + ChoiceActFx.CONTACT_HOLD_MS +
+      ChoiceActFx.SHAKE_MS;
   }
 
   /** Art head=+X offset. 轴统一票改主轴时只动这里. */
