@@ -90,7 +90,13 @@ if (strings.includes('lb_str_debug_hammer_doubt') &&
     strings.includes('lb_str_hammer_smash_on_pool') &&
     strings.includes('砸点贴牌心') &&
     strings.includes('相信无常驻锤')) {
-  pass('string keys: debug labels + S19-1/6 + S19-7/8/9');
+  if (strings.includes('lb_str_hammer_not_in_blank') &&
+    strings.includes('lb_str_hammer_on_screen_edge') &&
+    strings.includes('lb_str_hammer_presses_cards')) {
+  pass('string keys: debug labels + S19-1/6 + S19-7/8/9 + S19-10/11/12');
+} else {
+  fail('S19-10～12 string keys missing');
+}
 } else {
   fail('debug / S19 strings missing');
 }
@@ -246,17 +252,19 @@ const selfDx = Number((/SELF_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) |
 const selfDy = Number((/SELF_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const leftDx = Number((/LEFT_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const topDy = Number((/TOP_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 99);
-// Aron 纠锁：LEFT 必须正 DX（头像右空朝桌）；禁再 leftDx<0 当过关.
+// Rebuild：LEFT DX>0；TOP 整槌离脸；self DY 轻抬（禁 <=-80 飘荷官）.
 if (choiceFx.includes('SELF_ANCHOR_DX') &&
     choiceFx.includes('LEFT_ANCHOR_DX') &&
     choiceFx.includes('RIGHT_SIDE_GAP') &&
-    choiceFx.includes('TOP_ANCHOR_DX') &&
+    choiceFx.includes('TOP_SIDE_GAP') &&
     !choiceFx.includes('REST_SLOT_X') &&
     !choiceFx.includes('INWARD_PCT') &&
     !choiceFx.includes('SELF_SIDE_VP') &&
     !choiceFx.includes('RIGHT_ANCHOR_DX') &&
+    !choiceFx.includes('TOP_ANCHOR_DX') &&
     selfDx >= 40 &&
     selfDy < 0 &&
+    selfDy >= -40 &&
     leftDx > 0 &&
     topDy <= 8 &&
     posBody.includes('TableCompass.BOTTOM') &&
@@ -265,8 +273,9 @@ if (choiceFx.includes('SELF_ANCHOR_DX') &&
     posBody.includes('SELF_ANCHOR_DX') &&
     posBody.includes('LEFT_ANCHOR_DX') &&
     posBody.includes('RIGHT_SIDE_GAP') &&
-    posBody.includes('TOP_ANCHOR_DX') &&
+    posBody.includes('TOP_SIDE_GAP') &&
     posBody.includes('origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.RIGHT_SIDE_GAP') &&
+    posBody.includes('origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.TOP_SIDE_GAP') &&
     !posBody.includes('seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX') &&
     !posBody.includes('seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX') &&
     posBody.includes('朝桌') &&
@@ -276,9 +285,9 @@ if (choiceFx.includes('SELF_ANCHOR_DX') &&
     !posBody.includes('poolCenterOverlay') &&
     !posBody.includes('REST_SLOT') &&
     !posBody.includes('INWARD_PCT')) {
-  pass('S19-7/9: blank toward table; LEFT DX>0; no outer-edge / leftDx<0 pass');
+  pass('S19-10/12: TOP clear of face; self dock-side; LEFT DX>0 toward table');
 } else {
-  fail('choiceActPosOf still outer-edge or leftDx<0 legacy');
+  fail('choiceActPosOf still face-overlap or self mid-air float');
 }
 
 if (!engine.includes('playChoiceAct') &&
