@@ -695,6 +695,14 @@
     {
       "name": "_comment_lb_str_hammer_face_wrong",
       "value": "S19-13. FAIL if mallet head not facing dealer: TOP↓ SELF↑ LEFT→ RIGHT←; or same left smash for all seats."
+    },
+    {
+      "name": "lb_str_hammer_smash_flat_slide",
+      "value": "砸像平面横滑"
+    },
+    {
+      "name": "_comment_lb_str_hammer_smash_flat_slide",
+      "value": "S19-14. FAIL if doubt smash is planar slide without raise-scale / slam-down scale+shadow."
     }
   ]
 }
