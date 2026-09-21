@@ -191,7 +191,8 @@ if (playBody.includes('kind !== ChoiceActFx.KIND_DOUBT') &&
     playBody.includes('RAISE_DELTA') &&
     playBody.includes('DOWN_DELTA') &&
     playBody.includes('restRotOf') &&
-    playBody.includes('raiseLiftSign') &&
+    playBody.includes('RAISE_SCALE') &&
+    playBody.includes('SMASH_SCALE') &&
     playBody.includes('restRotOf(seatId)') &&
     playBody.includes('this.choiceActLift = 0') &&
     !playBody.includes('playHammerRest') &&
@@ -258,8 +259,8 @@ if (choiceFx.includes('SELF_OUT_GAP') &&
     choiceFx.includes('RIGHT_SIDE_GAP') &&
     choiceFx.includes('TOP_SIDE_GAP') &&
     choiceFx.includes('restRotOf') &&
-    choiceFx.includes('raiseLiftSign') &&
-    choiceFx.includes('smashAxisX') &&
+    choiceFx.includes('RAISE_SCALE') &&
+    choiceFx.includes('SMASH_SCALE') &&
     choiceFx.includes('RAISE_DELTA') &&
     !choiceFx.includes('REST_SLOT_X') &&
     !choiceFx.includes('INWARD_PCT') &&
@@ -308,10 +309,18 @@ const rotOf = table.includes('restRotOf(seatId)') &&
   table.includes('ChoiceActFx.restRotOf') &&
   table.includes('RAISE_DELTA') &&
   !table.includes('ChoiceActFx.RAISE_ROT');
-if (rotOf && hammer.includes('smashAxisX') && hammer.includes('posX()')) {
-  pass('per-seat restRot + smash axis (禁四座同一朝左)');
+if (rotOf &&
+    choiceFx.includes('RAISE_SCALE') &&
+    choiceFx.includes('SMASH_SCALE') &&
+    hammer.includes('shadowOpacity') &&
+    table.includes('choiceActScale') &&
+    table.includes('-ChoiceActFx.LIFT_VP') &&
+    !hammer.includes('smashAxisX') &&
+    !choiceFx.includes('smashAxisX') &&
+    !choiceFx.includes('raiseLiftSign')) {
+  pass('2.5D depth smash: scale+Y; 禁横滑主轨; per-seat restRot');
 } else {
-  fail('smash still single-track / restRot missing');
+  fail('2.5D smash missing or still XY-slide main track');
 }
 
 console.log('');
