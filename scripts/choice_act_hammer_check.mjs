@@ -188,9 +188,11 @@ if (!formalBelieveBody.includes('playChoiceAct') &&
 const playFn = table.split('private playChoiceAct(')[1] || '';
 const playBody = playFn.split('private retractChoiceAct')[0] || '';
 if (playBody.includes('kind !== ChoiceActFx.KIND_DOUBT') &&
-    playBody.includes('RAISE_ROT') &&
-    playBody.includes('DOWN_ROT') &&
-    playBody.includes('this.choiceActRot = 0') &&
+    playBody.includes('RAISE_DELTA') &&
+    playBody.includes('DOWN_DELTA') &&
+    playBody.includes('restRotOf') &&
+    playBody.includes('raiseLiftSign') &&
+    playBody.includes('restRotOf(seatId)') &&
     playBody.includes('this.choiceActLift = 0') &&
     !playBody.includes('playHammerRest') &&
     !playBody.includes('REST_SLOT') &&
@@ -225,8 +227,8 @@ if (audio.includes('playOptional') &&
     !hitBody.includes('playPlayLaunch') &&
     !hitBody.includes('playRevealFlip') &&
     !hitBody.includes('playChallengeCommit') &&
-    !restBody.includes('playPlayLaunch') &&
-    !restBody.includes('playRevealFlip')) {
+    !choiceFx.includes('playPlayLaunch') &&
+    !choiceFx.includes('playRevealFlip')) {
   pass('SFX: hammer hit/rest optional no-op; no flip/launch/commit impersonation');
 } else {
   fail('hammer SFX missing or impersonates old slots');
@@ -248,46 +250,49 @@ if (existsSync(join(root, hitWav)) && statSync(join(root, hitWav)).size >= 8000 
 const posIdx = table.indexOf('private choiceActPosOf');
 const posEnd = table.indexOf('private choiceActFallbackPlayH');
 const posBody = posIdx >= 0 && posEnd > posIdx ? table.slice(Math.max(0, posIdx - 420), posEnd) : '';
-const selfDx = Number((/SELF_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
-const selfDy = Number((/SELF_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const leftDx = Number((/LEFT_ANCHOR_DX:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 0);
 const topDy = Number((/TOP_ANCHOR_DY:\s*number\s*=\s*(-?\d+)/.exec(choiceFx) || [])[1] || 99);
-// Rebuild：LEFT DX>0；TOP 整槌离脸；self DY 轻抬（禁 <=-80 飘荷官）.
-if (choiceFx.includes('SELF_ANCHOR_DX') &&
+// Rebuild 朝向：restRotOf 四向；SELF 金框右空；LEFT DX>0；TOP 离脸.
+if (choiceFx.includes('SELF_OUT_GAP') &&
     choiceFx.includes('LEFT_ANCHOR_DX') &&
     choiceFx.includes('RIGHT_SIDE_GAP') &&
     choiceFx.includes('TOP_SIDE_GAP') &&
+    choiceFx.includes('restRotOf') &&
+    choiceFx.includes('raiseLiftSign') &&
+    choiceFx.includes('smashAxisX') &&
+    choiceFx.includes('RAISE_DELTA') &&
     !choiceFx.includes('REST_SLOT_X') &&
     !choiceFx.includes('INWARD_PCT') &&
     !choiceFx.includes('SELF_SIDE_VP') &&
     !choiceFx.includes('RIGHT_ANCHOR_DX') &&
-    !choiceFx.includes('TOP_ANCHOR_DX') &&
-    selfDx >= 40 &&
-    selfDy < 0 &&
-    selfDy >= -40 &&
+    !choiceFx.includes('SELF_ANCHOR_DX') &&
+    !choiceFx.includes('RAISE_ROT') &&
     leftDx > 0 &&
     topDy <= 8 &&
+    choiceFx.includes('return -90') &&
+    choiceFx.includes('return 180') &&
+    choiceFx.includes('return 90') &&
+    choiceFx.includes('return 0') &&
     posBody.includes('TableCompass.BOTTOM') &&
     posBody.includes('TableCompass.LEFT') &&
     posBody.includes('TableCompass.RIGHT') &&
-    posBody.includes('SELF_ANCHOR_DX') &&
+    posBody.includes('SELF_OUT_GAP') &&
+    posBody.includes('seatWs[seatId] + ChoiceActFx.SELF_OUT_GAP') &&
     posBody.includes('LEFT_ANCHOR_DX') &&
     posBody.includes('RIGHT_SIDE_GAP') &&
     posBody.includes('TOP_SIDE_GAP') &&
     posBody.includes('origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.RIGHT_SIDE_GAP') &&
     posBody.includes('origin[0] - ChoiceActFx.MALLET_W - ChoiceActFx.TOP_SIDE_GAP') &&
     !posBody.includes('seatWs[seatId] + ChoiceActFx.RIGHT_ANCHOR_DX') &&
-    !posBody.includes('seatWs[seatId] + ChoiceActFx.LEFT_ANCHOR_DX') &&
-    posBody.includes('朝桌') &&
-    posBody.includes('lb_cmp_hand') &&
+    posBody.includes('金框') &&
     (posBody.includes('avatar') || posBody.includes('头像')) &&
     !posBody.includes('challengeFrontLiftVp') &&
     !posBody.includes('poolCenterOverlay') &&
     !posBody.includes('REST_SLOT') &&
     !posBody.includes('INWARD_PCT')) {
-  pass('S19-10/12: TOP clear of face; self dock-side; LEFT DX>0 toward table');
+  pass('朝向锁: restRot 四向 + SELF 金框右空 + TOP 离脸');
 } else {
-  fail('choiceActPosOf still face-overlap or self mid-air float');
+  fail('朝向/SELF 金框右空/分轨未落地');
 }
 
 if (!engine.includes('playChoiceAct') &&
@@ -296,6 +301,16 @@ if (!engine.includes('playChoiceAct') &&
   pass('engine rules untouched (no hammer in MatchEngine)');
 } else {
   fail('hammer leaked into engine');
+}
+
+const rotOf = table.includes('restRotOf(seatId)') &&
+  table.includes('ChoiceActFx.restRotOf') &&
+  table.includes('RAISE_DELTA') &&
+  !table.includes('ChoiceActFx.RAISE_ROT');
+if (rotOf && hammer.includes('smashAxisX') && hammer.includes('posX()')) {
+  pass('per-seat restRot + smash axis (禁四座同一朝左)');
+} else {
+  fail('smash still single-track / restRot missing');
 }
 
 console.log('');

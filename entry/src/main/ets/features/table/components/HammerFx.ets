@@ -25,7 +25,7 @@ export struct HammerFx {
         .width(ChoiceActFx.MALLET_W)
         .height(ChoiceActFx.MALLET_H)
         .objectFit(ImageFit.Contain)
-        .position({ x: this.x + this.shake, y: this.y + this.lift })
+        .position({ x: this.posX(), y: this.posY() })
         .rotate({
           angle: this.displayRot(),
           centerX: ChoiceActFx.MALLET_W / 2,
@@ -39,7 +39,7 @@ export struct HammerFx {
   /** 质疑抬起 → up；砸下/短震 → hit；常驻搁置 / 相信静置 → rest. */
   private malletSrc(): Resource {
     if (this.kind === ChoiceActFx.KIND_DOUBT) {
-      if (this.shake !== 0 || this.lift > -ChoiceActFx.LIFT_VP) {
+      if (this.shake !== 0 || this.lift === 0) {
         return $r('app.media.art_fx_mallet_hit');
       }
       return $r('app.media.art_fx_mallet_up');
@@ -47,8 +47,23 @@ export struct HammerFx {
     return $r('app.media.art_fx_mallet');
   }
 
-  /** Rest frame is already horizontal. Doubt uses RAISE/DOWN rot as driven. */
+  /** Absolute rot: restRot(seat) or smash deltas driven by Table. */
   private displayRot(): number {
     return this.rot;
+  }
+
+  /** LEFT/RIGHT: lift along X toward/away dealer; TOP/SELF along Y. */
+  private posX(): number {
+    if (ChoiceActFx.smashAxisX(this.seatId)) {
+      return this.x + this.lift + this.shake;
+    }
+    return this.x + this.shake;
+  }
+
+  private posY(): number {
+    if (ChoiceActFx.smashAxisX(this.seatId)) {
+      return this.y;
+    }
+    return this.y + this.lift;
   }
 }

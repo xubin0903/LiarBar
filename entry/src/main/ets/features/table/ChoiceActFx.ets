@@ -1,6 +1,6 @@
 /**
  * 质疑/相信桌槌 (#243 v0.2 Rebuild).
- * 四座头像旁常驻搁置；相信静置不播；质疑就地抬砸回搁。
+ * 四座头像旁常驻搁置；锤头朝荷官分向；相信静置；质疑按座向砸。
  * Visual/SFX only. Does not change open-card 1000/3000 gates
  * or Trust|Challenge rule semantics.
  *
@@ -34,34 +34,33 @@ export class ChoiceActFx {
 
   static readonly LIFT_VP: number = 36;
   static readonly SHAKE_VP: number = 3;
-  static readonly RAISE_ROT: number = -52;
-  static readonly DOWN_ROT: number = 10;
-  /** Rest frame is already horizontal; resident pose uses rot=0. */
-  static readonly REST_ROT: number = 82;
+  /** Relative to restRot: pull-back / impact (art rest = head-right horizontal). */
+  static readonly RAISE_DELTA: number = -52;
+  static readonly DOWN_DELTA: number = 10;
 
   /**
-   * Aron Rebuild 再打回：旁空朝桌 ≠ 硬外偏；禁压脸 / 禁飘桌心.
-   * LEFT 头像右空朝桌 · RIGHT 头像左空朝桌 · TOP 头像左侧旁空离脸 · self 底座旁空不压手.
+   * Rebuild 朝向锁：锤头朝荷官（仅四向）；砸轨按座分；SELF 金框右空.
+   * Art rest @0° = 柄左锤右. TOP↓ SELF↑ LEFT→ RIGHT←.
    */
-  /** self: 贴 40 头像右旁缝；DY 只轻抬，禁 -96 飘到荷官旁. */
-  static readonly SELF_ANCHOR_DX: number = 44;
-  static readonly SELF_ANCHOR_DY: number = -24;
-  static readonly SELF_FALLBACK_X: number = 48;
-  static readonly SELF_FALLBACK_DY: number = -48;
+  /** self: 金框右侧空地（seatW 外）；禁压头像/烛. */
+  static readonly SELF_OUT_GAP: number = 8;
+  static readonly SELF_ANCHOR_DY: number = 0;
+  static readonly SELF_FALLBACK_X: number = 120;
+  static readonly SELF_FALLBACK_DY: number = -40;
 
-  /** p3 左座: 头像右侧空（朝桌）。禁负 DX 贴左缘/刘海. */
+  /** p3 左座: 头像右侧空（朝桌）. */
   static readonly LEFT_ANCHOR_DX: number = 52;
   static readonly LEFT_ANCHOR_DY: number = 4;
   static readonly LEFT_FALLBACK_X: number = 64;
   static readonly LEFT_FALLBACK_Y: number = 110;
 
-  /** p1 右座: 头像左侧空朝桌；origin - MALLET_W - SIDE_GAP。禁 seat 右缘外侧. */
+  /** p1 右座: 头像左侧空朝桌. */
   static readonly RIGHT_SIDE_GAP: number = 8;
   static readonly RIGHT_ANCHOR_DY: number = 4;
   static readonly RIGHT_FALLBACK_DX: number = -120;
   static readonly RIGHT_FALLBACK_Y: number = 120;
 
-  /** p2 对家: 头像左侧旁空 = origin - MALLET_W - GAP（整槌离脸，禁压脸）. */
+  /** p2 对家: 头像左侧旁空整槌离脸. */
   static readonly TOP_SIDE_GAP: number = 12;
   static readonly TOP_ANCHOR_DY: number = 4;
   static readonly TOP_FALLBACK_X: number = 160;
@@ -69,5 +68,32 @@ export class ChoiceActFx {
 
   static smashTotalMs(): number {
     return ChoiceActFx.LIFT_MS + ChoiceActFx.SMASH_MS + ChoiceActFx.SHAKE_MS;
+  }
+
+  /** Rest rot: hammer head toward dealer. Compass B=0 R=1 T=2 L=3. */
+  static restRotOf(seatId: number): number {
+    if (seatId === 0) {
+      return -90;
+    }
+    if (seatId === 1) {
+      return 180;
+    }
+    if (seatId === 2) {
+      return 90;
+    }
+    return 0;
+  }
+
+  /** Raise offset sign along smash axis (away from dealer). */
+  static raiseLiftSign(seatId: number): number {
+    if (seatId === 0 || seatId === 1) {
+      return 1;
+    }
+    return -1;
+  }
+
+  /** Smash axis uses X for LEFT/RIGHT; Y for TOP/SELF. */
+  static smashAxisX(seatId: number): boolean {
+    return seatId === 1 || seatId === 3;
   }
 }
