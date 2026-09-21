@@ -325,6 +325,9 @@ if (rotOf &&
     choiceFx.includes('CONTACT_HOLD_MS') &&
     choiceFx.includes('SQUASH_SCALE_Y') &&
     hammer.includes('depthT') &&
+    hammer.includes('@Prop depthScale') &&
+    !/@Prop\s+scale:/.test(hammer) &&
+    table.includes('depthScale:') &&
     hammer.includes('shadowOffsetY') &&
     table.includes('choiceActScale') &&
     table.includes('CONTACT_HOLD_MS') &&

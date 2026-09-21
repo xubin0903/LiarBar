@@ -2328,7 +2328,7 @@ struct Table {
       y: this.malletYOf(seatId),
       rot: this.malletRotOf(seatId),
       lift: this.malletLiftOf(seatId),
-      scale: this.malletScaleOf(seatId),
+      depthScale: this.malletScaleOf(seatId),
       squashY: this.malletSquashOf(seatId),
       shake: this.malletShakeOf(seatId),
       fade: 1
