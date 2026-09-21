@@ -1,7 +1,9 @@
 import { AiFriend } from '../ai/AiFriend';
 import { AiPersonaRegistry } from '../ai/AiPersonaRegistry';
-import { AiSeatController } from '../ai/AiSeatController';
 import { AiInfoSet, ChallengeAction, PlayAction } from '../ai/AiTypes';
+import { ChallengePolicy } from '../ai/ChallengePolicy';
+import { Memory } from '../ai/Memory';
+import { PlayPolicy } from '../ai/PlayPolicy';
 import { PersonaRow } from '../config/AiPersonasConfig';
 import { liveClaimShort, livePhaseText } from '../engine/DealerLines';
 import { MatchEngine } from '../engine/MatchEngine';
@@ -16,8 +18,8 @@ const TAG = 'MatchDirector';
 /**
  * Dealer clock + AI turns. Pulses the pure engine. No rule numbers of its own.
  * HUMAN TURN / PLAY_REVEAL_SELF: do not arm think, do not runAi, do not expire into autoPlay.
- * AI seats: think-delay then AiInfoSet → AiSeatController (人机对局AI.md v0.1.0).
- * demo_seed PLAY/CHALLENGE force is behind demo_force_ai_enabled (default OFF).
+ * AI seats: InfoSetBuilder → Memory → PlayPolicy / ChallengePolicy → ThinkDelay
+ * (人机对局AI-核心算法.md v0.2.0). demo_seed force stays behind demo_force_ai_enabled.
  */
 export class MatchDirector {
   private timerId: number = -1;
@@ -120,9 +122,15 @@ export class MatchDirector {
       return;
     }
     const rng: SeededRng = this.turnRng(snap);
-    const persona: string = this.personaOf(snap, snap.currentSeatId);
-    const ctrl: AiSeatController = AiSeatController.create(snap.currentSeatId, persona);
-    this.thinkUntilMs = Date.now() + ctrl.thinkDelayMs(rng, snap.config.turn_seconds);
+    const info: AiInfoSet = this.engine.buildAiInfoSet(snap.currentSeatId);
+    const mem: Memory = Memory.fromInfoSet(info);
+    let thinkMs: number = 1500;
+    if (this.challengeGate(info, snap.turnWindow)) {
+      thinkMs = ChallengePolicy.decideChallenge(info, mem, rng, false).thinkMs;
+    } else {
+      thinkMs = PlayPolicy.decidePlay(info, mem, rng, false).thinkMs;
+    }
+    this.thinkUntilMs = Date.now() + thinkMs;
   }
 
   private runAi(): void {
@@ -150,16 +158,17 @@ export class MatchDirector {
       }
     }
     const info: AiInfoSet = engine.buildAiInfoSet(snap.currentSeatId);
+    const mem: Memory = Memory.fromInfoSet(info);
     const rng: SeededRng = this.turnRng(snap);
-    const ctrl: AiSeatController = AiSeatController.create(snap.currentSeatId, info.personaId);
     const win: TurnWindow = snap.turnWindow;
     if (info.forceChallenge2 || win === TurnWindow.FORCE_CHALLENGE) {
+      ChallengePolicy.decideChallenge(info, mem, rng, true);
       engine.intentChallenge();
       this.maybeTableColor(snap);
       return;
     }
     if (snap.canChallenge || win === TurnWindow.CHALLENGE_ONLY || win === TurnWindow.EMPTY_SAFE) {
-      const ch: ChallengeAction = ctrl.decideChallenge(info, rng);
+      const ch: ChallengeAction = ChallengePolicy.decideChallenge(info, mem, rng, true);
       if (ch.type === 'DOUBT') {
         engine.intentChallenge();
         this.maybeTableColor(snap);
@@ -172,13 +181,26 @@ export class MatchDirector {
       }
     }
     if (snap.hasCards) {
-      const play: PlayAction = ctrl.decidePlay(info, rng);
+      const play: PlayAction = PlayPolicy.decidePlay(info, mem, rng, true);
       engine.intentPlay();
       engine.submitPlay(play.cardIds, this.toStyle(play.style), play.speech, play.namedSeatId);
     } else {
       engine.skip();
     }
     this.maybeTableColor(snap);
+  }
+
+  private challengeGate(info: AiInfoSet, win: TurnWindow): boolean {
+    if (info.forceChallenge2) {
+      return true;
+    }
+    if (info.canChallenge) {
+      return true;
+    }
+    if (win === TurnWindow.CHALLENGE_ONLY || win === TurnWindow.EMPTY_SAFE || win === TurnWindow.FORCE_CHALLENGE) {
+      return true;
+    }
+    return false;
   }
 
   private toStyle(style: string): PlayStyle {

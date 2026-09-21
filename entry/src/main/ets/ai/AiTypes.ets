@@ -73,7 +73,7 @@ export interface AiLimitsView {
   wild: string;
 }
 
-/** §4.1 persona knobs. Emote rates are performance-only. */
+/** Continuous knobs only. 人机对局AI-核心算法.md v0.2.0 §0.2 / §4b.4. */
 export interface AiPersonaParams {
   personaId: string;
   displayName: string;
@@ -92,6 +92,13 @@ export interface AiPersonaParams {
   pNameCall: number;
   thinkMsMin: number;
   thinkMsMax: number;
+  thinkPlayMin: number;
+  thinkPlayMax: number;
+  thinkChalMin: number;
+  thinkChalMax: number;
+  temperature: number;
+  challengeTemperature: number;
+  speechPlay: string;
   pEmoteAfterPlay: number;
   pKnock: number;
   pSignNo: number;
@@ -145,6 +152,7 @@ export interface AiBuilderSource {
 
 export interface ChallengeAction {
   type: string;
+  thinkMs: number;
 }
 
 export interface PlayAction {
@@ -153,17 +161,36 @@ export interface PlayAction {
   style: string;
   namedSeatId: number;
   speech: string;
+  thinkMs: number;
 }
 
 export interface AiChallengeTrace {
   seatId: number;
   persona: string;
   gate: string;
+  L_fake: number;
+  EV: number;
+  T: number;
+  beta: number;
+  phiDensity: number;
+  phiStyle: number;
+  phiCount: number;
+  phiPressure: number;
+  phiHistory: number;
+  phiNamed: number;
   S_fake: number;
   S_need: number;
   S_risk: number;
   Score: number;
-  T: number;
   intent: string;
   noiseFlipped: boolean;
+  thinkMs: number;
+}
+
+export interface AiPlayCandidate {
+  cards: AiCard[];
+  n: number;
+  isTrue: boolean;
+  expectation: number;
+  risk: number;
 }
