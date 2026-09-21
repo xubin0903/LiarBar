@@ -193,6 +193,8 @@ if (playBody.includes('kind !== ChoiceActFx.KIND_DOUBT') &&
     playBody.includes('restRotOf') &&
     playBody.includes('RAISE_SCALE') &&
     playBody.includes('SMASH_SCALE') &&
+    playBody.includes('CONTACT_HOLD_MS') &&
+    playBody.includes('Curve.EaseOut') &&
     playBody.includes('restRotOf(seatId)') &&
     playBody.includes('this.choiceActLift = 0') &&
     !playBody.includes('playHammerRest') &&
@@ -309,18 +311,33 @@ const rotOf = table.includes('restRotOf(seatId)') &&
   table.includes('ChoiceActFx.restRotOf') &&
   table.includes('RAISE_DELTA') &&
   !table.includes('ChoiceActFx.RAISE_ROT');
+const raiseSc = Number((/RAISE_SCALE:\s*number\s*=\s*([\d.]+)/.exec(choiceFx) || [])[1] || 0);
+const smashSc = Number((/SMASH_SCALE:\s*number\s*=\s*([\d.]+)/.exec(choiceFx) || [])[1] || 0);
+const liftVp = Number((/LIFT_VP:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
+const smashMs = Number((/SMASH_MS:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
+const contactMs = Number((/CONTACT_HOLD_MS:\s*number\s*=\s*(\d+)/.exec(choiceFx) || [])[1] || 0);
 if (rotOf &&
-    choiceFx.includes('RAISE_SCALE') &&
-    choiceFx.includes('SMASH_SCALE') &&
-    hammer.includes('shadowOpacity') &&
+    raiseSc >= 1.3 &&
+    smashSc <= 0.9 &&
+    liftVp >= 48 &&
+    smashMs >= 180 &&
+    contactMs >= 200 &&
+    choiceFx.includes('CONTACT_HOLD_MS') &&
+    choiceFx.includes('SQUASH_SCALE_Y') &&
+    hammer.includes('depthT') &&
+    hammer.includes('shadowOffsetY') &&
     table.includes('choiceActScale') &&
+    table.includes('CONTACT_HOLD_MS') &&
+    table.includes('Curve.EaseOut') &&
+    table.includes('Curve.EaseIn') &&
     table.includes('-ChoiceActFx.LIFT_VP') &&
     !hammer.includes('smashAxisX') &&
     !choiceFx.includes('smashAxisX') &&
-    !choiceFx.includes('raiseLiftSign')) {
-  pass('2.5D depth smash: scale+Y; 禁横滑主轨; per-seat restRot');
+    !choiceFx.includes('raiseLiftSign') &&
+    strings.includes('lb_str_hammer_smash_flat_slide')) {
+  pass('2.5D P0: 1.35/0.88/52 + raise animate + continuous shadow + contact 220; S19-14');
 } else {
-  fail('2.5D smash missing or still XY-slide main track');
+  fail(`2.5D P0 incomplete raise=${raiseSc} smash=${smashSc} lift=${liftVp} smashMs=${smashMs} contact=${contactMs}`);
 }
 
 console.log('');
