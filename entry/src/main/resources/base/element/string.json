@@ -698,11 +698,11 @@
     },
     {
       "name": "lb_str_hammer_smash_flat_slide",
-      "value": "砸像平面横滑"
+      "value": "砸无上下读感"
     },
     {
       "name": "_comment_lb_str_hammer_smash_flat_slide",
-      "value": "S19-14. FAIL if doubt smash is planar slide without raise-scale / slam-down scale+shadow."
+      "value": "S19-14. FAIL if no clear vertical smash read (raise scale up / slam scale down+shadow); planar slide primary also fails. No new key."
     }
   ]
 }
