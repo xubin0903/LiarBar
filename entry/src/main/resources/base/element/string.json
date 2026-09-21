@@ -719,6 +719,22 @@
     {
       "name": "_comment_lb_str_ai_fake_decision",
       "value": "S-AI-2. FAIL if demo_seed force / left-always-doubt / others-always-believe still main path."
+    },
+    {
+      "name": "lb_str_ai_fixed_play",
+      "value": "出牌固定脚本"
+    },
+    {
+      "name": "_comment_lb_str_ai_fixed_play",
+      "value": "S-AI-3. FAIL if same InfoSet multi-sample play entropy below floor / fixed-count script dominates."
+    },
+    {
+      "name": "lb_str_ai_instant_think",
+      "value": "思考过短"
+    },
+    {
+      "name": "_comment_lb_str_ai_instant_think",
+      "value": "S-AI-4. FAIL if main-path thinkMs < floor (play<1200 / challenge<1500) without justified skip."
     }
   ]
 }
