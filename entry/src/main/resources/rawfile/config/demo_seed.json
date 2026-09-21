@@ -2,6 +2,7 @@
   "schema_version": "0.2",
   "demo_seed_enabled": true,
   "demo_seed_value": 20260906,
+  "demo_force_ai_enabled": false,
   "force_events": [
     {
       "at": "CLAIM",

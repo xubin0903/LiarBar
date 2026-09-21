@@ -1,30 +1,41 @@
+/** 人机对局AI.md v0.1.0 §4.3 — score/threshold knobs + emote rates. */
 export interface PersonaRow {
-  persona_id: string;
-  display_name: string;
-  p_play_truth_when_can: number;
-  p_prefer_slam: number;
-  p_prefer_hesitate_bluff: number;
-  avg_play_count_bias: number;
-  base_p_challenge: number;
-  bonus_after_consecutive_play: number;
-  bonus_on_slam: number;
-  penalty_strong_hand: number;
-  p_emote_after_play: number;
-  p_knock: number;
-  p_sign_no: number;
-  p_name: number;
+  personaId: string;
+  displayName: string;
+  aggression: number;
+  caution: number;
+  bluffTendency: number;
+  challengeSensitivity: number;
+  handPressureWeight: number;
+  memoryWeight: number;
+  errorRate: number;
+  preferPlay1: number;
+  preferPlay2: number;
+  preferPlay3: number;
+  pSlam: number;
+  pHesitateOnBluff: number;
+  pNameCall: number;
+  thinkMsMin: number;
+  thinkMsMax: number;
+  pEmoteAfterPlay: number;
+  pKnock: number;
+  pSignNo: number;
 }
 
 export interface PersonaTable {
-  TIMID: PersonaRow;
-  SHARK: PersonaRow;
-  KAREN: PersonaRow;
+  AI_TIMID: PersonaRow;
+  AI_SHARK: PersonaRow;
+  AI_KAREN: PersonaRow;
+}
+
+export interface MvpSeatBind {
+  seat1: string;
+  seat2: string;
+  seat3: string;
 }
 
 export interface AiPersonasConfig {
   schema_version: string;
-  challenge_p_min: number;
-  challenge_p_max: number;
-  strong_hand_min_truth: number;
   personas: PersonaTable;
+  mvpSeatBind: MvpSeatBind;
 }
