@@ -3,7 +3,7 @@ import { SeededRng } from '../engine/SeededRng';
 import { AiFriend } from './AiFriend';
 import { PersonaId } from './PersonaId';
 
-/** Kept name for scaffold imports. Decisions live in AiSeatController. No LLM. */
+/** Kept name for scaffold imports. Decisions live in Play/ChallengePolicy. No LLM. */
 export class AiFriendStub {
   private readonly inner: AiFriend = new AiFriend();
 

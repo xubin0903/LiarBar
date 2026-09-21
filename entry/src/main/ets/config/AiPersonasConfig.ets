@@ -17,6 +17,13 @@ export interface PersonaRow {
   pNameCall: number;
   thinkMsMin: number;
   thinkMsMax: number;
+  thinkPlayMin: number;
+  thinkPlayMax: number;
+  thinkChalMin: number;
+  thinkChalMax: number;
+  temperature: number;
+  challengeTemperature: number;
+  speechPlay: string;
   pEmoteAfterPlay: number;
   pKnock: number;
   pSignNo: number;
