@@ -658,11 +658,11 @@
     },
     {
       "name": "lb_str_hammer_anchor_wrong",
-      "value": "四座锚偏/右座在左"
+      "value": "四座锚偏/旁空错"
     },
     {
       "name": "_comment_lb_str_hammer_anchor_wrong",
-      "value": "S19-11. FAIL if three lean left, right-seat mallet on avatar left, or not outer per seat."
+      "value": "S19-11. FAIL if not beside-avatar empty: L must be avatar-right empty, R avatar-left empty; no hard outer bias."
     }
   ]
 }
