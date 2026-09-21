@@ -1,27 +1,26 @@
 #!/usr/bin/env python3
-"""桌槌 P0 assets (PM REJECT after #248): art_fx_mallet + SFX · table-prop scale.
+"""桌槌 P0 assets: art_fx_mallet* · 主轴统一槌头朝 +X · table-prop scale.
 
-PM REJECT (#248 / 一眼木槌合入后仍失败 终验):
-  - Mallet was THUMBNAIL-sized / invisible in-game (缩略不可见)
-  - Must enlarge to TABLE-PROP scale (桌面道具级主读) — NOT icon/dot
-  - Raise/smash frames still instantly readable wooden mallet:
-      cylindrical head + tapered handle + wood grain + brass bands
-  - Clear RAISE (_up) and SMASH (_hit) frames
-  - REST (_mallet.png) for believe = static only, no animation
-  - Keep SFX unless tiny; hit can stay heavy (~−6 dBFS)
-      peak ~−5..−7 dBFS, 100–140ms, 48k mono, lead silence 0
-  - Soft/near-silent rest optional; believe has NO anim
-  - Safe inset ≤8% (was ≥20%); canvas 512² preferred; fill ~85% silhouette
-  - S19-7 hammer-on-cards is LAYOUT not art (this ticket = art/SFX only)
+PM LOCK (axis unify · after #251 table-prop):
+  - ALL three frames share the SAME principal axis: mallet HEAD toward +X (right)
+  - REST = still, head +X (not random lie / not off-axis)
+  - UP   = raised (lifted) but SAME axis (+X) — NOT head-up baked angle
+  - HIT  = smash along SAME axis (+X) + impact marks — NOT head-down baked angle
+  - Client rotates by seat 0/90/180/270; DO NOT bake 4-dir × 3 = 12 frames
+  - 四向烤帧 only if Rebuild says orientation looks muddy after client rotate
+  - Table-prop: canvas 512²; safe inset ≤8%; silhouette ~85% fill
+  - Clear wooden mallet: cylinder head + tapered handle + grain + brass
+  - Keep heavy hit SFX as-is unless broken (~−6 dBFS)
+  - Zero .ets. 合入 ≠ 终验. S19-7 = layout not art.
 
-Call ids (Aron A / design):
+Call ids:
   lb_sfx_hammer_hit  — Challenge raise→smash wood knock
   lb_sfx_hammer_rest — Believe rest settle (soft optional; no anim)
 
-Art slots:
-  art_fx_mallet.png      — REST / believe (lying; static)
-  art_fx_mallet_up.png   — RAISE (head up)
-  art_fx_mallet_hit.png  — SMASH (head down + impact)
+Art slots (all head → +X):
+  art_fx_mallet.png      — REST / believe (static, head +X)
+  art_fx_mallet_up.png   — RAISE (lifted, head +X)
+  art_fx_mallet_hit.png  — SMASH (impact along +X)
 
 Canvas 512²; safe inset ≤8%; mallet silhouette ~85% fill. Zero .ets. Seeds fixed.
 """
@@ -289,27 +288,39 @@ def _draw_cylinder_head(
 
     face_x = x1 + cap_rx // 2
     if impact:
-        for i, ang in enumerate((-42, -20, 0, 20, 42, -58, 58)):
+        # Longer smash rays + shock ring along +X (pose distinct vs REST; axis still +X)
+        for i, ang in enumerate((-55, -35, -18, 0, 18, 35, 55, -70, 70)):
             rad = math.radians(ang)
-            L = 14 + (i % 3) * 4
+            L = 22 + (i % 4) * 7
             x_b = face_x + int(L * math.cos(rad))
             y_b = hcy + int(L * math.sin(rad))
             ld.line(
                 [(face_x - 2, hcy), (x_b, y_b)],
-                fill=rgba(mix(CANDLE, PAPER, 0.3), 155 - i * 12),
-                width=2 + (1 if i < 3 else 0),
+                fill=rgba(mix(CANDLE, PAPER, 0.35), 175 - i * 10),
+                width=2 + (1 if i < 4 else 0),
             )
-        for dx, dy, rr in ((12, 10, 5), (18, -6, 4), (10, 14, 4), (20, 2, 3)):
+        # Shock crescent at striking face
+        ld.arc(
+            (face_x - 6, hcy - head_rad - 8, face_x + 28, hcy + head_rad + 8),
+            300,
+            60,
+            fill=rgba(mix(CANDLE, PAPER, 0.4), 140),
+            width=3,
+        )
+        for dx, dy, rr in (
+            (14, 12, 6), (24, -8, 5), (12, 18, 5), (28, 2, 4),
+            (20, 16, 4), (32, -12, 3), (18, -18, 4), (36, 8, 3),
+        ):
             ld.ellipse(
                 (face_x + dx - rr, hcy + dy - rr // 2, face_x + dx + rr, hcy + dy + rr // 2),
-                fill=rgba(mix(PAPER, BRASS, 0.1), 45),
+                fill=rgba(mix(PAPER, BRASS, 0.12), 55),
             )
 
     pad = 6
     return (
         x0 - cap_rx // 2 - pad,
         y0 - pad,
-        face_x + (22 if impact else cap_rx // 2) + pad,
+        face_x + (40 if impact else cap_rx // 2) + pad,
         y1 + pad,
     )
 
@@ -431,31 +442,37 @@ def _draw_local_mallet(
 
 
 def draw_mallet(
-    angle_deg: float,
+    angle_deg: float = 0.0,
     *,
     impact: bool = False,
     motion_blur: bool = False,
     seed: int = SEED_ART,
     scale: float = 2.0,
+    lift_y: int = 0,
+    nudge_x: int = 0,
 ) -> Image.Image:
-    """Draw wooden tavern mallet at angle (0=head right, -90=head up).
+    """Draw wooden tavern mallet; principal axis = head toward +X (angle≈0).
 
+    angle_deg: kept for legacy; P0 locks ~0 (head +X). Client does seat rotate.
+    lift_y: negative = raised (UP pose); positive = pressed toward table (HIT).
+    nudge_x: smash along +X (HIT cocked forward); keep head right, no vertical bake.
     Table-prop scale: silhouette fills ~85% of canvas; safe inset ≤8%.
     """
     s = SIZE
     canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(canvas)
     cx, cy = s // 2, s // 2
-    rng = np.random.default_rng(seed + int(angle_deg * 10) + (7 if impact else 0))
+    rng = np.random.default_rng(seed + int(angle_deg * 10) + (7 if impact else 0) + int(lift_y) + int(nudge_x))
 
-    if abs(angle_deg) < 30 or impact:
-        shadow_r = int(36 if impact else 28)
-        sx = cx + int(52 * math.cos(math.radians(angle_deg)) * scale)
-        sy = cy + int(52 * math.sin(math.radians(angle_deg)) * scale) + (6 if impact else 14)
-        d.ellipse(
-            (sx - shadow_r, sy - shadow_r // 2, sx + shadow_r, sy + shadow_r // 2),
-            fill=rgba(SHADOW, 70 if impact else 55),
-        )
+    # Ground shadow stays near table center; raised pose floats above it
+    shadow_r = int(36 if impact else 28)
+    sx = cx + int(52 * math.cos(math.radians(angle_deg)) * scale)
+    sy = cy + int(52 * math.sin(math.radians(angle_deg)) * scale) + (6 if impact else 14)
+    shadow_a = 85 if impact else (35 if lift_y < -8 else 55)
+    d.ellipse(
+        (sx - shadow_r, sy - shadow_r // 2, sx + shadow_r, sy + shadow_r // 2),
+        fill=rgba(SHADOW, shadow_a),
+    )
 
     local = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     ld = ImageDraw.Draw(local)
@@ -466,12 +483,13 @@ def draw_mallet(
     ys, xs = np.where(la[..., 3] > 12)
     if ys.size:
         bc = ((int(xs.min()) + int(xs.max())) // 2, (int(ys.min()) + int(ys.max())) // 2)
-        dx, dy = cx - bc[0], cy - bc[1]
+        dx, dy = cx - bc[0] + nudge_x, cy - bc[1] + lift_y
         if dx or dy:
             shifted = Image.new("RGBA", (s, s), (0, 0, 0, 0))
             shifted.paste(local, (dx, dy), local)
             local = shifted
 
+    # P0: keep principal axis head +X; angle must stay near 0 (no baked 4-dir)
     rotated = local.rotate(-angle_deg, resample=Image.Resampling.BICUBIC, center=(cx, cy))
     canvas = Image.alpha_composite(canvas, rotated)
 
@@ -539,6 +557,38 @@ def assert_table_prop_scale(
             f"{[round(x, 3) for x in insets]} need opposite sum ≤{2*SAFE_INSET_MAX}"
         )
     return (*insets, long_fill)
+
+
+def assert_head_plus_x(im: Image.Image, label: str) -> float:
+    """Principal axis gate: thick cylinder head must sit toward +X (right).
+
+    Column with max opaque vertical span must lie in the right half of the
+    opaque bbox (head = thick end). Fails if UP/HIT were baked head-up/down.
+    Returns head_col fraction within opaque bbox [0=left .. 1=right].
+    """
+    a = np.array(im.convert("RGBA"))[..., 3]
+    ys, xs = np.where(a > 20)
+    if ys.size == 0:
+        raise SystemExit(f"{label}: empty art (head +X gate)")
+    l, t, r, b = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+    # per-column opaque span height
+    best_x, best_h = l, -1
+    for x in range(l, r):
+        col = a[t:b, x] > 20
+        if not col.any():
+            continue
+        yy = np.where(col)[0]
+        h = int(yy.max() - yy.min() + 1)
+        if h > best_h:
+            best_h = h
+            best_x = x
+    frac = (best_x - l) / max(1, (r - l))
+    if frac < 0.55:
+        raise SystemExit(
+            f"{label}: head not toward +X (thick-col frac={frac:.3f} need ≥0.55; "
+            f"bbox LTRB=({l},{t},{r},{b}) thick_x={best_x})"
+        )
+    return frac
 
 
 def make_hammer_hit() -> np.ndarray:
@@ -764,24 +814,52 @@ def main() -> None:
     frozen_before = {p: sha256_file(p) for p in FROZEN if p.exists()}
 
     # Scale so all poses fill ~85% (safe inset ≤8%) — table-prop, not thumbnail
-    SC = 2.36
+    SC = 2.42
+    # Principal axis lock: ALL frames head toward +X (angle=0). Client seat-rotates.
+    # DO NOT bake 4-dir × 3 = 12 frames (only if Rebuild says rotate looks muddy).
+    AXIS = 0.0
 
-    # REST / believe: lying on side, head right — NO animation
-    rest = draw_mallet(4.0, impact=False, motion_blur=False, seed=SEED_ART, scale=SC)
-    # RAISE: head up, about to strike
-    up = draw_mallet(-80.0, impact=False, motion_blur=True, seed=SEED_ART + 1, scale=SC)
-    # SMASH: head down + impact marks
-    hit = draw_mallet(70.0, impact=True, motion_blur=False, seed=SEED_ART + 2, scale=SC)
+    # REST / believe: still on table, head +X — NO animation
+    rest = draw_mallet(
+        AXIS, impact=False, motion_blur=False, seed=SEED_ART, scale=SC, lift_y=0
+    )
+    # RAISE: cocked/raised above table, SAME axis head +X (not vertical bake)
+    up = draw_mallet(
+        AXIS,
+        impact=False,
+        motion_blur=True,
+        seed=SEED_ART + 1,
+        scale=SC,
+        lift_y=-56,
+        nudge_x=-6,
+    )
+    # SMASH: smash along SAME axis +X (rays + forward nudge; not head-down bake)
+    hit = draw_mallet(
+        AXIS,
+        impact=True,
+        motion_blur=True,
+        seed=SEED_ART + 2,
+        scale=SC,
+        lift_y=14,
+        nudge_x=18,
+    )
 
     assert_art_distinct(rest, up, hit)
     rest_tp = assert_table_prop_scale(rest, "rest")
     up_tp = assert_table_prop_scale(up, "up")
     hit_tp = assert_table_prop_scale(hit, "hit")
+    rest_ax = assert_head_plus_x(rest, "rest")
+    up_ax = assert_head_plus_x(up, "up")
+    hit_ax = assert_head_plus_x(hit, "hit")
     print(
         f"  table-prop inset≤{SAFE_INSET_MAX:.0%} fill≥{1-2*SAFE_INSET_MAX:.0%}: "
         f"rest LTRB={[round(x, 3) for x in rest_tp[:4]]} long={rest_tp[4]:.1%} "
         f"up LTRB={[round(x, 3) for x in up_tp[:4]]} long={up_tp[4]:.1%} "
         f"hit LTRB={[round(x, 3) for x in hit_tp[:4]]} long={hit_tp[4]:.1%}"
+    )
+    print(
+        f"  principal axis head=+X: rest_frac={rest_ax:.3f} "
+        f"up_frac={up_ax:.3f} hit_frac={hit_ax:.3f} (thick-col in right ≥0.55)"
     )
 
     MEDIA.mkdir(parents=True, exist_ok=True)
@@ -812,8 +890,14 @@ def main() -> None:
     print("frozen slots not written: flip / extinguish / launch / land / challenge / reveal")
     for path, digest in frozen_before.items():
         print(f"  {path.name} sha256 {digest}")
-    print("zero .ets · PM REJECT 缩略不可见→桌面道具级 · seed art=202609211 hit/rest Foley kept")
-    print(f"SIZE={SIZE} SAFE_INSET_MAX={SAFE_INSET_MAX} SC={SC} HIT_PEAK_DB={HIT_PEAK_DB} HIT_DUR_S={HIT_DUR_S}")
+    print(
+        "zero .ets · 主轴统一槌头朝+X · client 按座 0/90/180/270 旋 · "
+        "四向烤帧仅 Rebuild 糊再开 · seed art=202609211 hit/rest Foley kept"
+    )
+    print(
+        f"SIZE={SIZE} SAFE_INSET_MAX={SAFE_INSET_MAX} SC={SC} AXIS={AXIS} "
+        f"HIT_PEAK_DB={HIT_PEAK_DB} HIT_DUR_S={HIT_DUR_S}"
+    )
 
 
 if __name__ == "__main__":
