@@ -2,6 +2,7 @@ import { ConfigRepository } from '../config/ConfigRepository';
 import { PersonaRow } from '../config/AiPersonasConfig';
 import { AiPersonaParams } from './AiTypes';
 import { PersonaId } from './PersonaId';
+import { PersonaParams } from './PersonaParams';
 
 /**
  * Seat bind + persona table. 人机对局AI.md v0.1.0 §4.3.
@@ -38,28 +39,7 @@ export class AiPersonaRegistry {
   }
 
   static toParams(row: PersonaRow): AiPersonaParams {
-    return {
-      personaId: row.personaId,
-      displayName: row.displayName,
-      aggression: row.aggression,
-      caution: row.caution,
-      bluffTendency: row.bluffTendency,
-      challengeSensitivity: row.challengeSensitivity,
-      handPressureWeight: row.handPressureWeight,
-      memoryWeight: row.memoryWeight,
-      errorRate: row.errorRate,
-      preferPlay1: row.preferPlay1,
-      preferPlay2: row.preferPlay2,
-      preferPlay3: row.preferPlay3,
-      pSlam: row.pSlam,
-      pHesitateOnBluff: row.pHesitateOnBluff,
-      pNameCall: row.pNameCall,
-      thinkMsMin: row.thinkMsMin,
-      thinkMsMax: row.thinkMsMax,
-      pEmoteAfterPlay: row.pEmoteAfterPlay,
-      pKnock: row.pKnock,
-      pSignNo: row.pSignNo
-    };
+    return PersonaParams.fill(row);
   }
 
   static displayName(id: string): string {
@@ -120,8 +100,15 @@ export class AiPersonaRegistry {
         pSlam: 0.35,
         pHesitateOnBluff: 0.25,
         pNameCall: 0.25,
-        thinkMsMin: 500,
-        thinkMsMax: 1000,
+        thinkMsMin: 1200,
+        thinkMsMax: 3500,
+        thinkPlayMin: 1200,
+        thinkPlayMax: 3500,
+        thinkChalMin: 1500,
+        thinkChalMax: 4000,
+        temperature: 0.45,
+        challengeTemperature: 0.19,
+        speechPlay: '整整齐齐',
         pEmoteAfterPlay: 0.5,
         pKnock: 0.15,
         pSignNo: 0.15
@@ -144,8 +131,15 @@ export class AiPersonaRegistry {
         pSlam: 0.25,
         pHesitateOnBluff: 0.20,
         pNameCall: 0.20,
-        thinkMsMin: 400,
-        thinkMsMax: 900,
+        thinkMsMin: 1200,
+        thinkMsMax: 3500,
+        thinkPlayMin: 1200,
+        thinkPlayMax: 3500,
+        thinkChalMin: 1500,
+        thinkChalMax: 4000,
+        temperature: 0.45,
+        challengeTemperature: 0.19,
+        speechPlay: '看着办。',
         pEmoteAfterPlay: 0.45,
         pKnock: 0.25,
         pSignNo: 0.35
@@ -157,7 +151,7 @@ export class AiPersonaRegistry {
       aggression: 0.25,
       caution: 0.75,
       bluffTendency: 0.15,
-      challengeSensitivity: 0.18,
+      challengeSensitivity: 0.28,
       handPressureWeight: 0.55,
       memoryWeight: 0.35,
       errorRate: 0.08,
@@ -167,8 +161,15 @@ export class AiPersonaRegistry {
       pSlam: 0.10,
       pHesitateOnBluff: 0.15,
       pNameCall: 0.05,
-      thinkMsMin: 700,
-      thinkMsMax: 1200,
+      thinkMsMin: 1200,
+      thinkMsMax: 3500,
+      thinkPlayMin: 1200,
+      thinkPlayMax: 3500,
+      thinkChalMin: 1500,
+      thinkChalMax: 4000,
+      temperature: 0.45,
+      challengeTemperature: 0.19,
+      speechPlay: '就…一张。',
       pEmoteAfterPlay: 0.2,
       pKnock: 0.05,
       pSignNo: 0.05
