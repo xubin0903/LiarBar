@@ -3,7 +3,7 @@ import { SeededRng } from '../engine/SeededRng';
 import { AiFriend } from './AiFriend';
 import { PersonaId } from './PersonaId';
 
-/** Kept name for scaffold imports. Decisions live in AiFriend. No LLM. */
+/** Kept name for scaffold imports. Decisions live in AiSeatController. No LLM. */
 export class AiFriendStub {
   private readonly inner: AiFriend = new AiFriend();
 
@@ -12,6 +12,6 @@ export class AiFriendStub {
   }
 
   thinkDelayMs(id: PersonaId): number {
-    return this.inner.thinkDelayMs(id, new SeededRng(0));
+    return this.inner.thinkDelayMs(id, new SeededRng(0), 15);
   }
 }

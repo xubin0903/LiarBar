@@ -1,9 +1,12 @@
-import { AiFriend, AiDecision } from '../ai/AiFriend';
+import { AiFriend } from '../ai/AiFriend';
+import { AiPersonaRegistry } from '../ai/AiPersonaRegistry';
+import { AiSeatController } from '../ai/AiSeatController';
+import { AiInfoSet, ChallengeAction, PlayAction } from '../ai/AiTypes';
 import { PersonaRow } from '../config/AiPersonasConfig';
 import { liveClaimShort, livePhaseText } from '../engine/DealerLines';
 import { MatchEngine } from '../engine/MatchEngine';
-import { CardModel, MatchSnapshot } from '../engine/MatchTypes';
-import { Phase, SeatRole, TurnWindow } from '../engine/Phase';
+import { MatchSnapshot } from '../engine/MatchTypes';
+import { Phase, PlayStyle, SeatRole, TurnWindow } from '../engine/Phase';
 import { SeededRng } from '../engine/SeededRng';
 import { LiveWindowAdapter, LiveWindowPayload } from '../harmony/LiveWindowAdapter';
 import { Logger } from './Logger';
@@ -13,7 +16,8 @@ const TAG = 'MatchDirector';
 /**
  * Dealer clock + AI turns. Pulses the pure engine. No rule numbers of its own.
  * HUMAN TURN / PLAY_REVEAL_SELF: do not arm think, do not runAi, do not expire into autoPlay.
- * AI seats keep think-delay then decide / demo_seed force events.
+ * AI seats: think-delay then AiInfoSet → AiSeatController (人机对局AI.md v0.1.0).
+ * demo_seed PLAY/CHALLENGE force is behind demo_force_ai_enabled (default OFF).
  */
 export class MatchDirector {
   private timerId: number = -1;
@@ -116,13 +120,9 @@ export class MatchDirector {
       return;
     }
     const rng: SeededRng = this.turnRng(snap);
-    let persona: string = '';
-    for (let i = 0; i < snap.seats.length; i++) {
-      if (snap.seats[i].seatId === snap.currentSeatId) {
-        persona = snap.seats[i].aiPersona;
-      }
-    }
-    this.thinkUntilMs = Date.now() + this.ai.thinkDelayMs(persona, rng);
+    const persona: string = this.personaOf(snap, snap.currentSeatId);
+    const ctrl: AiSeatController = AiSeatController.create(snap.currentSeatId, persona);
+    this.thinkUntilMs = Date.now() + ctrl.thinkDelayMs(rng, snap.config.turn_seconds);
   }
 
   private runAi(): void {
@@ -137,33 +137,58 @@ export class MatchDirector {
     if (!this.isAiSeat(snap, snap.currentSeatId)) {
       return;
     }
-    if (engine.shouldForceKarenChallenge()) {
-      engine.intentChallenge();
-      this.maybeTableColor(snap);
-      return;
-    }
-    if (engine.shouldForceSharkPlay()) {
-      engine.demoForcePlay();
-      this.maybeTableColor(snap);
-      return;
-    }
-    const hand: CardModel[] = engine.handForAi(snap.currentSeatId);
-    const rng: SeededRng = this.turnRng(snap);
-    const d: AiDecision = this.ai.decide(snap, hand, rng);
-    if (d.kind === 'CHALLENGE') {
-      engine.intentChallenge();
-    } else if (d.kind === 'PLAY') {
-      engine.intentPlay();
-      engine.submitPlay(d.cardIds, d.style, d.speech, d.namedSeatId);
-    } else {
-      if (snap.turnWindow === TurnWindow.CHALLENGE_ONLY || !snap.hasCards) {
-        engine.skip();
-      } else {
-        engine.intentPlay();
-        engine.submitPlay(d.cardIds, d.style, d.speech, d.namedSeatId);
+    if (engine.demoForceAiEnabled()) {
+      if (engine.shouldForceKarenChallenge()) {
+        engine.intentChallenge();
+        this.maybeTableColor(snap);
+        return;
+      }
+      if (engine.shouldForceSharkPlay()) {
+        engine.demoForcePlay();
+        this.maybeTableColor(snap);
+        return;
       }
     }
+    const info: AiInfoSet = engine.buildAiInfoSet(snap.currentSeatId);
+    const rng: SeededRng = this.turnRng(snap);
+    const ctrl: AiSeatController = AiSeatController.create(snap.currentSeatId, info.personaId);
+    const win: TurnWindow = snap.turnWindow;
+    if (info.forceChallenge2 || win === TurnWindow.FORCE_CHALLENGE) {
+      engine.intentChallenge();
+      this.maybeTableColor(snap);
+      return;
+    }
+    if (snap.canChallenge || win === TurnWindow.CHALLENGE_ONLY || win === TurnWindow.EMPTY_SAFE) {
+      const ch: ChallengeAction = ctrl.decideChallenge(info, rng);
+      if (ch.type === 'DOUBT') {
+        engine.intentChallenge();
+        this.maybeTableColor(snap);
+        return;
+      }
+      if (ch.type === 'SKIP' || win === TurnWindow.CHALLENGE_ONLY || win === TurnWindow.EMPTY_SAFE) {
+        engine.skip();
+        this.maybeTableColor(snap);
+        return;
+      }
+    }
+    if (snap.hasCards) {
+      const play: PlayAction = ctrl.decidePlay(info, rng);
+      engine.intentPlay();
+      engine.submitPlay(play.cardIds, this.toStyle(play.style), play.speech, play.namedSeatId);
+    } else {
+      engine.skip();
+    }
     this.maybeTableColor(snap);
+  }
+
+  private toStyle(style: string): PlayStyle {
+    if (style === 'SLAM') {
+      return PlayStyle.SLAM;
+    }
+    if (style === 'HESITATE') {
+      return PlayStyle.HESITATE;
+    }
+    return PlayStyle.SOFT;
   }
 
   private maybeTableColor(prev: MatchSnapshot): void {
@@ -171,22 +196,28 @@ export class MatchDirector {
       return;
     }
     const rng: SeededRng = this.turnRng(prev);
-    let persona: string = '';
-    for (let i = 0; i < prev.seats.length; i++) {
-      if (prev.seats[i].seatId === prev.currentSeatId) {
-        persona = prev.seats[i].aiPersona;
-      }
-    }
+    const persona: string = this.personaOf(prev, prev.currentSeatId);
     const row: PersonaRow = this.ai.row(persona);
-    if (rng.nextBool(row.p_emote_after_play)) {
+    if (rng.nextBool(row.pEmoteAfterPlay)) {
       this.engine.emote(prev.currentSeatId, 'SMILE');
     }
-    if (rng.nextBool(row.p_knock)) {
+    if (rng.nextBool(row.pKnock)) {
       this.engine.tableAct(prev.currentSeatId, 'KNOCK');
     }
-    if (rng.nextBool(row.p_sign_no)) {
+    if (rng.nextBool(row.pSignNo)) {
       this.engine.tableAct(prev.currentSeatId, 'SIGN_NO');
     }
+  }
+
+  private personaOf(snap: MatchSnapshot, seatId: number): string {
+    for (let i = 0; i < snap.seats.length; i++) {
+      if (snap.seats[i].seatId === seatId) {
+        if (snap.seats[i].aiPersona.length > 0) {
+          return snap.seats[i].aiPersona;
+        }
+      }
+    }
+    return AiPersonaRegistry.personaIdForSeat(seatId);
   }
 
   private turnRng(snap: MatchSnapshot): SeededRng {
