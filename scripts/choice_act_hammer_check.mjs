@@ -269,10 +269,11 @@ if (choiceFx.includes('SELF_OUT_GAP') &&
     !choiceFx.includes('RAISE_ROT') &&
     leftDx > 0 &&
     topDy <= 8 &&
-    choiceFx.includes('return -90') &&
-    choiceFx.includes('return 180') &&
-    choiceFx.includes('return 90') &&
-    choiceFx.includes('return 0') &&
+    choiceFx.includes('deg = 270') &&
+    choiceFx.includes('deg = 180') &&
+    choiceFx.includes('deg = 90') &&
+    choiceFx.includes('deg = 0') &&
+    choiceFx.includes('ART_HEAD_OFFSET') &&
     posBody.includes('TableCompass.BOTTOM') &&
     posBody.includes('TableCompass.LEFT') &&
     posBody.includes('TableCompass.RIGHT') &&
