@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
-"""桌槌 P0 assets: art_fx_mallet* · 主轴统一槌头朝 +X · table-prop scale.
+"""桌槌 P0 assets: art_fx_mallet* · 2.5D 假透视砸 · 主轴槌头朝 +X · table-prop.
 
-PM LOCK (axis unify · after #251 table-prop):
-  - ALL three frames share the SAME principal axis: mallet HEAD toward +X (right)
-  - REST = still, head +X (not random lie / not off-axis)
-  - UP   = raised (lifted) but SAME axis (+X) — NOT head-up baked angle
-  - HIT  = smash along SAME axis (+X) + impact marks — NOT head-down baked angle
+PM LOCK (2.5D from-above smash · axis unify · after #251/#264):
+  - Smash reads as 2.5D "from above down" (假透视), NOT sideways swing
+  - ALL three frames share SAME principal axis: mallet HEAD toward +X (right)
+  - REST = still table-prop, head +X
+  - UP   = raised above table: slight scale-up + faux foreshorten (fake top-down);
+           SAME axis (+X) — NOT head-up baked angle
+  - HIT  = slam onto table: contact shadow + dust punch under head;
+           still readable wood mallet; SAME axis (+X) — NOT head-down bake
   - Client rotates by seat 0/90/180/270; DO NOT bake 4-dir × 3 = 12 frames
-  - 四向烤帧 only if Rebuild says orientation looks muddy after client rotate
   - Table-prop: canvas 512²; safe inset ≤8%; silhouette ~85% fill
   - Clear wooden mallet: cylinder head + tapered handle + grain + brass
-  - Keep heavy hit SFX as-is unless broken (~−6 dBFS)
+  - Keep heavy hit SFX bytes as-is (prefer leave WAV; ~−6 dBFS)
   - Zero .ets. 合入 ≠ 终验. S19-7 = layout not art.
 
 Call ids:
@@ -19,8 +21,8 @@ Call ids:
 
 Art slots (all head → +X):
   art_fx_mallet.png      — REST / believe (static, head +X)
-  art_fx_mallet_up.png   — RAISE (lifted, head +X)
-  art_fx_mallet_hit.png  — SMASH (impact along +X)
+  art_fx_mallet_up.png   — RAISE (2.5D raised foreshorten, head +X)
+  art_fx_mallet_hit.png  — SMASH (table impact shadow/dust, head +X)
 
 Canvas 512²; safe inset ≤8%; mallet silhouette ~85% fill. Zero .ets. Seeds fixed.
 """
@@ -95,7 +97,7 @@ HANDLE_TIP = (0x5A, 0x34, 0x1C)
 GRAIN = (0x42, 0x22, 0x10)
 
 # New seeds so rebuild differs from rejected #248 thumbnail bytes
-SEED_ART = 202609211
+SEED_ART = 202609214
 SEED_HIT = 202609192  # keep hit Foley character (~−6 dBFS) unless tiny
 SEED_REST = 202609193
 
@@ -170,11 +172,13 @@ def _draw_cylinder_head(
     head_len: int,
     head_rad: int,
     impact: bool,
+    raised: bool = False,
 ) -> tuple[int, int, int, int]:
-    """Side-view wooden cylinder head (axis ⊥ handle, along Y).
+    """2.5D faux top-down wooden cylinder head (axis ⊥ handle, along Y).
 
     Barrel / drum mallet head — warm tavern wood + metal bands.
-    Instantly readable as MALLET, not spoon bowl or court toy.
+    raised: more top-face ellipse (foreshorten / fake perspective from above).
+    impact: contact dust punch under head (vertical smash read), keep wood readable.
     """
     x0 = hcx - head_len // 2
     x1 = hcx + head_len // 2
@@ -182,11 +186,30 @@ def _draw_cylinder_head(
     y1 = hcy + head_rad
     r_edge = max(12, head_rad // 2)  # rounded barrel silhouette
 
-    # Soft under-shadow
-    ld.ellipse(
-        (x0 + 2, y1 - 4, x1 + 6, y1 + max(10, head_rad // 4)),
-        fill=rgba(SHADOW, 80),
-    )
+    # Soft under-shadow (raised = lighter/higher; impact = stronger contact pool)
+    if impact:
+        # Heavy contact shadow under head — reads as slamming onto table from above
+        sh_rx = head_len // 2 + 18
+        sh_ry = max(10, head_rad // 3 + 6)
+        ld.ellipse(
+            (hcx - sh_rx, hcy + head_rad // 3, hcx + sh_rx + 4, hcy + head_rad // 3 + sh_ry * 2),
+            fill=rgba(SHADOW, 130),
+        )
+        ld.ellipse(
+            (hcx - sh_rx + 8, hcy + head_rad // 4, hcx + sh_rx - 4, hcy + head_rad // 4 + sh_ry),
+            fill=rgba(SHADOW, 90),
+        )
+    elif raised:
+        # Distant soft blob — object floats above table
+        ld.ellipse(
+            (x0 + 10, y1 + 2, x1 - 6, y1 + max(8, head_rad // 5)),
+            fill=rgba(SHADOW, 40),
+        )
+    else:
+        ld.ellipse(
+            (x0 + 2, y1 - 4, x1 + 6, y1 + max(10, head_rad // 4)),
+            fill=rgba(SHADOW, 80),
+        )
 
     # Main barrel body — solid rounded rect first (smooth silhouette)
     ld.rounded_rectangle(
@@ -196,6 +219,17 @@ def _draw_cylinder_head(
     )
     # Mid lighter band (cylinder equator lit)
     mid_h = max(8, head_rad // 2)
+    if raised:
+        # Faux foreshorten: taller lit top plate reads as looking down onto raised head
+        top_h = max(10, int(head_rad * 0.72))
+        ld.ellipse(
+            (x0 + 4, y0 + 2, x1 - 4, y0 + top_h + 8),
+            fill=rgba(mix(WOOD_LT, CANDLE, 0.25), 255),
+        )
+        ld.ellipse(
+            (x0 + 10, y0 + 6, x1 - 10, y0 + top_h),
+            fill=rgba(mix(WOOD, WOOD_LT, 0.55), 220),
+        )
     ld.rounded_rectangle(
         (x0 + 3, hcy - mid_h, x1 - 3, hcy + mid_h),
         radius=max(6, mid_h // 2),
@@ -288,40 +322,43 @@ def _draw_cylinder_head(
 
     face_x = x1 + cap_rx // 2
     if impact:
-        # Longer smash rays + shock ring along +X (pose distinct vs REST; axis still +X)
-        for i, ang in enumerate((-55, -35, -18, 0, 18, 35, 55, -70, 70)):
-            rad = math.radians(ang)
-            L = 22 + (i % 4) * 7
-            x_b = face_x + int(L * math.cos(rad))
-            y_b = hcy + int(L * math.sin(rad))
-            ld.line(
-                [(face_x - 2, hcy), (x_b, y_b)],
-                fill=rgba(mix(CANDLE, PAPER, 0.35), 175 - i * 10),
-                width=2 + (1 if i < 4 else 0),
+        # Dust punch UNDER / around head — vertical 2.5D table slam (not sideways swing)
+        dust_y = hcy + head_rad // 2 + 4
+        for i, (dx, dy, rr) in enumerate(
+            (
+                (-18, 6, 7), (0, 10, 9), (16, 5, 7), (-28, 2, 5), (28, 3, 5),
+                (-10, 14, 6), (12, 14, 6), (-36, 8, 4), (34, 9, 4),
+                (-4, 18, 5), (8, 17, 4), (22, 12, 4), (-22, 12, 4),
             )
-        # Shock crescent at striking face
-        ld.arc(
-            (face_x - 6, hcy - head_rad - 8, face_x + 28, hcy + head_rad + 8),
-            300,
-            60,
-            fill=rgba(mix(CANDLE, PAPER, 0.4), 140),
-            width=3,
-        )
-        for dx, dy, rr in (
-            (14, 12, 6), (24, -8, 5), (12, 18, 5), (28, 2, 4),
-            (20, 16, 4), (32, -12, 3), (18, -18, 4), (36, 8, 3),
         ):
+            a = 70 - i * 3
             ld.ellipse(
-                (face_x + dx - rr, hcy + dy - rr // 2, face_x + dx + rr, hcy + dy + rr // 2),
-                fill=rgba(mix(PAPER, BRASS, 0.12), 55),
+                (hcx + dx - rr, dust_y + dy - rr // 2, hcx + dx + rr, dust_y + dy + rr // 2),
+                fill=rgba(mix(PAPER, WOOD_LT, 0.2), max(28, a)),
             )
+        # Short shock ticks near contact (subtle; axis still +X wood mallet)
+        for ang in (-40, -15, 15, 40):
+            rad = math.radians(ang)
+            L = 16
+            x_b = face_x + int(L * math.cos(rad))
+            y_b = hcy + int(L * math.sin(rad) * 0.55)
+            ld.line(
+                [(face_x - 2, hcy + 2), (x_b, y_b)],
+                fill=rgba(mix(CANDLE, PAPER, 0.3), 120),
+                width=2,
+            )
+        # Tiny grit flecks
+        for dx, dy in ((-14, 20), (6, 22), (20, 16), (-24, 16), (30, 10), (-30, 10)):
+            ld.point((hcx + dx, dust_y + dy), fill=rgba(mix(PAPER, BRASS, 0.1), 90))
 
     pad = 6
+    extra_b = 28 if impact else 0
+    extra_t = 6 if raised else 0
     return (
         x0 - cap_rx // 2 - pad,
-        y0 - pad,
-        face_x + (40 if impact else cap_rx // 2) + pad,
-        y1 + pad,
+        y0 - pad - extra_t,
+        face_x + (18 if impact else cap_rx // 2) + pad,
+        y1 + pad + extra_b,
     )
 
 
@@ -407,29 +444,38 @@ def _draw_tapered_handle(
 
 
 def _draw_local_mallet(
-    ld: ImageDraw.ImageDraw, cx: int, cy: int, sc: float, impact: bool
+    ld: ImageDraw.ImageDraw,
+    cx: int,
+    cy: int,
+    sc: float,
+    impact: bool,
+    raised: bool = False,
 ) -> tuple[int, int, int, int]:
     """Draw tavern wooden MALLET in local space: handle +X, cylindrical head at +X.
 
     Instantly readable: cylindrical barrel head + tapered handle + metal bands.
-    NOT toy/court spoon, NOT abstract blob.
+    raised: faux foreshorten (slightly shorter handle / fuller top head).
     """
     # --- Handle (tapered) ---
-    hl = int(118 * sc)
+    # Raised foreshorten: handle reads slightly shorter (fake perspective from above)
+    hl = int((112 if raised else 118) * sc)
     hw0 = int(8 * sc)   # free end (thin)
     hw1 = int(14 * sc)  # near head (thicker — sturdy mallet, not spoon stem)
-    hx0 = cx - int(64 * sc)
+    hx0 = cx - int((60 if raised else 64) * sc)
     hx1 = hx0 + hl
 
     # --- Cylindrical head ---
     # Along handle (X): short barrel length; perpendicular (Y): cylinder radius*2
-    head_len = int(62 * sc)   # barrel length along handle
-    head_rad = int(42 * sc)   # cylinder radius → tall round head (instant T read)
+    head_len = int((66 if raised else 62) * sc)   # raised: slightly fuller barrel
+    head_rad = int((46 if raised else 42) * sc)   # raised: larger top-down read
+    if impact:
+        # Slight squash into table (vertical slam)
+        head_rad = int(head_rad * 0.92)
     hcx = hx1 + head_len // 2 - int(5 * sc)
     hcy = cy
 
     _draw_tapered_handle(ld, hx0, hx1, cy, hw0, hw1)
-    aabb = _draw_cylinder_head(ld, hcx, hcy, head_len, head_rad, impact)
+    aabb = _draw_cylinder_head(ld, hcx, hcy, head_len, head_rad, impact, raised=raised)
 
     # Expand AABB to include handle tip
     pad = 6
@@ -450,33 +496,61 @@ def draw_mallet(
     scale: float = 2.0,
     lift_y: int = 0,
     nudge_x: int = 0,
+    raised: bool = False,
 ) -> Image.Image:
     """Draw wooden tavern mallet; principal axis = head toward +X (angle≈0).
 
     angle_deg: kept for legacy; P0 locks ~0 (head +X). Client does seat rotate.
     lift_y: negative = raised (UP pose); positive = pressed toward table (HIT).
-    nudge_x: smash along +X (HIT cocked forward); keep head right, no vertical bake.
+    nudge_x: small axial cock; keep head right, no vertical bake / no 12-dir.
+    raised: 2.5D faux foreshorten (UP) — larger readable top-down.
+    impact: table slam — contact shadow + dust punch under head.
     Table-prop scale: silhouette fills ~85% of canvas; safe inset ≤8%.
     """
     s = SIZE
     canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     d = ImageDraw.Draw(canvas)
     cx, cy = s // 2, s // 2
-    rng = np.random.default_rng(seed + int(angle_deg * 10) + (7 if impact else 0) + int(lift_y) + int(nudge_x))
-
-    # Ground shadow stays near table center; raised pose floats above it
-    shadow_r = int(36 if impact else 28)
-    sx = cx + int(52 * math.cos(math.radians(angle_deg)) * scale)
-    sy = cy + int(52 * math.sin(math.radians(angle_deg)) * scale) + (6 if impact else 14)
-    shadow_a = 85 if impact else (35 if lift_y < -8 else 55)
-    d.ellipse(
-        (sx - shadow_r, sy - shadow_r // 2, sx + shadow_r, sy + shadow_r // 2),
-        fill=rgba(SHADOW, shadow_a),
+    rng = np.random.default_rng(
+        seed + int(angle_deg * 10) + (7 if impact else 0) + (11 if raised else 0)
+        + int(lift_y) + int(nudge_x)
     )
+
+    # Ground / contact shadow — 2.5D from-above read
+    if impact:
+        # Broad table contact pool under whole mallet (head-weighted)
+        shadow_r = int(48 * scale / 2.4)
+        sx = cx + int(40 * scale / 2.4) + nudge_x
+        sy = cy + 22 + lift_y
+        d.ellipse(
+            (sx - shadow_r, sy - shadow_r // 3, sx + shadow_r + 10, sy + shadow_r // 2),
+            fill=rgba(SHADOW, 100),
+        )
+        d.ellipse(
+            (sx - shadow_r // 2, sy - 4, sx + shadow_r // 2 + 20, sy + shadow_r // 3),
+            fill=rgba(SHADOW, 70),
+        )
+    elif raised:
+        # Soft distant ground blob — mallet floats above table
+        shadow_r = int(22 * scale / 2.4)
+        sx = cx + int(36 * scale / 2.4)
+        sy = cy + 48
+        d.ellipse(
+            (sx - shadow_r, sy - shadow_r // 3, sx + shadow_r, sy + shadow_r // 3),
+            fill=rgba(SHADOW, 32),
+        )
+    else:
+        shadow_r = 28
+        sx = cx + int(52 * math.cos(math.radians(angle_deg)) * scale)
+        sy = cy + int(52 * math.sin(math.radians(angle_deg)) * scale) + 14
+        d.ellipse(
+            (sx - shadow_r, sy - shadow_r // 2, sx + shadow_r, sy + shadow_r // 2),
+            fill=rgba(SHADOW, 55),
+        )
 
     local = Image.new("RGBA", (s, s), (0, 0, 0, 0))
     ld = ImageDraw.Draw(local)
-    _draw_local_mallet(ld, cx, cy, scale, impact)
+    _draw_local_mallet(ld, cx, cy, scale, impact, raised=raised)
 
     # Center opaque silhouette on canvas before rotate (table-prop fill, not off-side icon)
     la = np.array(local)
@@ -815,33 +889,38 @@ def main() -> None:
 
     # Scale so all poses fill ~85% (safe inset ≤8%) — table-prop, not thumbnail
     SC = 2.42
+    # UP slightly larger — readable 2.5D raised foreshorten (fake perspective)
+    SC_UP = 2.64
     # Principal axis lock: ALL frames head toward +X (angle=0). Client seat-rotates.
     # DO NOT bake 4-dir × 3 = 12 frames (only if Rebuild says rotate looks muddy).
     AXIS = 0.0
 
-    # REST / believe: still on table, head +X — NO animation
+    # REST / believe: still on table, head +X — leave prior bake if fine (old seed)
+    # SEED_ART bumped for UP/HIT only; REST keeps 202609211 so bytes stay if drawing path equal
     rest = draw_mallet(
-        AXIS, impact=False, motion_blur=False, seed=SEED_ART, scale=SC, lift_y=0
+        AXIS, impact=False, motion_blur=False, seed=202609211, scale=SC, lift_y=0
     )
-    # RAISE: cocked/raised above table, SAME axis head +X (not vertical bake)
+    # RAISE: 2.5D from-above — scale-up + foreshorten top; SAME axis head +X
     up = draw_mallet(
         AXIS,
         impact=False,
         motion_blur=True,
         seed=SEED_ART + 1,
-        scale=SC,
-        lift_y=-56,
-        nudge_x=-6,
+        scale=SC_UP,
+        lift_y=-48,
+        nudge_x=-4,
+        raised=True,
     )
-    # SMASH: smash along SAME axis +X (rays + forward nudge; not head-down bake)
+    # SMASH: table impact + contact shadow / dust punch under head; SAME axis +X
     hit = draw_mallet(
         AXIS,
         impact=True,
         motion_blur=True,
         seed=SEED_ART + 2,
         scale=SC,
-        lift_y=14,
-        nudge_x=18,
+        lift_y=10,
+        nudge_x=8,
+        raised=False,
     )
 
     assert_art_distinct(rest, up, hit)
@@ -870,8 +949,17 @@ def main() -> None:
     for p, im in ((OUT_REST, rest), (OUT_UP, up), (OUT_HIT, hit)):
         print(f"art: {p.relative_to(ROOT)} size={im.size} sha256={sha256_file(p)}")
 
-    write_wav(OUT_HIT_WAV, make_hammer_hit())
-    write_wav(OUT_REST_WAV, make_hammer_rest())
+    # Prefer leave WAV bytes (PM: SFX unchanged unless regenerating rewrites them)
+    KEEP_HIT = "8dfab0e7cb8d140461906c52e498bd99bd7be8d01175e1adced2b0776c45efdb"
+    KEEP_REST = "bbb5a48e62642b7df5bd8e68b666a7e32e31aaa4cf1a36cfd3f9fe5fa7ed2554"
+    if OUT_HIT_WAV.exists() and sha256_file(OUT_HIT_WAV) == KEEP_HIT:
+        print(f"sfx keep: {OUT_HIT_WAV.name} sha256 unchanged")
+    else:
+        write_wav(OUT_HIT_WAV, make_hammer_hit())
+    if OUT_REST_WAV.exists() and sha256_file(OUT_REST_WAV) == KEEP_REST:
+        print(f"sfx keep: {OUT_REST_WAV.name} sha256 unchanged")
+    else:
+        write_wav(OUT_REST_WAV, make_hammer_rest())
 
     hit_m = measure(OUT_HIT_WAV)
     rest_m = measure(OUT_REST_WAV)
@@ -891,11 +979,11 @@ def main() -> None:
     for path, digest in frozen_before.items():
         print(f"  {path.name} sha256 {digest}")
     print(
-        "zero .ets · 主轴统一槌头朝+X · client 按座 0/90/180/270 旋 · "
-        "四向烤帧仅 Rebuild 糊再开 · seed art=202609211 hit/rest Foley kept"
+        "zero .ets · 2.5D假透视砸 · 主轴统一槌头朝+X · client 按座 0/90/180/270 旋 · "
+        "四向烤帧禁 · seed art=202609214 hit/rest Foley kept"
     )
     print(
-        f"SIZE={SIZE} SAFE_INSET_MAX={SAFE_INSET_MAX} SC={SC} AXIS={AXIS} "
+        f"SIZE={SIZE} SAFE_INSET_MAX={SAFE_INSET_MAX} SC={SC} SC_UP={SC_UP} AXIS={AXIS} "
         f"HIT_PEAK_DB={HIT_PEAK_DB} HIT_DUR_S={HIT_DUR_S}"
     )
 
