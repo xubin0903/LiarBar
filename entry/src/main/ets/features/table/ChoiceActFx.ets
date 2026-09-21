@@ -1,6 +1,6 @@
 /**
  * 质疑/相信桌槌 (#243 v0.2 Rebuild).
- * 四座头像旁常驻搁置；锤头朝荷官分向；相信静置；质疑按座向砸。
+ * 四座头像旁常驻搁置；锤头朝荷官分向；相信静置；质疑 2.5D 抬大砸小。
  * Visual/SFX only. Does not change open-card 1000/3000 gates
  * or Trust|Challenge rule semantics.
  *
@@ -32,9 +32,14 @@ export class ChoiceActFx {
   /** Smash-pose readable hold (0.8～1.2s). Not a reveal gate. */
   static readonly HOLD_MS: number = 1000;
 
-  static readonly LIFT_VP: number = 36;
+  /** 2.5D 砸：抬高略抬 Y（屏上为负）；禁侧座 XY 横滑当主轨. */
+  static readonly LIFT_VP: number = 28;
   static readonly SHAKE_VP: number = 3;
-  /** Relative to restRot: pull-back / impact (art rest = head-right horizontal). */
+  /** Raise near/big → smash far/flat. */
+  static readonly RAISE_SCALE: number = 1.2;
+  static readonly SMASH_SCALE: number = 0.92;
+  static readonly REST_SCALE: number = 1.0;
+  /** Relative to restRot: pull-back / impact. */
   static readonly RAISE_DELTA: number = -52;
   static readonly DOWN_DELTA: number = 10;
 
@@ -91,16 +96,8 @@ export class ChoiceActFx {
     return deg + ChoiceActFx.ART_HEAD_OFFSET;
   }
 
-  /** Raise offset sign along smash axis (away from dealer). */
-  static raiseLiftSign(seatId: number): number {
-    if (seatId === 0 || seatId === 1) {
-      return 1;
-    }
-    return -1;
-  }
-
-  /** Smash axis uses X for LEFT/RIGHT; Y for TOP/SELF. */
-  static smashAxisX(seatId: number): boolean {
-    return seatId === 1 || seatId === 3;
-  }
+  /**
+   * 2.5D depth lift is always screen-up (-Y) for all seats.
+   * Facing/smash direction is rotation-only (restRot + deltas).
+   */
 }
