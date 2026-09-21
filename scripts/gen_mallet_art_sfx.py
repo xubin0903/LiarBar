@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""桌槌 P0 assets (Aron Rebuild reject again after #244): art_fx_mallet + SFX.
+"""桌槌 P0 assets (PM REJECT after #248): art_fx_mallet + SFX · table-prop scale.
 
-Aron Rebuild REJECT (#244 merged 8cd201e still failed 终验):
-  - Still reads as toy / court spoon — NOT a clear wooden mallet
-  - Must be instantly readable wooden MALLET:
-      cylindrical head + tapered handle, warm tavern wood grain, metal bands OK
+PM REJECT (#248 / 一眼木槌合入后仍失败 终验):
+  - Mallet was THUMBNAIL-sized / invisible in-game (缩略不可见)
+  - Must enlarge to TABLE-PROP scale (桌面道具级主读) — NOT icon/dot
+  - Raise/smash frames still instantly readable wooden mallet:
+      cylindrical head + tapered handle + wood grain + brass bands
   - Clear RAISE (_up) and SMASH (_hit) frames
   - REST (_mallet.png) for believe = static only, no animation
-  - Heavier wood-knock SFX on sfx_hammer_hit.wav
+  - Keep SFX unless tiny; hit can stay heavy (~−6 dBFS)
       peak ~−5..−7 dBFS, 100–140ms, 48k mono, lead silence 0
   - Soft/near-silent rest optional; believe has NO anim
-  - Keep ≥20% safe inset (UI beside avatar without covering cards)
+  - Safe inset ≤8% (was ≥20%); canvas 512² preferred; fill ~85% silhouette
   - S19-7 hammer-on-cards is LAYOUT not art (this ticket = art/SFX only)
 
 Call ids (Aron A / design):
@@ -22,7 +23,7 @@ Art slots:
   art_fx_mallet_up.png   — RAISE (head up)
   art_fx_mallet_hit.png  — SMASH (head down + impact)
 
-Canvas 360²; ≥20% edge safe margin. Zero .ets. Seeds fixed.
+Canvas 512²; safe inset ≤8%; mallet silhouette ~85% fill. Zero .ets. Seeds fixed.
 """
 
 from __future__ import annotations
@@ -70,8 +71,9 @@ FROZEN = (
     SFX_DIR / "sfx_reveal_flip.wav",
 )
 
-SIZE = 360
-SAFE_INSET = 0.20  # ≥20% edges — UI beside avatar / above hand cards
+SIZE = 512  # table-prop canvas (was 360); fill ~85% silhouette
+SAFE_INSET_MAX = 0.08  # ≤8% edges (was ≥20%) — 缩略不可见 → 桌面道具级
+SAFE_INSET_MIN = 0.015  # tiny pad so rotate/impact rays do not clip
 SR = 48000
 # Heavier hit: 100–140ms, peak ~−5..−7 dBFS
 HIT_DUR_S = 0.125
@@ -93,9 +95,9 @@ HANDLE_LT = (0x98, 0x64, 0x3A)
 HANDLE_TIP = (0x5A, 0x34, 0x1C)
 GRAIN = (0x42, 0x22, 0x10)
 
-# New seeds so rebuild differs from rejected #244 bytes
-SEED_ART = 202609192
-SEED_HIT = 202609192
+# New seeds so rebuild differs from rejected #248 thumbnail bytes
+SEED_ART = 202609211
+SEED_HIT = 202609192  # keep hit Foley character (~−6 dBFS) unless tiny
 SEED_REST = 202609193
 
 
@@ -277,12 +279,12 @@ def _draw_cylinder_head(
                 fill=rgba(mix(BRASS, CANDLE, 0.3), 220),
             )
 
-    # Dark outline to lock silhouette
+    # Dark outline to lock silhouette (thicker at table-prop scale)
     ld.rounded_rectangle(
         (x0, y0, x1, y1),
         radius=r_edge,
-        outline=rgba(mix(WOOD_DK, GRAIN, 0.4), 200),
-        width=2,
+        outline=rgba(mix(WOOD_DK, GRAIN, 0.4), 220),
+        width=3,
     )
 
     face_x = x1 + cap_rx // 2
@@ -434,11 +436,11 @@ def draw_mallet(
     impact: bool = False,
     motion_blur: bool = False,
     seed: int = SEED_ART,
-    scale: float = 0.78,
+    scale: float = 2.0,
 ) -> Image.Image:
     """Draw wooden tavern mallet at angle (0=head right, -90=head up).
 
-    Mallet drawn SMALLER than canvas with ≥20% safe edge inset.
+    Table-prop scale: silhouette fills ~85% of canvas; safe inset ≤8%.
     """
     s = SIZE
     canvas = Image.new("RGBA", (s, s), (0, 0, 0, 0))
@@ -459,6 +461,17 @@ def draw_mallet(
     ld = ImageDraw.Draw(local)
     _draw_local_mallet(ld, cx, cy, scale, impact)
 
+    # Center opaque silhouette on canvas before rotate (table-prop fill, not off-side icon)
+    la = np.array(local)
+    ys, xs = np.where(la[..., 3] > 12)
+    if ys.size:
+        bc = ((int(xs.min()) + int(xs.max())) // 2, (int(ys.min()) + int(ys.max())) // 2)
+        dx, dy = cx - bc[0], cy - bc[1]
+        if dx or dy:
+            shifted = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+            shifted.paste(local, (dx, dy), local)
+            local = shifted
+
     rotated = local.rotate(-angle_deg, resample=Image.Resampling.BICUBIC, center=(cx, cy))
     canvas = Image.alpha_composite(canvas, rotated)
 
@@ -477,7 +490,7 @@ def draw_mallet(
         arr[..., :3].astype(np.float32) + noise * body[..., None], 0, 255
     ).astype(np.uint8)
     arr = clear_zero_rgb(arr)
-    pad = 4
+    pad = max(4, int(SIZE * 0.01))  # ~1% hard clear pad
     arr[:pad, :, 3] = 0
     arr[-pad:, :, 3] = 0
     arr[:, :pad, 3] = 0
@@ -486,10 +499,14 @@ def draw_mallet(
     return Image.fromarray(arr, "RGBA")
 
 
-def assert_safe_inset(
-    im: Image.Image, label: str, min_frac: float = SAFE_INSET
-) -> tuple[float, float, float, float]:
-    """Opaque bbox must keep ≥ min_frac margin from each edge."""
+def assert_table_prop_scale(
+    im: Image.Image, label: str
+) -> tuple[float, float, float, float, float]:
+    """Opaque bbox: long-axis fill ~85%; tight insets ≤ SAFE_INSET_MAX; no clip.
+
+    PM REJECT: 缩略不可见 → 桌面道具级主读 (not icon/dot).
+    Returns (L, T, R, B insets, long_axis_fill_frac).
+    """
     a = np.array(im.convert("RGBA"))[..., 3]
     ys, xs = np.where(a > 20)
     if ys.size == 0:
@@ -497,11 +514,31 @@ def assert_safe_inset(
     l, t, r, b = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
     s = SIZE
     insets = (l / s, t / s, (s - r) / s, (s - b) / s)
-    if min(insets) < min_frac - 1e-6:
+    bw, bh = (r - l) / s, (b - t) / s
+    long_fill = max(bw, bh)
+    tight = min(insets)
+    # Must not clip past min pad
+    if tight < SAFE_INSET_MIN - 1e-6:
         raise SystemExit(
-            f"{label}: safe inset fail LTRB={[round(x, 3) for x in insets]} need ≥{min_frac}"
+            f"{label}: clipped LTRB={[round(x, 3) for x in insets]} need ≥{SAFE_INSET_MIN}"
         )
-    return insets
+    # Long axis must reach table-prop: fill ≥ 1 - 2*SAFE_INSET_MAX (=84%)
+    min_long = 1.0 - 2.0 * SAFE_INSET_MAX
+    if long_fill + 1e-4 < min_long:
+        raise SystemExit(
+            f"{label}: too small (thumbnail) long_fill={long_fill:.3f} need ≥{min_long:.3f} "
+            f"LTRB={[round(x, 3) for x in insets]}"
+        )
+    # At least one pair of opposite margins must be ≤ SAFE_INSET_MAX (prop fills canvas)
+    pair_ok = (insets[0] + insets[2] <= 2 * SAFE_INSET_MAX + 1e-3) or (
+        insets[1] + insets[3] <= 2 * SAFE_INSET_MAX + 1e-3
+    )
+    if not pair_ok:
+        raise SystemExit(
+            f"{label}: inset pair too large (still icon-scale) LTRB="
+            f"{[round(x, 3) for x in insets]} need opposite sum ≤{2*SAFE_INSET_MAX}"
+        )
+    return (*insets, long_fill)
 
 
 def make_hammer_hit() -> np.ndarray:
@@ -726,8 +763,8 @@ def print_metrics(label: str, call_id: str, m: dict) -> None:
 def main() -> None:
     frozen_before = {p: sha256_file(p) for p in FROZEN if p.exists()}
 
-    # Scale so all poses keep ≥20% edge safe inset
-    SC = 0.70
+    # Scale so all poses fill ~85% (safe inset ≤8%) — table-prop, not thumbnail
+    SC = 2.36
 
     # REST / believe: lying on side, head right — NO animation
     rest = draw_mallet(4.0, impact=False, motion_blur=False, seed=SEED_ART, scale=SC)
@@ -737,12 +774,14 @@ def main() -> None:
     hit = draw_mallet(70.0, impact=True, motion_blur=False, seed=SEED_ART + 2, scale=SC)
 
     assert_art_distinct(rest, up, hit)
-    rest_in = assert_safe_inset(rest, "rest")
-    up_in = assert_safe_inset(up, "up")
-    hit_in = assert_safe_inset(hit, "hit")
+    rest_tp = assert_table_prop_scale(rest, "rest")
+    up_tp = assert_table_prop_scale(up, "up")
+    hit_tp = assert_table_prop_scale(hit, "hit")
     print(
-        f"  safe inset ≥{SAFE_INSET:.0%}: rest LTRB={[round(x, 3) for x in rest_in]} "
-        f"up={[round(x, 3) for x in up_in]} hit={[round(x, 3) for x in hit_in]}"
+        f"  table-prop inset≤{SAFE_INSET_MAX:.0%} fill≥{1-2*SAFE_INSET_MAX:.0%}: "
+        f"rest LTRB={[round(x, 3) for x in rest_tp[:4]]} long={rest_tp[4]:.1%} "
+        f"up LTRB={[round(x, 3) for x in up_tp[:4]]} long={up_tp[4]:.1%} "
+        f"hit LTRB={[round(x, 3) for x in hit_tp[:4]]} long={hit_tp[4]:.1%}"
     )
 
     MEDIA.mkdir(parents=True, exist_ok=True)
@@ -773,8 +812,8 @@ def main() -> None:
     print("frozen slots not written: flip / extinguish / launch / land / challenge / reveal")
     for path, digest in frozen_before.items():
         print(f"  {path.name} sha256 {digest}")
-    print("zero .ets · Aron Rebuild reject redo · seed art/hit=202609192 rest=202609193")
-    print(f"SAFE_INSET={SAFE_INSET} SC={SC} HIT_PEAK_DB={HIT_PEAK_DB} HIT_DUR_S={HIT_DUR_S}")
+    print("zero .ets · PM REJECT 缩略不可见→桌面道具级 · seed art=202609211 hit/rest Foley kept")
+    print(f"SIZE={SIZE} SAFE_INSET_MAX={SAFE_INSET_MAX} SC={SC} HIT_PEAK_DB={HIT_PEAK_DB} HIT_DUR_S={HIT_DUR_S}")
 
 
 if __name__ == "__main__":
