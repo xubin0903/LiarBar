@@ -4,7 +4,18 @@ import { DeckConfig, RankCounts, deckCountsFor } from '../config/DeckConfig';
 import { DemoForceEvent, DemoSeedConfig } from '../config/DemoSeedConfig';
 import { ChallengeBeatIds } from '../common/Ids';
 import { Logger } from '../common/Logger';
-import { PersonaId, DEFAULT_SEAT_PERSONAS } from '../ai/PersonaId';
+import { AiInfoSetBuilder } from '../ai/AiInfoSetBuilder';
+import { AiPersonaRegistry } from '../ai/AiPersonaRegistry';
+import { PersonaId } from '../ai/PersonaId';
+import {
+  AiBuilderSource,
+  AiCard,
+  AiChallengeOutcome,
+  AiInfoSet,
+  AiPublicLastPlay,
+  AiPublicSeat,
+  AiRevealRec
+} from '../ai/AiTypes';
 import { isChallengeSuccess, isLegal } from './Judge';
 import { lineForKey, pickTurnDealerKey } from './DealerLines';
 import { dealRound, DealResult, isFakeRank, repairDemoHands } from './DeckDeal';
@@ -120,6 +131,9 @@ export class MatchEngine {
   /** Reveal loser awaiting PenaltyExtinguish1 in PENALTY window. */
   private extinguishPending: boolean = false;
   private lastLoserReason: LifeReason = LifeReason.NONE;
+  /** Public reveal history for AI memory (reset each deal). */
+  private aiReveals: AiRevealRec[] = [];
+  private aiChallengeOutcomes: AiChallengeOutcome[] = [];
 
   current(): MatchSnapshot | null {
     if (this.snapshot === null && this.cfg === null) {
@@ -244,6 +258,8 @@ export class MatchEngine {
     this.lastExtinguishSeatId = -1;
     this.extinguishPending = false;
     this.lastLoserReason = LifeReason.NONE;
+    this.aiReveals = [];
+    this.aiChallengeOutcomes = [];
     this.buildSeats(opts);
     this.phase = Phase.DEAL;
     this.dealFresh(false);
@@ -286,6 +302,8 @@ export class MatchEngine {
     this.winnerSeatId = -1;
     this.clearEmptyGate();
     this.roundSafeWaitSeats = [];
+    this.aiReveals = [];
+    this.aiChallengeOutcomes = [];
     this.dealerKey = 'lb_str_dlr_lobby_full';
     this.dealerLine = '本桌四人，酒已满。';
     this.snapshot = this.buildSnapshot();
@@ -671,6 +689,23 @@ export class MatchEngine {
     return this.copyCards(this.handOf(seatId));
   }
 
+  /**
+   * §6.2: project allowed InfoSet for one AI seat. Never includes other
+   * seats' hidden ranks or unrevealed last-play faces.
+   */
+  buildAiInfoSet(seatId: number): AiInfoSet {
+    const src: AiBuilderSource = this.projectAiSource(seatId);
+    return AiInfoSetBuilder.build(src);
+  }
+
+  /** Live play default: false. Demo PLAY/CHALLENGE force stays behind this flag. */
+  demoForceAiEnabled(): boolean {
+    if (!this.demoOn || this.demo === null) {
+      return false;
+    }
+    return this.demo.demo_force_ai_enabled === true;
+  }
+
   forceEventAt(at: string): DemoForceEvent | null {
     if (!this.demoOn || this.demo === null) {
       return null;
@@ -688,6 +723,9 @@ export class MatchEngine {
   }
 
   shouldForceSharkPlay(): boolean {
+    if (!this.demoForceAiEnabled()) {
+      return false;
+    }
     if (this.forcePlayUsed || this.challengeHappened || this.currentSeatIsHuman()) {
       return false;
     }
@@ -699,6 +737,9 @@ export class MatchEngine {
   }
 
   shouldForceKarenChallenge(): boolean {
+    if (!this.demoForceAiEnabled()) {
+      return false;
+    }
     if (this.challengeHappened || this.currentSeatIsHuman()) {
       return false;
     }
@@ -840,9 +881,8 @@ export class MatchEngine {
         role = SeatRole.HUMAN;
         name = nick;
       } else {
-        const p: PersonaId = DEFAULT_SEAT_PERSONAS[(i - 1) % DEFAULT_SEAT_PERSONAS.length];
-        persona = p;
-        name = this.displayName(p);
+        persona = AiPersonaRegistry.personaIdForSeat(i);
+        name = AiPersonaRegistry.displayName(persona);
       }
       this.seats.push({
         seatId: i,
@@ -866,16 +906,6 @@ export class MatchEngine {
     }
   }
 
-  private displayName(id: PersonaId): string {
-    if (id === PersonaId.SHARK) {
-      return '老千';
-    }
-    if (id === PersonaId.KAREN) {
-      return '杠精';
-    }
-    return '怂货';
-  }
-
   private dealFresh(keepDealerLine: boolean): void {
     if (this.cfg === null || this.deck === null || this.rng === null) {
       return;
@@ -896,6 +926,8 @@ export class MatchEngine {
     const dealt: DealResult = dealRound(counts, aliveIds, this.cfg.hand_size_default, this.rng, this.cardSeq);
     this.cardSeq = dealt.nextCardSeq;
     this.discard = dealt.discard;
+    this.aiReveals = [];
+    this.aiChallengeOutcomes = [];
     for (let i = 0; i < aliveIds.length; i++) {
       this.hands[aliveIds[i]] = dealt.hands[i];
     }
@@ -1302,6 +1334,7 @@ export class MatchEngine {
     this.lastLoserSeatId = loser;
     this.lastLoserReason = reason;
     this.extinguishPending = true;
+    this.recordAiReveal(success, loser);
     // PenaltyExtinguish1 applied on PENALTY enter (ritualDone).
     this.settleBets(success);
     this.pushEvent(EventKind.JUDGE, loser, `${this.challenge.result}|${fake}|extinguish1`);
@@ -1384,7 +1417,11 @@ export class MatchEngine {
   }
 
   private canChallengeNow(): boolean {
-    const seat = seatById(this.seats, this.currentSeatId);
+    return this.canChallengeSeat(this.currentSeatId);
+  }
+
+  private canChallengeSeat(seatId: number): boolean {
+    const seat = seatById(this.seats, seatId);
     if (seat === null || seat.status !== SeatStatus.ALIVE) {
       return false;
     }
@@ -1402,6 +1439,150 @@ export class MatchEngine {
       }
     }
     return true;
+  }
+
+  private recordAiReveal(success: boolean, loser: number): void {
+    if (this.lastPlay === null || this.challenge === null) {
+      return;
+    }
+    const ranks: string[] = this.copyRanks(this.lastPlayRanks);
+    let verdict: string = 'true';
+    if (success) {
+      verdict = 'false';
+    }
+    this.aiReveals.push({
+      playSeatId: this.lastPlay.actorSeatId,
+      ranks: ranks,
+      verdict: verdict,
+      loserSeatId: loser
+    });
+    this.aiChallengeOutcomes.push({
+      challenger: this.challenge.challengerSeatId,
+      target: this.lastPlay.actorSeatId,
+      success: success
+    });
+  }
+
+  private projectAiSource(seatId: number): AiBuilderSource {
+    const hand: CardModel[] = this.handForAi(seatId);
+    const cards: AiCard[] = [];
+    for (let i = 0; i < hand.length; i++) {
+      cards.push({ cardId: hand[i].cardId, rank: hand[i].rank });
+    }
+    const seat = seatById(this.seats, seatId);
+    let lives: number = 0;
+    let persona: string = AiPersonaRegistry.personaIdForSeat(seatId);
+    if (seat !== null) {
+      lives = seat.lives;
+      if (seat.aiPersona.length > 0) {
+        persona = seat.aiPersona;
+      }
+    }
+    let lastPub: AiPublicLastPlay | null = null;
+    if (this.lastPlay !== null) {
+      let style: string = 'SOFT';
+      if (this.lastPlay.style === PlayStyle.SLAM) {
+        style = 'SLAM';
+      } else if (this.lastPlay.style === PlayStyle.HESITATE) {
+        style = 'HESITATE';
+      }
+      lastPub = {
+        seatId: this.lastPlay.actorSeatId,
+        count: this.lastPlay.count,
+        style: style,
+        namedSeatId: this.lastPlay.namedSeatId
+      };
+    }
+    const pubSeats: AiPublicSeat[] = [];
+    for (let i = 0; i < this.seats.length; i++) {
+      const s = this.seats[i];
+      pubSeats.push({
+        seatId: s.seatId,
+        handCount: this.handOf(s.seatId).length,
+        lives: s.lives,
+        alive: s.status === SeatStatus.ALIVE,
+        order: i,
+        isHuman: s.role === SeatRole.HUMAN
+      });
+    }
+    const reveals: AiRevealRec[] = [];
+    for (let i = 0; i < this.aiReveals.length; i++) {
+      const ranks: string[] = this.copyRanks(this.aiReveals[i].ranks);
+      reveals.push({
+        playSeatId: this.aiReveals[i].playSeatId,
+        ranks: ranks,
+        verdict: this.aiReveals[i].verdict,
+        loserSeatId: this.aiReveals[i].loserSeatId
+      });
+    }
+    const outcomes: AiChallengeOutcome[] = [];
+    for (let i = 0; i < this.aiChallengeOutcomes.length; i++) {
+      outcomes.push({
+        challenger: this.aiChallengeOutcomes[i].challenger,
+        target: this.aiChallengeOutcomes[i].target,
+        success: this.aiChallengeOutcomes[i].success
+      });
+    }
+    let claimRank: string = 'A';
+    if (this.currentClaim !== null && this.currentClaim.rank.length > 0) {
+      claimRank = this.currentClaim.rank;
+    }
+    let deckTotal: number = 20;
+    let deckLegal: number = 8;
+    const wild: string = this.deck !== null ? this.deck.wild : 'JOKER';
+    if (this.deck !== null) {
+      const counts: RankCounts | null = deckCountsFor(this.deck, this.seats.length);
+      if (counts !== null) {
+        deckTotal = counts.A + counts.K + counts.Q + counts.JOKER;
+        let claimN: number = counts.A;
+        if (claimRank === 'K') {
+          claimN = counts.K;
+        } else if (claimRank === 'Q') {
+          claimN = counts.Q;
+        }
+        deckLegal = claimN + counts.JOKER;
+      }
+    }
+    let maxPlay: number = 3;
+    let minPlay: number = 1;
+    let handSize: number = 5;
+    let livesDef: number = 3;
+    if (this.cfg !== null) {
+      maxPlay = this.cfg.max_play_cards;
+      minPlay = this.cfg.min_play_cards;
+      handSize = this.cfg.hand_size_default;
+      livesDef = this.cfg.lives_default;
+    }
+    let turnSec: number = 0;
+    if (this.turnEndsAtMs > this.nowMs) {
+      turnSec = (this.turnEndsAtMs - this.nowMs) / 1000;
+    }
+    return {
+      selfSeatId: seatId,
+      selfCards: cards,
+      selfLives: lives,
+      claimRank: claimRank,
+      lastPlay: lastPub,
+      seats: pubSeats,
+      reveals: reveals,
+      challengeOutcomes: outcomes,
+      phase: '' + this.phase,
+      turnWindow: '' + this.turnWindow,
+      canChallenge: this.canChallengeSeat(seatId),
+      forceChallenge2: this.forceChallengeEmpty || this.turnWindow === TurnWindow.FORCE_CHALLENGE,
+      aliveCount: aliveCount(this.seats),
+      turnSecondsLeft: turnSec,
+      publicPlayTotal: this.playIndexInRound,
+      params: AiPersonaRegistry.params(persona),
+      personaId: AiPersonaRegistry.normalize(persona),
+      maxPlay: maxPlay,
+      minPlay: minPlay,
+      handSizeDefault: handSize,
+      livesDefault: livesDef,
+      deckTotal: deckTotal,
+      deckLegal: deckLegal,
+      wild: wild
+    };
   }
 
   private currentIsGhost(): boolean {

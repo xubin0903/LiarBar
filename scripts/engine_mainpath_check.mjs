@@ -128,10 +128,15 @@ if (schemeA(false, true) === 'CHALLENGE_ONLY' && schemeA(false, false) === 'AUTO
   fail('scheme A');
 }
 
-if (personas.personas.TIMID && personas.personas.SHARK && personas.personas.KAREN) {
-  pass('personas TIMID/SHARK/KAREN');
+if (personas.personas.AI_TIMID && personas.personas.AI_SHARK && personas.personas.AI_KAREN) {
+  pass('personas AI_TIMID/AI_SHARK/AI_KAREN');
 } else {
   fail('personas');
+}
+if (demo.demo_force_ai_enabled === false) {
+  pass('demo_force_ai_enabled off (live AI not puppeted)');
+} else {
+  fail('demo_force_ai_enabled must be false in default builds');
 }
 
 const etsFiles = [
@@ -140,6 +145,9 @@ const etsFiles = [
   'entry/src/main/ets/engine/DeckDeal.ets',
   'entry/src/main/ets/config/DeckConfig.ets',
   'entry/src/main/ets/ai/AiFriend.ets',
+  'entry/src/main/ets/ai/AiSeatController.ets',
+  'entry/src/main/ets/ai/AiInfoSetBuilder.ets',
+  'entry/src/main/ets/ai/AiPersonaRegistry.ets',
   'entry/src/main/ets/pages/Table.ets',
   'entry/src/main/ets/features/table/DealFx.ets',
   'entry/src/main/ets/features/table/DealAudio.ets',
