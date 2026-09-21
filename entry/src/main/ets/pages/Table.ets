@@ -166,6 +166,7 @@ struct Table {
   @State choiceActKind: number = 0;
   @State choiceActRot: number = 0;
   @State choiceActLift: number = 0;
+  @State choiceActScale: number = 1;
   @State choiceActShake: number = 0;
   @State choiceActFade: number = 1;
   @State malletPosTick: number = 0;
@@ -2326,6 +2327,7 @@ struct Table {
       y: this.malletYOf(seatId),
       rot: this.malletRotOf(seatId),
       lift: this.malletLiftOf(seatId),
+      scale: this.malletScaleOf(seatId),
       shake: this.malletShakeOf(seatId),
       fade: 1
     })
@@ -2794,7 +2796,9 @@ struct Table {
     this.choiceActOn = true;
     const restRot: number = ChoiceActFx.restRotOf(seatId);
     this.choiceActRot = restRot + ChoiceActFx.RAISE_DELTA;
-    this.choiceActLift = ChoiceActFx.raiseLiftSign(seatId) * ChoiceActFx.LIFT_VP;
+    // 2.5D：抬 = 放大 + 屏上抬高；禁侧座横滑主轨.
+    this.choiceActLift = -ChoiceActFx.LIFT_VP;
+    this.choiceActScale = ChoiceActFx.RAISE_SCALE;
     this.choiceActTimer = setTimeout((): void => {
       this.choiceActTimer = -1;
       if (gen !== this.choiceActGen) {
@@ -2807,6 +2811,7 @@ struct Table {
       animateTo(smash, (): void => {
         this.choiceActRot = restRot + ChoiceActFx.DOWN_DELTA;
         this.choiceActLift = 0;
+        this.choiceActScale = ChoiceActFx.SMASH_SCALE;
       });
       TableAudio.playHammerHit();
       this.choiceActTimer = setTimeout((): void => {
@@ -2850,6 +2855,7 @@ struct Table {
               animateTo(rest, (): void => {
                 this.choiceActRot = ChoiceActFx.restRotOf(seatId);
                 this.choiceActLift = 0;
+                this.choiceActScale = ChoiceActFx.REST_SCALE;
               });
               this.choiceActTimer = setTimeout((): void => {
                 this.choiceActTimer = -1;
@@ -2880,6 +2886,7 @@ struct Table {
     this.choiceActFade = 1;
     this.choiceActShake = 0;
     this.choiceActLift = 0;
+    this.choiceActScale = ChoiceActFx.REST_SCALE;
     this.choiceActRot = 0;
     this.choiceActKind = ChoiceActFx.KIND_NONE;
   }
@@ -2930,6 +2937,13 @@ struct Table {
       return this.choiceActLift;
     }
     return 0;
+  }
+
+  private malletScaleOf(seatId: number): number {
+    if (this.choiceActOn && this.choiceActSeat === seatId) {
+      return this.choiceActScale;
+    }
+    return ChoiceActFx.REST_SCALE;
   }
 
   private malletShakeOf(seatId: number): number {
