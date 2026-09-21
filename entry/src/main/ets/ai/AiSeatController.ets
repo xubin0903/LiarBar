@@ -12,6 +12,14 @@ import {
 } from './AiTypes';
 
 const TAG = 'AiSeat';
+/** Soft×1 threshold lift. 人机对局AI.md v0.1.2 §4.4 Soft threshold↑. */
+const SOFT_T_LIFT: number = 0.08;
+/**
+ * Baseline (density / pressure / history / named) uses a gentler sensitivity
+ * scale so Soft×1 does not explode for Karen. Style+count keep full amp
+ * (Slam band stays readable). Signed: Karen 0.72 / Shark 0.42 / Timid 0.18.
+ */
+const BASE_SENS_SCALE: number = 0.62;
 
 class PlayCandidate {
   cards: AiCard[] = [];
@@ -20,8 +28,10 @@ class PlayCandidate {
 }
 
 /**
- * Per-seat persona controller. 人机对局AI.md v0.1.0 §5 / §6.
+ * Per-seat persona controller. 人机对局AI.md v0.1.2 §4.4 / §5 / §6.
  * Score → threshold. Random only for errorRate / ties / style sampling.
+ * Soft T↑ + baseline-sensitivity split: Soft×1 majority BELIEVE; Slam×3
+ * Karen high / Shark mid / Timid low. No seat-hardcoded intent.
  */
 export class AiSeatController {
   seatId: number;
@@ -211,8 +221,11 @@ export class AiSeatController {
       }
     }
     let densTerm: number = 0.35 * (1 - density);
-    const sRaw: number = sigStyle + sigCount + sigPressure + sigHistory + sigNamed + densTerm;
-    return this.clamp(sRaw * (0.5 + params.challengeSensitivity), 0, 1);
+    const susAmp: number = 0.5 + params.challengeSensitivity;
+    const baseAmp: number = 0.5 + params.challengeSensitivity * BASE_SENS_SCALE;
+    const sSus: number = (sigStyle + sigCount) * susAmp;
+    const sBase: number = (sigPressure + sigHistory + sigNamed + densTerm) * baseAmp;
+    return this.clamp(sSus + sBase, 0, 1);
   }
 
   private scoreNeed(info: AiInfoSet): number {
@@ -235,7 +248,11 @@ export class AiSeatController {
   private threshold(info: AiInfoSet): number {
     const params: AiPersonaParams = info.params;
     const tBase: number = this.lerp(0.62, 0.28, params.challengeSensitivity);
-    return this.clamp(tBase + 0.10 * params.caution - 0.08 * params.aggression, 0.22, 0.75);
+    let t: number = tBase + 0.10 * params.caution - 0.08 * params.aggression;
+    if (info.lastPlay !== null && info.lastPlay.style === 'SOFT') {
+      t = t + SOFT_T_LIFT;
+    }
+    return this.clamp(t, 0.22, 0.75);
   }
 
   private pressure(info: AiInfoSet): number {
@@ -570,10 +587,11 @@ export class AiSeatController {
 
   private logTrace(tr: AiChallengeTrace): void {
     Logger.info(TAG,
-      'seat=' + tr.seatId + ' persona=' + tr.persona + ' gate=' + tr.gate +
+      'challenge seat=' + tr.seatId + ' persona=' + tr.persona +
+        ' Score=' + this.fmt(tr.Score) + ' T=' + this.fmt(tr.T) +
+        ' intent=' + tr.intent + ' gate=' + tr.gate +
         ' S_fake=' + this.fmt(tr.S_fake) + ' S_need=' + this.fmt(tr.S_need) +
-        ' S_risk=' + this.fmt(tr.S_risk) + ' Score=' + this.fmt(tr.Score) +
-        ' T=' + this.fmt(tr.T) + ' intent=' + tr.intent + ' noise=' + tr.noiseFlipped);
+        ' S_risk=' + this.fmt(tr.S_risk) + ' noise=' + tr.noiseFlipped);
   }
 
   private fmt(x: number): string {
