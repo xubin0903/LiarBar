@@ -14,7 +14,7 @@ export struct HammerFx {
   @Prop y: number = 0;
   @Prop rot: number = 0;
   @Prop lift: number = 0;
-  @Prop scale: number = 1;
+  @Prop depthScale: number = 1;
   @Prop squashY: number = 1;
   @Prop shake: number = 0;
   @Prop fade: number = 1;
@@ -47,7 +47,7 @@ export struct HammerFx {
       .width(ChoiceActFx.MALLET_W)
       .height(ChoiceActFx.MALLET_H)
       .position({ x: this.x + this.shake, y: this.y + this.lift })
-      .scale({ x: this.scale, y: this.scale * this.squashY })
+      .scale({ x: this.depthScale, y: this.depthScale * this.squashY })
       .hitTestBehavior(HitTestMode.None)
     }
   }
@@ -73,7 +73,7 @@ export struct HammerFx {
     if (hi <= lo) {
       return 0;
     }
-    let t: number = (this.scale - lo) / (hi - lo);
+    let t: number = (this.depthScale - lo) / (hi - lo);
     if (t < 0) {
       t = 0;
     }
