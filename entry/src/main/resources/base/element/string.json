@@ -1351,6 +1351,14 @@
     {
       "name": "lb_str_leave_dialog_clock_runs",
       "value": "弹窗开着倒计时/AI 仍在走"
+    },
+    {
+      "name": "lb_str_hl_none",
+      "value": "这一局，没人掀过牌。"
+    },
+    {
+      "name": "lb_str_hl_quiet",
+      "value": "这一局，没有谁特别出挑。"
     }
   ]
 }
