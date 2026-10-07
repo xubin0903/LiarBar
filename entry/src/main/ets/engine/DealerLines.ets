@@ -1,4 +1,4 @@
-import { MatchSnapshot } from './MatchTypes';
+import { MatchSnapshot, SeatModel } from './MatchTypes';
 import { nicknameOf } from './SeatUtil';
 import { ChallengeResult, Phase, SeatRole, TurnWindow } from './Phase';
 
@@ -130,6 +130,24 @@ function templateFor(key: string): string {
 
 export function lineForKey(key: string, snap: MatchSnapshot): string {
   return fill(templateFor(key), snap);
+}
+
+/**
+ * PR-A 结算高光：不读 snap.challenge/lastPlay（RECAP 时已被 collectRedeal 清空），
+ * 由引擎在清空前快照的座位与手序直接填模板。{n} = 第几手（手数），不是张数。
+ */
+export function highlightLineFor(
+  key: string,
+  seats: SeatModel[],
+  challengerSeatId: number,
+  accusedSeatId: number,
+  handNo: number
+): string {
+  let out: string = templateFor(key);
+  out = out.replace('{质疑者}', nicknameOf(seats, challengerSeatId));
+  out = out.replace('{被质疑者}', nicknameOf(seats, accusedSeatId));
+  out = out.replace('{n}', handNo > 0 ? `${handNo}` : '');
+  return out;
 }
 
 export function pickTurnDealerKey(snap: MatchSnapshot): string {

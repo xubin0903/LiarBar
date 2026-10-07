@@ -45,8 +45,8 @@ export struct ReportPanel {
         .onClick(() => {
           this.onAgain();
         })
-      Button($r('app.string.lb_str_home'))
-        .id(ControlIds.HOME)
+      Button($r('app.string.lb_str_report_lobby'))
+        .id(ControlIds.REPORT_LOBBY)
         .width('100%')
         .height($r('app.float.btn_height'))
         .backgroundColor($r('app.color.tavern_panel'))

@@ -735,6 +735,38 @@
     {
       "name": "_comment_lb_str_ai_instant_think",
       "value": "S-AI-4. FAIL if main-path thinkMs < floor (play<1200 / challenge<1500) without justified skip."
+    },
+    {
+      "name": "lb_str_records_empty",
+      "value": "还没有战绩，先打一局吧。"
+    },
+    {
+      "name": "lb_str_leave_confirm_title",
+      "value": "离开这桌？"
+    },
+    {
+      "name": "lb_str_leave_confirm_body",
+      "value": "牌局还没结束，现在离开会回到开桌。"
+    },
+    {
+      "name": "lb_str_leave_confirm_ok",
+      "value": "离开"
+    },
+    {
+      "name": "lb_str_leave_confirm_cancel",
+      "value": "继续打"
+    },
+    {
+      "name": "_comment_lb_str_leave_confirm",
+      "value": "PR-A 临时串：离局二次确认与战绩空态，策划 21 交稿后替换文案，键名不变。"
+    },
+    {
+      "name": "lb_str_report_lobby",
+      "value": "回开桌"
+    },
+    {
+      "name": "_comment_lb_str_report_lobby",
+      "value": "结算页/战绩页回大厅按钮文案（id lb_btn_report_lobby）。局内退出仍用 lb_str_home / lb_btn_home。"
     }
   ]
 }
