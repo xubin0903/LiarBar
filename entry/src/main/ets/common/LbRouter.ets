@@ -77,8 +77,14 @@ export class LbRouter {
   /** 当前持有 LobbyAudio 的大厅实例（0 = 无）。 */
   private static lobbyAudioOwner: number = 0;
   private static handoverTimer: number = -1;
+  /** 已发出、路由层还没回结果的离局 replace 趟数（含已作废的老趟；补丁轮 3，只用于 toTable 打日志）。 */
+  private static tripsInFlight: number = 0;
 
   static toTable(): void {
+    if (LbRouter.tripsInFlight > 0) {
+      // 补丁轮 3（已知限制 L1 真机排查用）：还有离局 replace 没回结果就进新局——它迟到落地会把新 Table 换成大厅。
+      Logger.warn('LbRouter', `toTable: ${LbRouter.tripsInFlight} leave replace(s) still in flight (last ticket #${LbRouter.leaveSeq}) — a late landing would swap the new table for the lobby`);
+    }
     LbRouter.beginLeaveSession();
     LbRouter.push(PageUrls.TABLE);
   }
@@ -232,6 +238,7 @@ export class LbRouter {
           const started: Promise<void> = router.replaceUrl({ url: PageUrls.LOBBY, params: params });
           const issued: LeaveTrip = new LeaveTrip(LbRouter.leaveSeq, now, started);
           LbRouter.leaveTrip = issued;
+          LbRouter.tripsInFlight = LbRouter.tripsInFlight + 1;
           started.then((): void => {
             LbRouter.clearTrip(issued);
           }, (): void => {
@@ -261,6 +268,7 @@ export class LbRouter {
   }
 
   private static clearTrip(trip: LeaveTrip): void {
+    LbRouter.tripsInFlight = Math.max(0, LbRouter.tripsInFlight - 1);
     if (LbRouter.leaveTrip === trip) {
       LbRouter.leaveTrip = null;
     }

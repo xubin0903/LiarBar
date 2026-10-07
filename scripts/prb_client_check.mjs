@@ -20,6 +20,9 @@
  *  ⑮ 补丁轮 2（负责人 2026-10-07 夜）真跑：离局令牌（两趟 replace 都落地、两个大厅实例都走 aboutToAppear）/ 暂停层挂载位置 /
  *     暂停关出牌面板 + 两道出牌暂停门 / RecordStore 读一半抛错不覆盖原档 / SoundPlayer 暂停清 pending / 静音与 SFX=0 实际增益 /
  *     快速恢复 BGM / 150ms 淡出步数 / 真 MatchDirector 待停-封顶-恢复 + 真 MatchEngine.resumeClock
+ *  ⑯ 补丁轮 3（负责人 2026-10-07 夜）真跑：pageGone（老趟落地、新趟卡住，销毁后不锁横屏 / 不重绑 avoidArea / 不恢复导演）/ 连打两局离局 /
+ *     toTable 在途离局 HiLog / 存档三缺口 / lb.settings 读一半抛错 / 增益 0.5 主路径（SoundPlayer / TableAudio / LobbyAudio / 快恢复）/
+ *     只渲染大厅 LobbyAudio.playIfIdle（慢到重起、快到不重播）
  * 破坏测试：python3 scripts/prb_break_tests.py（不是闸，不进闸清单）。
  * No git, no diff against origin/develop (负责人规则). Box has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
@@ -213,9 +216,18 @@ ok(!/toLobby\(\)|director\.stop\(\)|cancelAll\(\)|resetPlayFlyUi/.test(gh) && gh
   'goHome tears nothing down before routing (state kept if routing fails)');
 // ⑧ routing fallback chain: replace → back → (or 3000 ms timeout) unlock + keep state (the ONLY lock reset).
 const ur = code(body(table, '  private async unlockLobbyThenRoute(): Promise<void> {'));
-ok(/const routed: boolean = await LbRouter\.toLobbyOrBack\(\);\s*if \(!routed\) \{\s*this\.releaseLeaveLock\(\);\s*return;\s*\}\s*this\.teardownAfterRoute\(\);/.test(ur) &&
+ok(/const routed: boolean = await LbRouter\.toLobbyOrBack\(\);\s*if \(this\.pageGone\) \{[^{}]*return;\s*\}\s*if \(!routed\) \{\s*this\.releaseLeaveLock\(\);\s*return;\s*\}\s*this\.teardownAfterRoute\(\);/.test(ur) &&
   !/(leaving|homeRouting|leaveConfirmOpen) = false/.test(ur), 'goHome routing: await toLobbyOrBack(); false → unlock only; true → teardown');
 const tda = code(body(table, '  private teardownAfterRoute(): void {'));
+// ⑯ 补丁轮 3 第 1 条：pageGone——aboutToDisappear 置真、永不复位；await 之后 / releaseLeaveLock / teardownAfterRoute 开头各判一次（真跑见 leave-pageGone）。
+{
+  const atd0 = code(body(table, '  aboutToDisappear(): void {'));
+  const rel0 = code(body(table, '  private releaseLeaveLock(): void {'));
+  ok(/private pageGone: boolean = false;/.test(tableCode) && count(tableCode, /this\.pageGone = true/) === 1 && atd0.includes('this.pageGone = true') &&
+    !/this\.pageGone = false/.test(tableCode) && /^[^{]*\{\s*if \(this\.pageGone\) \{[^{}]*return;\s*\}/.test(rel0) &&
+    /^[^{]*\{\s*if \(this\.pageGone\) \{[^{}]*return;\s*\}/.test(tda) && count(tableCode, /if \(this\.pageGone\)/) === 3,
+    'pageGone: set once in aboutToDisappear (never reset); guards right after the routing await and first in releaseLeaveLock / teardownAfterRoute');
+}
 const flo = code(body(table, '  private finishLeaveOnce(why: string): boolean {'));
 ok(/if \(!this\.finishLeaveOnce\(/.test(tda) && tda.indexOf('this.finishLeaveOnce(') < tda.indexOf('this.timers.cancelAll()') &&
   count(tableCode, /this\.teardownAfterRoute\(\)/) === 1, 'teardown only after a successful route, through finishLeaveOnce (second success = no side effect)');
@@ -224,6 +236,9 @@ ok(/^[^{]*\{\s*if \(!LbRouter\.claimLeaveFinish\(\)\) \{\s*return false;\s*\}/.t
   !/resumeForGame|startBgm/.test(flo) && count(tableCode, /AppRuntime\.director\.stop\(\)/) === 1 && count(tableCode, /AppRuntime\.engine\.toLobby\(\)/) === 1 &&
   count(tableCode, /this\.finishLeaveOnce\(/) === 2,
   'finishLeaveOnce: once-only via LbRouter.claimLeaveFinish() (leave-session token, not a Table field) → director.stop + engine LOBBY + audio leaveThenRelease (no BGM resume); the only stop/toLobby in Table');
+ok(/static toTable\(\): void \{\s*if \(LbRouter\.tripsInFlight > 0\) \{\s*Logger\.warn\('LbRouter',[^;]*\);\s*\}\s*LbRouter\.beginLeaveSession\(\);/.test(lbRouter) &&
+  count(code(lbRouter), /LbRouter\.tripsInFlight = /) === 2,
+  'toTable: one HiLog warn when a leave replace is still in flight (tripsInFlight: +1 on issue, −1 when the router settles), then a new leave session');
 const tlb = body(lbRouter, '  static toLobbyOrBack(timeoutMs: number = LbRouter.LEAVE_ROUTE_TIMEOUT_MS): Promise<boolean> {');
 ok(/if \(trip !== null && now - trip\.issuedAtMs >= timeoutMs\) \{/.test(tlb) && count(lbRouter, /router\.replaceUrl\(\{ url: PageUrls\.LOBBY, params: params \}\)/) === 1 &&
   /params\.lbLeaveTicket = LbRouter\.leaveSeq;/.test(tlb),
@@ -620,7 +635,14 @@ if (MR) {
       want: { ids: 'm-a,m-c', total: 2, wins: 1, quits: 1, doubts: 4, last: 'm-a' } },
     { name: 'no false kill: summary above recomputed (older matches beyond the 20-record window) → kept, not recomputed (21:322)',
       init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 40, wins: 12, quits: 5, doubts: 90, doubtHits: 30 }), last_match_id: 'm-a' },
-      want: { ids: 'm-a,m-c', total: 40, wins: 12, quits: 5, doubts: 90, last: 'm-a' } }
+      want: { ids: 'm-a,m-c', total: 40, wins: 12, quits: 5, doubts: 90, last: 'm-a' } },
+    // ⑯ 补丁轮 3 第 3 条（测试小缺口）：quits、doubts 各自单独低于重算值也要重算（其余字段都合法、都不低）。
+    { name: 'summary impossible: only quits below recomputed → recomputed (21:322)',
+      init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 10, wins: 3, quits: 0, doubts: 20, doubtHits: 8 }), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 2, wins: 1, quits: 1, doubts: 4, last: 'm-a' } },
+    { name: 'summary impossible: only doubts below recomputed → recomputed (21:322)',
+      init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 10, wins: 3, quits: 1, doubts: 3, doubtHits: 2 }), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 2, wins: 1, quits: 1, doubts: 4, last: 'm-a' } }
   ];
   let allNoWrite = true;
   let allSame = true;
@@ -667,6 +689,18 @@ if (MR) {
   const p3 = await after(cases[1].init, 0, 0);
   ok(p3.wrote && p3.rec.length === 3 && p3.rec.every((x) => x.v === 1) && p3.sum.total === 11,
     `S21-47 dropped records → next commitOnce persists only valid ones (recent=${p3.rec.map((x) => x.matchId).join(',')})`);
+  // ⑯ 补丁轮 3 第 3 条：汇总和明细都坏（内存清空 = 新玩家）之后的下一次 commitOnce 单独真跑：照常写 1 条、汇总 total=1、last_match_id 落成新局。
+  {
+    const bothBad = cases[10];
+    const pre = await runLoad(bothBad.init);
+    const preMem = pre.R ? { n: pre.R.recent().length, total: pre.R.summaryNow().total, last: pre.R.lastMatchId, loaded: pre.R.isLoaded() } : null;
+    const p4 = await after(bothBad.init, 1, 1);
+    ok(bothBad.name.startsWith('summary + recent both bad') && preMem !== null && preMem.n === 0 && preMem.total === 0 && preMem.last === '' && preMem.loaded === true &&
+      pre.writes.length === 0 && p4.wrote && p4.writes.includes('flush') && p4.rec.length === 1 && p4.rec[0] !== null && p4.rec[0].matchId === 'm-next' && p4.sum.v === 1 &&
+      p4.sum.total === 1 && p4.sum.wins === 1 && p4.sum.quits === 0 && p4.last === 'm-next',
+      `S21-47 both bad → cleared in memory (recent=${preMem && preMem.n}, total=${preMem && preMem.total}, last='${preMem && preMem.last}', loaded=${preMem && preMem.loaded}, read writes=${pre.writes.length}) ` +
+      `→ next commitOnce writes normally: recent=${p4.rec.length} [${p4.rec.map((x) => (x && x.matchId) || String(x)).join(',')}] summary total=${p4.sum.total} wins=${p4.sum.wins} last_match_id=${p4.last}`);
+  }
   // S21-47 红例「last_match_id 坏导致写入崩」：坏 last_match_id 载入后下一次 commitOnce 照常写入、不抛、last_match_id 落成新局。
   const lastRows = [];
   let lastOk = true;
@@ -740,6 +774,25 @@ for (const [init, want, name] of AUDIO_CASES) {
   await tickIo();
   ok(r.AS.bgm === 35 && asStore.data.get('vol_bgm') === 35 && asStore.data.get('vol_sfx') === 100 && asStore.data.get('mute_all') === false &&
     asStore.writes().includes('flush'), 'control: the player\'s next set (slider release) is what persists the repaired values (37 → 35)');
+}
+// ⑯ 补丁轮 3 第 3 条：getPreferences 成功、某个 get 中途抛错 → 三键全回默认 100 / 100 / false，存档字节不变（不 put / flush / delete）。
+{
+  const rows = [];
+  let good = true;
+  for (const key of ['vol_bgm', 'vol_sfx', 'mute_all']) {
+    asStore = makePrefStore({ vol_bgm: 40, vol_sfx: 20, mute_all: true });
+    const before = asStore.dump();
+    const get0 = asStore.get;
+    asStore.get = async (k, d) => { if (k === key) { throw new Error(`get ${k} failed`); } return get0(k, d); };
+    const AS = await loadAudioSettings();
+    AS.setBgmLevel(40); AS.setSfxLevel(20); AS.setMuted(true); // stale in-memory values before init (no store yet → nothing written)
+    await AS.init({});
+    await tickIo();
+    const r = AS.bgm === 100 && AS.sfx === 100 && AS.muted === false && asStore.writes().length === 0 && asStore.dump() === before;
+    good = good && r;
+    rows.push(`${key} throws: ${AS.bgm}/${AS.sfx}/${AS.muted} writes=${asStore.writes().length} bytesSame=${asStore.dump() === before}`);
+  }
+  ok(good, `lb.settings one get throws midway → all three back to 100/100/false, stored bytes unchanged: ${rows.join(' | ')}`);
 }
 ok(asNoWrite, `lb.settings read never writes: ${AUDIO_CASES.length} loads → 0 put / flush / delete, bytes identical`);
 RUN(false);
@@ -841,6 +894,8 @@ const makeFakeMedia = () => {
     pl.pause = async () => { pl.pauses++; pl.acts.push('pause'); };
     pl.stop = async () => { pl.acts.push('stop'); };
     pl.setVolume = (v) => { pl.vols.push(v); pl.acts.push(`vol:${v}`); };
+    pl.seek = (ms) => { pl.acts.push(`seek:${ms}`); };
+    pl.reset = async () => { pl.acts.push('reset'); };
     pl.release = async () => { pl.released = true; pl.releases++; };
     m.players.push(pl);
     return pl;
@@ -936,7 +991,7 @@ if (RSh && PSched && MR) {
   const SRole = enumObj('SeatRole');
   const SStat = enumObj('SeatStatus');
   const PhaseE = enumObj('Phase');
-  const routerLog = { replace: 0, back: 0, errors: [] };
+  const routerLog = { replace: 0, back: 0, errors: [], warns: [] };
   let routeMode = 'ok';
   let stackLen = 2;
   const fakeRouter = {
@@ -966,7 +1021,7 @@ if (RSh && PSched && MR) {
     const RSx = await loadRecordStore();
     await RSx.init({});
     const LbR = (await importFresh(routerJs, { router: rtr, PageUrls: { LOBBY: 'pages/Lobby', TABLE: 'pages/Table', REPORT: 'pages/Report' },
-      Logger: { info: () => {}, warn: () => {}, error: (t, m) => routerLog.errors.push(m) }, ...clockStubs(wclk) })).LbRouter;
+      Logger: { info: () => {}, warn: (t, m) => routerLog.warns.push(m), error: (t, m) => routerLog.errors.push(m) }, ...clockStubs(wclk) })).LbRouter;
     const Sch = (await importFresh(stripEts(sched, ['TimerEntry[]', 'TimerEntry | null', 'TimerEntry', 'number', 'boolean']), clockStubs(wclk))).PausableScheduler;
     audio = { paused: 0, resumed: 0, cleared: 0, leaveRelease: 0, spRelease: 0, daRelease: 0, spPause: 0, launch: 0, log: [] };
     const engine = {
@@ -1225,14 +1280,14 @@ export { LobbyHarness };`;
       return m;
     };
     /** Table world on a router model + Lobby module sharing the same LbRouter / director / clock; real LobbyAudio on fake media. */
-    const makeLeaveWorld = async (cold) => {
+    const makeLeaveWorld = async (cold, AS = null) => {
       const rm = makeRouterModel();
       const w = await makeWorld(rm.router);
       const fm = makeFakeMedia();
       const LA = (await importFresh(laJs, {
         media: fm, audio: { StreamUsage: { STREAM_USAGE_MUSIC: 1 }, AudioRendererRate: { RENDER_RATE_NORMAL: 0 } },
         SfxIds: new Proxy({}, { get: (_, k) => String(k) }), Logger: { info: () => {}, warn: () => {}, error: () => {} }, LobbyBoot: LB,
-        MatchLoad: { VOL_MATCH_OPEN: 0.46 }, AudioSettings: { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
+        MatchLoad: { VOL_MATCH_OPEN: 0.46 }, AudioSettings: AS || { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
         ...clockStubs(w.clk)
       })).LobbyAudio;
       const lw = { resets: 0, lobbyStops: 0, tableAudioRelease: 0, lobbies: [], cold: !!cold };
@@ -1312,6 +1367,182 @@ export { LobbyHarness };`;
       await drainMicrotasks();
       ok(rm.replaceCalls === 1 && director.stopped === 1 && engine.toLobbyCalls === 1 && RSx.recent().length === 1,
         `leave-retry-top-not-table: top page already Lobby → no second replaceUrl (calls=${rm.replaceCalls}), finishLeaveOnce ran (director.stop=${director.stopped}, engine LOBBY=${engine.toLobbyCalls}), 中退=${RSx.recent().length}`);
+    }
+    // ⑯ 补丁轮 3 第 1 条（负责人阻塞）：pageGone。顺序「老趟 #1 落地、新趟 #2 一直不回」——本页被老趟销毁、收尾一次之后，
+    // 第二趟的 3000 ms 超时才到。真 Table.lockTableWindow / unbindAvoid（假窗口：数 lockLandscape 与 on/off('avoidAreaChange')）
+    // 挂在同一个 Table 实例上；releaseLeaveLock / teardownAfterRoute 包一层计数后照常调真方法。
+    const WIN_SIGS = ['  private async lockTableWindow(): Promise<void> {', '  private unbindAvoid(): void {'];
+    const winJs = stripEts(WIN_SIGS.map((sg) => body(table, sg) + '\n  }\n').join('\n'), [...TABLE_TYPES, 'window.Window | null'], ['common.UIAbilityContext']);
+    const winModel = { landscape: 0, avoidOn: 0, avoidOff: 0 };
+    const fakeWin = { on: (ev) => { if (ev === 'avoidAreaChange') winModel.avoidOn++; }, off: (ev) => { if (ev === 'avoidAreaChange') winModel.avoidOff++; } };
+    const WinM = (await importFresh(`class WinMethods {\n${winJs}\n}\nexport { WinMethods };`, {
+      WindowOrientation: { lockLandscape: async () => { winModel.landscape++; }, mainWindow: async () => fakeWin, readSafeInsets: () => ({ left: 0, top: 0, right: 0, bottom: 0 }) },
+      getContext: () => ({}), Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'Table'
+    })).WinMethods;
+    const realWindow = (t) => {
+      Object.assign(t, { winRef: null, avoidBound: false, applyInsets: () => {} });
+      t.lockTableWindow = function lockTableWindow() { this.calls.push('lockTableWindow'); return WinM.prototype.lockTableWindow.call(this); };
+      t.unbindAvoid = function unbindAvoid() { this.calls.push('unbindAvoid'); return WinM.prototype.unbindAvoid.call(this); };
+      const proto = Object.getPrototypeOf(t);
+      const spy = { rel: 0, tear: 0 };
+      t.releaseLeaveLock = function releaseLeaveLock() { spy.rel++; return proto.releaseLeaveLock.call(this); };
+      t.teardownAfterRoute = function teardownAfterRoute() { spy.tear++; return proto.teardownAfterRoute.call(this); };
+      return spy;
+    };
+    const tableStub = () => ({ name: 'Lobby', inst: { aboutToDisappear: () => {} } });
+    for (const order of ['newFirst', 'oldFirst']) {
+      const lw0 = await makeLeaveWorld(false);
+      const { t, director, engine, clk: c, RSx, rm, lw, LbR } = lw0;
+      const spy = realWindow(t);
+      const w0m = { landscape: winModel.landscape, on: winModel.avoidOn };
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      c.advance(3000);
+      await settle(); // trip #1 timed out on a LIVE page → unlock + landscape + avoidArea bind (legit, premise of the test)
+      const alive = { rel: spy.rel, landscape: winModel.landscape - w0m.landscape, on: winModel.avoidOn - w0m.on, calls: t.calls.filter((x) => x === 'lockTableWindow').length };
+      c.advance(10000);
+      await drainMicrotasks();
+      await confirmLeave(t, 1); // player confirms again → trip #1 voided → trip #2 issued
+      const mark = { calls: t.calls.length, landscape: winModel.landscape, on: winModel.avoidOn, resumes: director.resumes, rel: spy.rel, tear: spy.tear };
+      await lw0.land(0, order); // the OLD trip #1 lands: Table destroyed, leave finished once; trip #2 never settles
+      const gone = t.pageGone === true;
+      c.advance(5000);
+      await settle(); // trip #2's 3000 ms timeout fires after the destroy
+      const after = t.calls.slice(mark.calls);
+      const warns0 = routerLog.warns.filter((m) => m.startsWith('toTable:')).length;
+      LbR.toTable(); // new match while trip #2 is still in flight → one HiLog line
+      const warns1 = routerLog.warns.filter((m) => m.startsWith('toTable:')).length;
+      const tableStops = director.stopped - lw.lobbyStops;
+      ok(alive.rel === 1 && alive.landscape === 1 && alive.on === 1 && alive.calls === 1 && rm.replaceCalls === 2 && gone &&
+        !after.includes('lockTableWindow') && winModel.landscape === mark.landscape && winModel.avoidOn === mark.on && winModel.avoidOff >= 1 &&
+        director.resumes === mark.resumes && spy.rel === mark.rel && spy.tear === mark.tear && t.leaving === true && t.homeRouting === true &&
+        tableStops === 1 && engine.toLobbyCalls === 1 && RSx.recent().length === 1 && warns1 === warns0 + 1,
+        `leave-pageGone [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}] old #1 lands, new #2 hangs, +5000 ms: ` +
+        `after destroy lockTableWindow=${after.filter((x) => x === 'lockTableWindow').length} landscape locks +${winModel.landscape - mark.landscape} ` +
+        `avoidAreaChange re-bound +${winModel.avoidOn - mark.on}, director resumes +${director.resumes - mark.resumes}, releaseLeaveLock/teardown entered +${spy.rel - mark.rel}/+${spy.tear - mark.tear}, ` +
+        `leaving=${t.leaving} homeRouting=${t.homeRouting} (not reset); finish once (director.stop=${tableStops}, engine LOBBY=${engine.toLobbyCalls}, 中退=${RSx.recent().length}); ` +
+        `premise: live-page timeout unlock=${alive.rel} landscape=${alive.landscape} bind=${alive.on}; toTable with #2 in flight → HiLog +${warns1 - warns0}`);
+    }
+    // 补丁轮 3：有了 pageGone + 阶段判断后，端到端两趟落地流程里「只收尾一次」由多层保证；离局会话令牌本身（LbRouter.claimLeaveFinish，
+    // Table.finishLeaveOnce 唯一入口）单独真跑：同一会话两次收尾请求（路由成功 + 页面被移走）→ 只执行 1 次；下一会话照常 1 次。
+    {
+      const tk = await makeLeaveWorld(false);
+      const { t, director, engine, LbR } = tk;
+      LbR.toTable();
+      const a1 = t.finishLeaveOnce('route ok');
+      const a2 = t.finishLeaveOnce('page removed by late route');
+      const s1 = { stop: director.stopped, lobby: engine.toLobbyCalls, rel: audio.leaveRelease };
+      LbR.toTable(); // next match = next leave session
+      const b1 = t.finishLeaveOnce('route ok');
+      const b2 = t.finishLeaveOnce('page removed by late route');
+      ok(a1 === true && a2 === false && s1.stop === 1 && s1.lobby === 1 && s1.rel === 1 && b1 === true && b2 === false && director.stopped === 2 && engine.toLobbyCalls === 2,
+        `leave-token finishLeaveOnce once per leave session (real Table.finishLeaveOnce + real LbRouter.claimLeaveFinish): session 1 → [${a1},${a2}] ` +
+        `director.stop=${s1.stop} engine LOBBY=${s1.lobby} table audio release=${s1.rel}; session 2 → [${b1},${b2}] totals stop=${director.stopped} LOBBY=${engine.toLobbyCalls}`);
+    }
+    // each pageGone site on its own: on a destroyed Table a direct releaseLeaveLock() / teardownAfterRoute() is a no-op.
+    {
+      const g = await makeLeaveWorld(false);
+      const { t, director, engine, LbR, rm } = g;
+      realWindow(t);
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      t.requestLeave(); // dialog open: director PAUSED(LEAVE_CONFIRM) — a resume would show up
+      t.aboutToDisappear(); // page removed (no leave route issued → nothing finished)
+      t.leaving = true; t.homeRouting = true;
+      const m0 = { landscape: winModel.landscape, on: winModel.avoidOn, resumes: director.resumes };
+      t.releaseLeaveLock();
+      t.teardownAfterRoute();
+      await settle();
+      ok(t.pageGone === true && winModel.landscape === m0.landscape && winModel.avoidOn === m0.on && director.resumes === m0.resumes &&
+        t.leaving === true && t.homeRouting === true && director.stopped === 0 && engine.toLobbyCalls === 0 && !t.calls.includes('teardown'),
+        `leave-pageGone sites: destroyed Table → releaseLeaveLock() no landscape lock (+${winModel.landscape - m0.landscape}) / no avoidArea bind (+${winModel.avoidOn - m0.on}) / ` +
+        `no resume (+${director.resumes - m0.resumes}) / locks kept; teardownAfterRoute() no director.stop (${director.stopped}) / no engine LOBBY (${engine.toLobbyCalls})`);
+    }
+    // ⑯ 补丁轮 3 第 2 条：同一次运行连打两局、每局都离局 → 第二局也 director.stop 1 次、引擎回 LOBBY、桌音释放、中退 1 条（共 2 条、matchId 不同）。
+    {
+      const lw2 = await makeLeaveWorld(false);
+      const { t, director, engine, clk: c, RSx, rm, lw, LbR } = lw2;
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      await lw2.land(0, 'newFirst');
+      const m1 = { stops: director.stopped - lw.lobbyStops, lobby: engine.toLobbyCalls, rel: audio.leaveRelease, recs: RSx.recent().length, phase: engine.snap.phase };
+      const w0 = routerLog.warns.filter((m) => m.startsWith('toTable:')).length;
+      LbR.toTable(); // match 2 (Lobby.tryEnterTable), no leave replace in flight → no HiLog
+      const warnIdle = routerLog.warns.filter((m) => m.startsWith('toTable:')).length - w0;
+      const t2 = new t.constructor();
+      t2.bindPause();
+      Object.assign(engine.snap, { matchId: 'm-778', phase: PhaseE.TURN, startedAt: c.now });
+      director.state = PSt.RUNNING; director.reason = '';
+      rm.pages.push({ name: 'Table', inst: t2 });
+      c.advance(60000);
+      await confirmLeave(t2, 0);
+      await lw2.land(1, 'oldFirst');
+      const ids = RSx.recent().map((r) => r.matchId);
+      const tableStops = director.stopped - lw.lobbyStops;
+      ok(m1.stops === 1 && m1.lobby === 1 && m1.rel === 1 && m1.recs === 1 && m1.phase === PhaseE.LOBBY &&
+        tableStops === 2 && engine.toLobbyCalls === 2 && engine.snap.phase === PhaseE.LOBBY && audio.leaveRelease === 2 &&
+        RSx.recent().length === 2 && new Set(ids).size === 2 && ids.includes('m-777') && ids.includes('m-778') && RSx.recent().every((r) => r.quit === true) &&
+        RSx.summaryNow().quits === 2 && rm.replaceCalls === 2 && lw.lobbies.length === 2 && lw.lobbies.every((L) => L.lobbyInit) && warnIdle === 0,
+        `leave-two-matches: match 1 director.stop=${m1.stops} LOBBY=${m1.lobby} table audio released=${m1.rel} 中退=${m1.recs}; ` +
+        `match 2 director.stop total=${tableStops} engine LOBBY total=${engine.toLobbyCalls} (${engine.snap.phase}) table audio released total=${audio.leaveRelease}; ` +
+        `records=${RSx.recent().length} [${ids.join(',')}] quits=${RSx.summaryNow().quits}; both lobbies init=${lw.lobbies.map((L) => L.lobbyInit).join('/')}; toTable HiLog when idle=${warnIdle}`);
+    }
+    // ⑯ 补丁轮 3 第 5 条（负责人批）：只渲染大厅 LobbyAudio.playIfIdle()。真 LobbyAudio + 真 AudioSettings（vol_bgm=50 → 增益 ≠ 1）+ 假 AVPlayer。
+    // 新趟 #2 先落地（初始化大厅 L1，BGM 起），老趟 #1 迟到：L1 消失后过 gap ms 只渲染大厅 L0 才出现（交接窗 LOBBY_HANDOVER_MS = 1000）。
+    const lateLobby = async (gapMs, init) => {
+      const { AS } = await asCase(init);
+      const lw0 = await makeLeaveWorld(false, AS);
+      const { t, clk: c, rm, fm, lw, LbR, LA } = lw0;
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      c.advance(3000);
+      await drainMicrotasks();
+      c.advance(10000);
+      await drainMicrotasks();
+      await confirmLeave(t, 1);
+      await lw0.land(1, 'newFirst'); // L1 (init) up, lobby BGM playing
+      const bgm1 = LA.bgmPlayer;
+      const mark = bgm1 ? bgm1.acts.length : 0;
+      const plays1 = bgm1 ? bgm1.plays : -1;
+      const trip = rm.trips[0];
+      rm.pages[rm.pages.length - 1].inst.aboutToDisappear(); // old trip #1 lands: L1 goes …
+      c.advance(gapMs);
+      await settle();
+      const L0 = lw0.newLobby('L0-late'); // … and the render-only lobby appears gapMs later
+      rm.params = trip.opt.params;
+      L0.aboutToAppear();
+      rm.pages[rm.pages.length - 1] = { name: 'Lobby', inst: L0 };
+      trip.res();
+      await settle();
+      c.advance(3000);
+      await settle();
+      const live = LA.bgmPlayer;
+      const acts = live ? live.acts.filter((a) => !a.startsWith('vol:')) : [];
+      return { LA, fm, lw, L0, bgm1, plays1, mark, live, lastAct: acts[acts.length - 1], lastVol: live ? live.vols[live.vols.length - 1] : NaN,
+        rebuilt: fm.pools.length > 1, oldActs: bgm1 ? bgm1.acts.slice(mark).filter((a) => !a.startsWith('vol:')) : [] };
+    }
+    {
+      const slow = await lateLobby(1500, { vol_bgm: 50, vol_sfx: 100, mute_all: false });
+      const want = slow.LA.VOL_BGM_STEADY * 0.5;
+      const mid = await lateLobby(1200, { vol_bgm: 50, vol_sfx: 100, mute_all: false });
+      ok(slow.L0.lobbyInit === false && slow.bgm1 !== null && slow.bgm1.released && slow.rebuilt && slow.live !== null && slow.live !== slow.bgm1 &&
+        !slow.live.released && slow.live.plays === 1 && slow.lastAct === 'play' && Math.abs(slow.lastVol - want) < 1e-12 &&
+        mid.L0.lobbyInit === false && mid.live === mid.bgm1 && !mid.live.released && mid.live.plays === mid.plays1 && mid.plays1 === 1 && !mid.rebuilt &&
+        !mid.oldActs.some((a) => a === 'play' || a === 'pause' || a === 'stop' || a === 'reset' || a.startsWith('seek')) && Math.abs(mid.lastVol - want) < 1e-12,
+        `lobby-bgm-late-render-only (vol_bgm=50): gap 1500 ms (> handover 1000 + leave fade 400 → released) → render-only lobby rebuilt BGM: play()=${slow.live ? slow.live.plays : -1}, ` +
+        `last=${slow.lastAct}, volume=${slow.lastVol} (VOL_BGM_STEADY ${slow.LA.VOL_BGM_STEADY} × 0.5 = ${want}), old player released=${slow.bgm1 && slow.bgm1.released}; ` +
+        `gap 1200 ms (mid leave-fade) → same player kept (play()=${mid.live ? mid.live.plays : -1}, no re-play [${mid.oldActs.join(',') || 'none'}]), fade back to ${mid.lastVol}`);
+      const muted = await lateLobby(1500, { vol_bgm: 50, vol_sfx: 100, mute_all: true });
+      ok(muted.live !== null && muted.live.plays === 1 && muted.live.vols.length > 0 && muted.live.vols.every((v) => v === 0) && muted.lastVol === 0,
+        `lobby-bgm-late-render-only mute_all=true: rebuilt BGM play()=${muted.live ? muted.live.plays : -1}, every volume sent 0 (${JSON.stringify([...new Set(muted.live ? muted.live.vols : [])])})`);
+      const fast = await lateLobby(300, { vol_bgm: 50, vol_sfx: 100, mute_all: false });
+      ok(fast.L0.lobbyInit === false && fast.live === fast.bgm1 && fast.live.plays === 1 && fast.plays1 === 1 && !fast.live.released && !fast.rebuilt &&
+        fast.fm.players.length === 2 && fast.oldActs.length === 0 && Math.abs(fast.lastVol - fast.LA.VOL_BGM_STEADY * 0.5) < 1e-12,
+        `lobby-bgm-fast-render-only (gap 300 ms, BGM still playing): play() stays ${fast.live ? fast.live.plays : -1}, same player, no stop/seek/reset/pause/play ` +
+        `[${fast.oldActs.join(',') || 'none'}], players=${fast.fm.players.length}, pools=${fast.fm.pools.length}, volume ${fast.lastVol}`);
     }
     // Controls (no false positives): cold start (no ticket), RECAP → Report → toLobby (no ticket), one normal leave; the lobby that later exits releases audio.
     {
@@ -1671,6 +1902,51 @@ try {
     }
     ok(allOk, `quick resume keeps BGM (real TableAudio): ${rows.join(' | ')} (VOL_BGM × gain 1 = 0.2; fade-out cancelled on resume)`);
   }
+  // ⑯ 补丁轮 3 第 4 条：快恢复补增益 ≠ 1 的行（真 AudioSettings vol_bgm=50）→ 淡回目标 = VOL_BGM × 0.5，最后一步 play。
+  {
+    const rows = [];
+    let allOk = true;
+    for (const d of [0, 140]) {
+      const { AS } = await asCase({ vol_bgm: 50, vol_sfx: 100, mute_all: false });
+      const { TA, fm, tclk } = await loadTableAudio(AS);
+      await TA.prepare();
+      await drainMicrotasks();
+      TA.startBgm(TA.BGM_FADE_IN_MS);
+      tclk.advance(2000);
+      const pl = fm.players[0];
+      TA.pauseForGame();
+      tclk.advance(d);
+      TA.resumeForGame();
+      tclk.advance(1500);
+      await drainMicrotasks();
+      const playerActs = pl.acts.filter((a) => a === 'play' || a === 'pause' || a === 'stop');
+      const lastAct = playerActs[playerActs.length - 1];
+      const lastVol = pl.vols[pl.vols.length - 1];
+      const good = lastAct === 'play' && Math.abs(lastVol - TA.VOL_BGM * 0.5) < 1e-12 && Math.max(...pl.vols) <= TA.VOL_BGM * 0.5 + 1e-12 && TA.bgmFadeId === -1;
+      allOk = allOk && good;
+      rows.push(`${d}ms:last=${lastAct},vol=${lastVol},max=${Math.max(...pl.vols)}`);
+    }
+    ok(allOk, `quick resume at gain 0.5 (real AudioSettings vol_bgm=50 → real TableAudio): ${rows.join(' | ')} (target VOL_BGM × 0.5 = 0.1, never above)`);
+  }
+  // ⑯ 补丁轮 3 第 4 条：TableAudio.playShot 主路径（TableAudio:927）真跑——vol_sfx=50 → 实际音量 = VOL × 0.5；100 作对照 = VOL。
+  {
+    const rows = [];
+    let allOk = true;
+    for (const [lvl, gain] of [[50, 0.5], [100, 1]]) {
+      const { AS } = await asCase({ vol_bgm: 100, vol_sfx: lvl, mute_all: false });
+      const { TA, fm } = await loadTableAudio(AS);
+      await TA.prepare();
+      await drainMicrotasks();
+      fm.pools[0].emitAll();
+      TA.playClaimSet();
+      TA.playTurnTick();
+      const vols = fm.pools[0].plays.map((x) => x.vol);
+      const good = vols.length === 2 && vols[0] === TA.VOL_CLAIM * gain && vols[1] === TA.VOL_TURN * gain;
+      allOk = allOk && good;
+      rows.push(`vol_sfx=${lvl}: claim ${vols[0]} (want ${TA.VOL_CLAIM * gain}), turn ${vols[1]} (want ${TA.VOL_TURN * gain})`);
+    }
+    ok(allOk, `TableAudio.playShot main path (TableAudio:927) gain real-run: ${rows.join(' | ')}`);
+  }
   // ⑮ 补丁轮 2 第 6 / 9 段：真 AudioSettings（lb.settings 假存档）+ 真 TableAudio + 真 SoundPlayer.drainPending / pauseForGame。
   // 静音、SFX=0 两种情况下实际传给播放器的音量：BGM（静音时）与所有补播都是 0；对照组（不静音）确实出声。
   {
@@ -1728,6 +2004,80 @@ export { SoundPlayer };`, { TableAudio: { isGamePaused: () => paused.on }, Audio
     SPc.drainPending(true); SPc.drainPending(false);
     ok(SPp.fired.length === 0 && SPp.pendingFlip === 0 && SPp.pendingExt === 0 && SPc.fired.length === 3,
       `SoundPlayer.pauseForGame clears pendingFlip/pendingExt: after pause → resume → ready, stale flip/extinguish replayed=${SPp.fired.length}; control without pause replayed=${SPc.fired.length}`);
+    // ⑯ 补丁轮 3 第 4 条：SoundPlayer.playNamed 主路径（SoundPlayer:512）真跑——资源已就绪直接出声，池 / renderer 两个出声口；
+    // vol_sfx=50 → 实际音量 = VOL × 0.5（「增益 > 0 就满音量」会被抓），100 作对照 = VOL。
+    const pnJs = stripEts(body(spText, '  private static playNamed(idName: string, soundId: number, volume: number, isFlip: boolean): void {') + '\n  }\n',
+      ['number', 'boolean', 'string']);
+    const loadPn = async (AS2, rendererOn) => (await importFresh(`class SoundPlayer {
+  static slotRendererReady() { return SoundPlayer.rendererOn; }
+  static diagPlayN() { return 1; }
+  static pathLabel() { return 'sim'; }
+  static fireRenderer(g, path, isFlip) { SoundPlayer.fired.push(g); }
+  static firePlay(id, g) { SoundPlayer.fired.push(g); }
+${pnJs}
+}
+SoundPlayer.silent = false; SoundPlayer.flipReady = true; SoundPlayer.extReady = true; SoundPlayer.pool = {}; SoundPlayer.firstPlayDone = false;
+SoundPlayer.pendingFlip = 0; SoundPlayer.pendingExt = 0; SoundPlayer.fired = []; SoundPlayer.rendererOn = ${rendererOn ? 'true' : 'false'};
+export { SoundPlayer };`, { TableAudio: { isGamePaused: () => false }, AudioSettings: AS2, Logger: { info: () => {}, warn: () => {}, error: () => {} },
+      TAG_READY: 'SfxReady', TAG: 'SoundPlayer', Date: { now: () => 1 } })).SoundPlayer;
+    const VF = volOf('VOL_FLIP');
+    const VE = volOf('VOL_EXTINGUISH');
+    const pnRows = [];
+    let pnOk = true;
+    for (const [lvl, gain] of [[50, 0.5], [100, 1]]) {
+      for (const rend of [false, true]) {
+        const { AS: ASn } = await asCase({ vol_bgm: 100, vol_sfx: lvl, mute_all: false });
+        const SPn = await loadPn(ASn, rend);
+        SPn.playNamed('card_flip', 1, VF, true);
+        SPn.playNamed('life_extinguish', 2, VE, false);
+        const good = SPn.fired.length === 2 && SPn.fired[0] === VF * gain && SPn.fired[1] === VE * gain && SPn.pendingFlip === 0 && SPn.pendingExt === 0;
+        pnOk = pnOk && good;
+        pnRows.push(`vol_sfx=${lvl} ${rend ? 'renderer' : 'pool'}: ${JSON.stringify(SPn.fired)} (want [${VF * gain},${VE * gain}])`);
+      }
+    }
+    ok(pnOk, `SoundPlayer.playNamed main path (SoundPlayer:512) gain real-run: ${pnRows.join(' | ')}`);
+  }
+    // ⑯ 补丁轮 3 第 4 条：LobbyAudio 增益改真跑（原结构断言）——真 AudioSettings + 真 LobbyAudio + 假 AVPlayer / SoundPool：
+  // 大厅 BGM 淡到常驻后的实际音量 = VOL_BGM_STEADY × BGM 增益；CTA 短音效 = VOL_CTA × SFX 增益（0 / 静音 = 不出声或 0）。
+  {
+    const LA_TYPES2 = ['media.AVPlayer | null', 'media.SoundPool | null', 'common.UIAbilityContext | null', 'resourceManager.RawFileDescriptor',
+      'media.AVPlayer', 'media.SoundPool', 'media.PlayParameters', 'media.AVFileDescriptor', 'common.UIAbilityContext', 'audio.AudioRendererInfo',
+      'Promise<void>', 'Promise<number>', 'BusinessError', 'number', 'void', 'string', 'boolean'];
+    const laJs2 = stripEts(src(E + 'features/lobby/LobbyAudio.ets'), LA_TYPES2, []);
+    const LB2 = (await importFresh(stripEts(src(E + 'features/lobby/LobbyBoot.ets'), ['BootMarks', 'number', 'boolean']), {})).LobbyBoot;
+    const ctx2 = { resourceManager: { getRawFd: async () => ({ fd: 1, offset: 0, length: 10 }), closeRawFd: async () => {} } };
+    const settle2 = async () => { for (let k = 0; k < 6; k++) { await drainMicrotasks(60); await tickIo(); } };
+    const rows = [];
+    let allOk = true;
+    for (const [init, label, gB, gS] of [[{ vol_bgm: 50, vol_sfx: 50, mute_all: false }, '50/50', 0.5, 0.5], [{ vol_bgm: 0, vol_sfx: 0, mute_all: false }, '0/0', 0, 0],
+      [{ vol_bgm: 50, vol_sfx: 50, mute_all: true }, 'mute', 0, 0], [{ vol_bgm: 100, vol_sfx: 100, mute_all: false }, '100/100 control', 1, 1]]) {
+      const { AS: ASl } = await asCase(init);
+      const lclk = makeClock(1000);
+      const fml = makeFakeMedia();
+      const LAx = (await importFresh(laJs2, {
+        media: fml, audio: { StreamUsage: { STREAM_USAGE_MUSIC: 1 }, AudioRendererRate: { RENDER_RATE_NORMAL: 0 } },
+        SfxIds: new Proxy({}, { get: (_, k) => String(k) }), Logger: { info: () => {}, warn: () => {}, error: () => {} }, LobbyBoot: LB2,
+        MatchLoad: { VOL_MATCH_OPEN: 0.46 }, AudioSettings: ASl, ...clockStubs(lclk)
+      })).LobbyAudio;
+      LAx.bind(ctx2);
+      await LAx.prepare();
+      await settle2();
+      fml.pools[0].emitAll();
+      LAx.startBgm(LB2.BOOT_MS_BGM_FADE, true);
+      lclk.advance(2000);
+      LAx.playCtaTap(false);
+      await settle2();
+      const bgm = LAx.bgmPlayer;
+      const lastVol = bgm ? bgm.vols[bgm.vols.length - 1] : NaN;
+      const wantB = LAx.VOL_BGM_STEADY * gB;
+      const shots = fml.pools[0].plays.map((x) => x.vol);
+      const wantS = LAx.VOL_CTA * gS;
+      const good = bgm !== null && bgm.plays === 1 && Math.abs(lastVol - wantB) < 1e-12 && Math.max(...bgm.vols) <= wantB + 1e-12 &&
+        (gS > 0 ? shots.length === 1 && shots[0] === wantS : shots.every((v) => v === 0));
+      allOk = allOk && good;
+      rows.push(`${label}: BGM ${lastVol} (want ${wantB}), CTA ${JSON.stringify(shots)} (want ${gS > 0 ? wantS : 'none / 0'})`);
+    }
+    ok(allOk, `LobbyAudio gain real-run (real AudioSettings → real LobbyAudio): ${rows.join(' | ')}`);
   }
   // ---- 负责人第 3 条遗留：async prepare 在 release 之后才返回 → 新建播放器 / 池立刻 release，不登记、不播放。
   // Control: the hold mechanism itself — a held createAVPlayer that resolves WITHOUT a release registers normally.
@@ -1942,7 +2292,8 @@ for (const [name, rel] of Object.entries(audioFiles)) {
   const t = src(rel);
   audioTexts.push({ path: rel, text: t });
   ok(t.includes('AudioSettings.sfx01(') || t.includes('AudioSettings.voice01('), `${name}: SFX via AudioSettings gain`);
-  if (name === 'LobbyAudio' || name === 'TableAudio') {
+  // 补丁轮 3：LobbyAudio 的 BGM 增益已改真跑（LobbyAudio gain real-run）；TableAudio 的 BGM 增益由快恢复 gain 0.5 真跑覆盖，这里只留结构兜底。
+  if (name === 'TableAudio') {
     ok(t.includes('player.setVolume(AudioSettings.bgm01(vol))') && t.includes('applyAudioSettings'),
       `${name}: BGM bed via AudioSettings gain + live re-apply`);
   }

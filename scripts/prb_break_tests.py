@@ -22,6 +22,15 @@ T, R, LR, LB = E + 'pages/Table.ets', E + 'persist/RecordStore.ets', E + 'common
 TA, SP, AS, ME, MD = (E + 'features/table/TableAudio.ets', E + 'features/table/SoundPlayer.ets', E + 'persist/AudioSettings.ets',
                       E + 'engine/MatchEngine.ets', E + 'common/MatchDirector.ets')
 ROOT_PAUSE = "      if (this.pauseLayerOn) {\n        this.pauseLayer()\n      }\n"
+LB_PLAY_IF_IDLE = ("      // 补丁轮 3（负责人批）：接手的大厅音频若已在交接窗外被释放（新大厅超过 1000ms 才出现）→ 按当前增益重起；仍在响 → 不动。\n"
+                   "      LobbyAudio.playIfIdle();\n")
+GONE_AWAIT = ("    if (this.pageGone) {\n      // 补丁轮 3：等路由期间本页已被另一趟 replace 销毁 → 结果不论成败都不回到本页（不解锁、不锁横屏、不恢复导演）。\n"
+              "      Logger.warn(TAG, 'leave route settled after the table was destroyed — ignored (no unlock / landscape / resume)');\n      return;\n    }\n")
+GONE_REL = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁 → 不锁横屏、不重绑 avoidAreaChange、不恢复导演、不复位锁。\n"
+            "      Logger.warn(TAG, 'releaseLeaveLock skipped — table already destroyed');\n      return;\n    }\n")
+GONE_TEAR = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁（收尾已由 aboutToDisappear 做过）→ 不再碰已销毁的页面。\n      return;\n    }\n")
+GONE_SET = "    this.pageGone = true; // 补丁轮 3：本页已销毁。下一行（负责人 #12 / #6）：离局路由已发起而本页被移走 → 停导演、引擎回 LOBBY 终态。\n"
+LA, DA = E + 'features/lobby/LobbyAudio.ets', E + 'features/table/DealAudio.ets'
 
 # (id + name, file, [(old, new), ...] or old, new, expected FAIL substring)
 M = [
@@ -141,7 +150,7 @@ M = [
  # ---------------- patch round 2 / 3 (2026-10-07) ----------------
  # A / 5. leave token
  ('B53 Lobby ignores the token (stale lobby re-inits)', LB,
-  "    if (!this.lobbyInit) {\n      this.renderOnly();\n      return;\n    }\n", "", 'leave-token'),
+  "    if (!this.lobbyInit) {\n" + LB_PLAY_IF_IDLE + "      this.renderOnly();\n      return;\n    }\n", "", 'leave-token'),
  ('B54 claimLobbyInit never says render-only', LR,
   "    if (ours && LbRouter.lobbyTokenSession === LbRouter.leaveSession) {", "    if (false) {", 'leave-token'),
  ('B55 claimLeaveFinish always grants (stop / toLobby twice)', LR,
@@ -237,6 +246,51 @@ M = [
   "const capped: boolean = this.pendingSinceMs > 0 && Date.now() - this.pendingSinceMs >= PENDING_CAP_MS;", "const capped: boolean = false;",
   'real MatchDirector PENDING_CAP_MS'),
  ('B88 resumeClock skips the penalty deadline', ME, "      this.penaltyEndsAtMs = this.penaltyEndsAtMs + shift;\n", "", 'real resumeFromPause'),
+ # ---------------- patch round 3 / 3 (2026-10-07 night) ----------------
+ # 1. pageGone (blocker): each site on its own + never set
+ ('B89 pageGone check after the routing await removed', T, GONE_AWAIT, "", 'leave-pageGone ['),
+ ('B90 pageGone check in releaseLeaveLock removed', T, GONE_REL, "", 'leave-pageGone sites'),
+ ('B91 pageGone check in teardownAfterRoute removed', T, GONE_TEAR, "", 'leave-pageGone sites'),
+ ('B92 aboutToDisappear never sets pageGone', T, GONE_SET, "", 'leave-pageGone ['),
+ # 2. two matches in one run + toTable HiLog
+ ('B93 toTable does not open a new leave session', LR, "    LbRouter.beginLeaveSession();\n    LbRouter.push(PageUrls.TABLE);", "    LbRouter.push(PageUrls.TABLE);", 'leave-two-matches'),
+ ('B94 toTable HiLog for an in-flight leave replace removed', LR,
+  "    if (LbRouter.tripsInFlight > 0) {\n", "    if (false) {\n", 'leave-pageGone ['),
+ # 3. save-file gaps
+ ('B95 quits dropped from the below-recomputed check', R, " || quits < floor.quits", "", 'only quits below recomputed'),
+ ('B96 doubts dropped from the below-recomputed check', R, " || doubts < floor.doubts", "", 'only doubts below recomputed'),
+ ('B97 both-bad load never marks the store loaded (next commitOnce not persisted)', R,
+  "        Logger.warn(TAG, 'recent_v1 + summary_v1 both invalid — clear records (new player, 21 §2.6)');\n",
+  "        Logger.warn(TAG, 'recent_v1 + summary_v1 both invalid — clear records (new player, 21 §2.6)');\n        return true;\n", 'both bad → cleared in memory'),
+ ('B98 lb.settings get throws midway → stale values kept', AS,
+  "      AudioSettings.bgm = AudioSettings.DEFAULT_BGM;\n      AudioSettings.sfx = AudioSettings.DEFAULT_SFX;\n      AudioSettings.muted = AudioSettings.DEFAULT_MUTED;\n      Logger.warn(TAG, 'preferences load fail-soft",
+  "      Logger.warn(TAG, 'preferences load fail-soft", 'one get throws midway'),
+ # 4. gain real-runs (art: full volume when gain > 0 / gain dropped)
+ ('B99 SoundPlayer.playNamed full volume when gain > 0', SP,
+  "    const gained: number = AudioSettings.sfx01(volume);", "    const gained: number = AudioSettings.sfx01(volume) > 0 ? volume : 0;", 'SoundPlayer.playNamed main path'),
+ ('B100 (x2) SoundPlayer.playNamed drops the gain (raw VOL)', SP,
+  "    const gained: number = AudioSettings.sfx01(volume);", "    const gained: number = volume;", 'SoundPlayer.playNamed main path'),
+ ('B101 TableAudio.playShot full volume when gain > 0', TA,
+  "    const gained: number = AudioSettings.sfx01(volume);", "    const gained: number = AudioSettings.sfx01(volume) > 0 ? volume : 0;", 'TableAudio.playShot main path'),
+ ('B102 (x3) TableAudio.playShot drops the gain (raw VOL)', TA,
+  "    const gained: number = AudioSettings.sfx01(volume);", "    const gained: number = volume;", 'TableAudio.playShot main path'),
+ ('B103 LobbyAudio.fadeBgm full volume when gain > 0', LA,
+  "      LobbyAudio.bgmVol = vol;\n      player.setVolume(AudioSettings.bgm01(vol));",
+  "      LobbyAudio.bgmVol = vol;\n      player.setVolume(AudioSettings.bgm01(vol) > 0 ? vol : 0);", 'LobbyAudio gain real-run'),
+ ('B104 (x4) LobbyAudio.fadeBgm drops the gain (fade target ignores gain)', LA,
+  "      LobbyAudio.bgmVol = vol;\n      player.setVolume(AudioSettings.bgm01(vol));",
+  "      LobbyAudio.bgmVol = vol;\n      player.setVolume(vol);", 'LobbyAudio gain real-run'),
+ ('B105 TableAudio.fadeBgm full volume when gain > 0 (quick resume target)', TA,
+  "      player.setVolume(AudioSettings.bgm01(vol));", "      player.setVolume(AudioSettings.bgm01(vol) > 0 ? vol : 0);", 'quick resume at gain 0.5'),
+ # 5. render-only lobby: LobbyAudio.playIfIdle (PM approved)
+ ('B106 render-only lobby does not call playIfIdle', LB, LB_PLAY_IF_IDLE, "", 'lobby-bgm-late-render-only'),
+ ('B107 render-only lobby plays unconditionally (startReturnBeds = play() again)', LB,
+  "      LobbyAudio.playIfIdle();\n", "      LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);\n", 'lobby-bgm-fast-render-only'),
+ ('B108 playIfIdle no-op guard removed (rebuild / re-play while BGM plays)', LA,
+  "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {", "    if (false) {", 'lobby-bgm-fast-render-only'),
+ ('B109 playIfIdle does not cancel the leave-fade release', LA,
+  "        clearTimeout(LobbyAudio.releaseTimer);\n        LobbyAudio.releaseTimer = -1;\n        LobbyAudio.bedsWanted = true;\n",
+  "        LobbyAudio.bedsWanted = true;\n", 'lobby-bgm-late-render-only'),
 ]
 
 

@@ -72,6 +72,8 @@ export class LobbyAudio {
   private static releaseTimer: number = -1;
   private static bgmFdOpen: boolean = false;
   private static ambFdOpen: boolean = false;
+  /** 最近一次 prepare() 发起时的代际号（补丁轮 3）：== gen 表示本代的池 / 床已建或正在建，playIfIdle 不重复 prepare。 */
+  private static preparedGen: number = -1;
 
   static bind(context: common.UIAbilityContext): void {
     LobbyAudio.context = context;
@@ -124,6 +126,7 @@ export class LobbyAudio {
       return;
     }
     const gen: number = LobbyAudio.gen;
+    LobbyAudio.preparedGen = gen;
     try {
       const info: audio.AudioRendererInfo = {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
@@ -226,7 +229,7 @@ export class LobbyAudio {
     }
     Logger.info(TAG, `${SfxIds.AMB_TAVERN} fade ${fadeMs}ms`);
     LobbyAudio.fadeAmb(LobbyAudio.ambVol, LobbyAudio.VOL_AMB, fadeMs);
-    LobbyAudio.playIfIdle(LobbyAudio.ambPlayer);
+    LobbyAudio.playBed(LobbyAudio.ambPlayer);
   }
 
   static startBgm(fadeMs: number, toSteady: boolean): void {
@@ -246,7 +249,7 @@ export class LobbyAudio {
     }
     Logger.info(TAG, `${SfxIds.BGM_LOBBY_NIGHT} fade ${fadeMs}ms target=${target}`);
     LobbyAudio.fadeBgm(LobbyAudio.bgmVol, target, fadeMs);
-    LobbyAudio.playIfIdle(LobbyAudio.bgmPlayer);
+    LobbyAudio.playBed(LobbyAudio.bgmPlayer);
   }
 
   static startReturnBeds(fadeMs: number): void {
@@ -257,6 +260,42 @@ export class LobbyAudio {
     }
     LobbyAudio.startAmb(fadeMs);
     LobbyAudio.startBgm(fadeMs, true);
+  }
+
+  /**
+   * 补丁轮 3（负责人批）：「只渲染」大厅接手音频时调用，幂等。
+   * - 大厅床正在响 / 正由初始化的大厅拉起（本代已 prepare、未在离场淡出）→ 什么都不做：不重新 play、不从头放、不重建；
+   * - 离场淡出中（leaveThenRelease 的释放还没到）→ 撤销释放，按当前增益淡回常驻音量（播放器一直在放，不 play）；
+   * - 已释放（老大厅消失后超过 LbRouter.LOBBY_HANDOVER_MS 新大厅才出现）→ 重建并按当前 AudioSettings 增益起回大厅床
+   *   （与回大厅短入场同一套：startReturnBeds，资源就绪后各 play 一次）。
+   */
+  static playIfIdle(): void {
+    if (LobbyAudio.silent) {
+      Logger.info(TAG, 'playIfIdle skipped (silent)');
+      return;
+    }
+    if (LobbyAudio.releaseTimer >= 0) {
+      const bgm: media.AVPlayer | null = LobbyAudio.bgmPlayer;
+      if (bgm !== null && LobbyAudio.bgmReady) {
+        clearTimeout(LobbyAudio.releaseTimer);
+        LobbyAudio.releaseTimer = -1;
+        LobbyAudio.bedsWanted = true;
+        Logger.info(TAG, 'playIfIdle: leave fade cancelled — beds back to steady (no re-play)');
+        LobbyAudio.fadeBgm(LobbyAudio.bgmVol, LobbyAudio.VOL_BGM_STEADY, LobbyBoot.BOOT_MS_RETURN_ENTER);
+        if (LobbyAudio.ambPlayer !== null && LobbyAudio.ambReady) {
+          LobbyAudio.fadeAmb(LobbyAudio.ambVol, LobbyAudio.VOL_AMB, LobbyBoot.BOOT_MS_RETURN_ENTER);
+        }
+        return;
+      }
+      LobbyAudio.release();
+    }
+    if (LobbyAudio.preparedGen === LobbyAudio.gen) {
+      Logger.info(TAG, 'playIfIdle: lobby beds already playing / starting — no-op');
+      return;
+    }
+    Logger.info(TAG, 'playIfIdle: lobby audio was released — rebuild, beds at current gain');
+    LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
+    void LobbyAudio.prepare();
   }
 
   static duckBgmForVo(): void {
@@ -442,7 +481,7 @@ export class LobbyAudio {
     }
   }
 
-  private static playIfIdle(player: media.AVPlayer): void {
+  private static playBed(player: media.AVPlayer): void {
     player.play().catch((err: BusinessError): void => {
       Logger.warn(TAG, `bed play fail-soft: ${err.message}`);
     });

@@ -356,7 +356,7 @@ struct Table {
       this.hintTimer = -1;
     }
     this.unbindPause();
-    // 负责人 #12 / #6：离局路由已发起（含 3000ms 超时判失败后迟到成功）而本页被移走 → 停导演、引擎回 LOBBY 终态。
+    this.pageGone = true; // 补丁轮 3：本页已销毁。下一行（负责人 #12 / #6）：离局路由已发起而本页被移走 → 停导演、引擎回 LOBBY 终态。
     this.finishLeaveIfRouted();
     this.timers.cancelAll();
     DealAudio.release();
@@ -1914,6 +1914,14 @@ struct Table {
   }
 
   /**
+   * 补丁轮 3（负责人阻塞项）：本页已销毁——aboutToDisappear 置真，之后不再复位。
+   * 第一趟离局 replace 超时 → 玩家再确认发出第二趟 → 第一趟迟到落地销毁本页 → 第二趟一直不回：第二趟的 3000ms 超时
+   * 在本页销毁后才到。unlockLobbyThenRoute（await 之后）、releaseLeaveLock、teardownAfterRoute 见此直接返回：
+   * 不把竖屏大厅锁回横屏、不给窗口重绑 avoidAreaChange、不恢复导演、不复位离局锁。
+   */
+  private pageGone: boolean = false;
+
+  /**
    * 离桌唯一出口。幂等：第二次调用直接返回（离局锁，负责人裁定）；锁只在路由全失败时由 releaseLeaveLock 复位。
    */
   private goHome(): void {
@@ -1930,6 +1938,10 @@ struct Table {
 
   /** 路由已成功：拆桌 UI、停导演、引擎回 LOBBY、清页面定时器。 */
   private teardownAfterRoute(): void {
+    if (this.pageGone) {
+      // 补丁轮 3：本页已销毁（收尾已由 aboutToDisappear 做过）→ 不再碰已销毁的页面。
+      return;
+    }
     if (!this.finishLeaveOnce('route ok')) {
       // 迟到成功已让页面先被移走并收过尾（aboutToDisappear）→ 第二次成功不再有副作用。
       return;
@@ -1975,6 +1987,11 @@ struct Table {
     }
     // 回大厅：replace → 失败退 back()；两步都失败才解锁（见 releaseLeaveLock）。
     const routed: boolean = await LbRouter.toLobbyOrBack();
+    if (this.pageGone) {
+      // 补丁轮 3：等路由期间本页已被另一趟 replace 销毁 → 结果不论成败都不回到本页（不解锁、不锁横屏、不恢复导演）。
+      Logger.warn(TAG, 'leave route settled after the table was destroyed — ignored (no unlock / landscape / resume)');
+      return;
+    }
     if (!routed) {
       this.releaseLeaveLock();
       return;
@@ -2005,6 +2022,11 @@ struct Table {
   }
 
   private releaseLeaveLock(): void {
+    if (this.pageGone) {
+      // 补丁轮 3：本页已销毁 → 不锁横屏、不重绑 avoidAreaChange、不恢复导演、不复位锁。
+      Logger.warn(TAG, 'releaseLeaveLock skipped — table already destroyed');
+      return;
+    }
     Logger.error(TAG, 'leave routing failed (replace + back / timeout) — keep the table as is, release leaving lock so the player can retry');
     this.homeRouting = false;
     this.leaving = false;

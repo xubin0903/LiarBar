@@ -95,13 +95,15 @@ struct Lobby {
 
   aboutToAppear(): void {
     // 补丁轮 2（负责人）：先查 LbRouter 里本次离局令牌是否已用掉。已用掉（另一趟离局 replace 迟到成功又落了一个大厅）
-    // → 只渲染：不跑 begin()（不停导演 / 不重置引擎 / 不放桌音 / 不 bind·prepare LobbyAudio / BGM 不重新 play）。
+    // → 只渲染：不跑 begin()（不停导演 / 不重置引擎 / 不放桌音 / 不 bind LobbyAudio / BGM 在响就不重新 play）。
     // 无令牌（冷启动 / 结算回大厅）照常初始化。
     this.lobbyInit = LbRouter.claimLobbyInit(LbRouter.leaveTicketFromRoute());
     this.lobbyKey = LbRouter.lobbyAppeared(this.lobbyInit);
     Logger.info(TAG,
       `aboutToAppear init=${this.lobbyInit} lobbyBgOpacity=${this.lobbyBgOpacity} splashOpacity=${this.splashOpacity}`);
     if (!this.lobbyInit) {
+      // 补丁轮 3（负责人批）：接手的大厅音频若已在交接窗外被释放（新大厅超过 1000ms 才出现）→ 按当前增益重起；仍在响 → 不动。
+      LobbyAudio.playIfIdle();
       this.renderOnly();
       return;
     }
@@ -119,7 +121,7 @@ struct Lobby {
     });
   }
 
-  /** 只渲染（令牌已用掉）：读昵称 / 人数 / 静音给界面用，走回大厅短入场的画面部分，不碰引擎 / 导演 / 任何音频。 */
+  /** 只渲染（令牌已用掉）：读昵称 / 人数 / 静音给界面用，走回大厅短入场的画面部分，不碰引擎 / 导演（音频只经 aboutToAppear 的 playIfIdle）。 */
   private async renderOnly(): Promise<void> {
     await this.hydrateView();
     this.startReturnEnter();
