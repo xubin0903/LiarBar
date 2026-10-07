@@ -121,6 +121,9 @@ export class LobbyAudio {
   }
 
   static async prepare(): Promise<void> {
+    if (LobbyAudio.preparedGen === LobbyAudio.gen) {
+      return;
+    }
     if (LobbyAudio.context === null) {
       Logger.warn(TAG, 'prepare skipped: no context');
       return;

@@ -31,6 +31,9 @@ GONE_REL = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁 �
 GONE_TEAR = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁（收尾已由 aboutToDisappear 做过）→ 不再碰已销毁的页面。\n      return;\n    }\n")
 GONE_SET = "    this.pageGone = true; // 补丁轮 3：本页已销毁。下一行（负责人 #12 / #6）：离局路由已发起而本页被移走 → 停导演、引擎回 LOBBY 终态。\n"
 LA, DA = E + 'features/lobby/LobbyAudio.ets', E + 'features/table/DealAudio.ets'
+PHASE_FLR = ("    if (snap === null || snap.phase === Phase.LOBBY || snap.phase === Phase.RECAP || snap.phase === Phase.END) {\n      return;\n    }\n"
+             "    Logger.warn(TAG, 'table removed after leave route was issued")
+LA_GUARD = "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {\n      return;\n    }\n    if (LobbyAudio.context === null) {"
 
 # (id + name, file, [(old, new), ...] or old, new, expected FAIL substring)
 M = [
@@ -287,10 +290,33 @@ M = [
  ('B107 render-only lobby plays unconditionally (startReturnBeds = play() again)', LB,
   "      LobbyAudio.playIfIdle();\n", "      LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);\n", 'lobby-bgm-fast-render-only'),
  ('B108 playIfIdle no-op guard removed (rebuild / re-play while BGM plays)', LA,
-  "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {", "    if (false) {", 'lobby-bgm-fast-render-only'),
+  "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {\n      Logger.info(TAG, 'playIfIdle: lobby beds already playing",
+  "    if (false) {\n      Logger.info(TAG, 'playIfIdle: lobby beds already playing", 'lobby-bgm-fast-render-only'),
  ('B109 playIfIdle does not cancel the leave-fade release', LA,
   "        clearTimeout(LobbyAudio.releaseTimer);\n        LobbyAudio.releaseTimer = -1;\n        LobbyAudio.bedsWanted = true;\n",
   "        LobbyAudio.bedsWanted = true;\n", 'lobby-bgm-late-render-only'),
+ # 6. 补丁轮 3/3 追补：tripsInFlight 落地 / 失败回 0 + 防重复收尾「阶段判断」层（负责人批，进 #296）
+ ('B110 reject path of the issued replace no longer calls clearTrip (failed trip stays in flight)', LR,
+  "          }, (): void => {\n            LbRouter.clearTrip(issued);\n          });",
+  "          }, (): void => {\n          });", 'leave-tripsInFlight replace rejects'),
+ ('B111 clearTrip decrements only for the current trip (voided old trip landing never decrements)', LR,
+  "    LbRouter.tripsInFlight = Math.max(0, LbRouter.tripsInFlight - 1);\n    if (LbRouter.leaveTrip === trip) {\n      LbRouter.leaveTrip = null;\n    }",
+  "    if (LbRouter.leaveTrip === trip) {\n      LbRouter.tripsInFlight = Math.max(0, LbRouter.tripsInFlight - 1);\n      LbRouter.leaveTrip = null;\n    }",
+  'leave-tripsInFlight voided old trip lands late'),
+ ('B112 phase check removed from finishLeaveIfRouted (terminal LOBBY / RECAP / END no longer blocks a second finish)', T,
+  "    if (snap === null || snap.phase === Phase.LOBBY || snap.phase === Phase.RECAP || snap.phase === Phase.END) {\n      return;\n    }\n    Logger.warn(TAG, 'table removed after leave route was issued",
+  "    if (snap === null) {\n      return;\n    }\n    Logger.warn(TAG, 'table removed after leave route was issued", 'leave-phase layer'),
+ # 追补：路由先成功、旧页后消失的端到端顺序（测试发现两层一起删时收尾翻倍而端到端不红）。B113 按负责人要求是「令牌 + LOBBY 分支」组合删（同一文件两处），其余均为单处。
+ ('B113 leave token AND the LOBBY branch of the phase check deleted together (route-first order finishes twice)', T,
+  [("    if (!LbRouter.claimLeaveFinish()) {\n      return false;\n    }\n", ""), (PHASE_FLR, PHASE_FLR.replace(" || snap.phase === Phase.LOBBY", ""))],
+  None, 'leave-route-first'),
+ ('B114 only the LOBBY branch of the phase check deleted (token kept)', T, PHASE_FLR, PHASE_FLR.replace(" || snap.phase === Phase.LOBBY", ""), 'leave-phase layer'),
+ # 追补（美术阻塞项）：LobbyAudio.prepare() 同代守卫（本轮 playIfIdle 引入的二次 prepare）
+ ('B115 prepare() same-gen guard removed → same-tick double lobby builds 2 pools / 4 players', LA, LA_GUARD, "    if (LobbyAudio.context === null) {", 'lobby-audio same-tick double lobby'),
+ ('B116 prepare() same-gen guard removed → push-stay-return lobby prepares again', LA, LA_GUARD, "    if (LobbyAudio.context === null) {", 'lobby-audio push-stay-return prepare guard'),
+ ('B117 prepare() guard over-blocks (ignores gen: preparedGen >= 0) → no rebuild after a real release', LA,
+  "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {\n      return;\n    }\n    if (LobbyAudio.context === null) {",
+  "    if (LobbyAudio.preparedGen >= 0) {\n      return;\n    }\n    if (LobbyAudio.context === null) {", 'lobby-audio release-then-return'),
 ]
 
 

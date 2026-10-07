@@ -1309,9 +1309,14 @@ export { LobbyHarness };`;
         const old = rm.pages[rm.pages.length - 1];
         const L = newLobby(`L${i}`);
         rm.params = trip.opt.params;
-        if (order === 'newFirst') { L.aboutToAppear(); old.inst.aboutToDisappear(); } else { old.inst.aboutToDisappear(); L.aboutToAppear(); }
+        if (order === 'routeFirst') {
+          // 追补：router 的 replace 先回成功（Table 先 settle → teardownAfterRoute 收尾），被换掉的旧页 aboutToDisappear 之后才到，新大厅再出现。
+          trip.res();
+          await settle();
+          old.inst.aboutToDisappear(); L.aboutToAppear();
+        } else if (order === 'newFirst') { L.aboutToAppear(); old.inst.aboutToDisappear(); } else { old.inst.aboutToDisappear(); L.aboutToAppear(); }
         rm.pages[rm.pages.length - 1] = { name: 'Lobby', inst: L };
-        trip.res();
+        if (order !== 'routeFirst') trip.res();
         await settle();
         w.clk.advance(2000);
         await settle();
@@ -1488,6 +1493,249 @@ export { LobbyHarness };`;
         `leave-two-matches: match 1 director.stop=${m1.stops} LOBBY=${m1.lobby} table audio released=${m1.rel} 中退=${m1.recs}; ` +
         `match 2 director.stop total=${tableStops} engine LOBBY total=${engine.toLobbyCalls} (${engine.snap.phase}) table audio released total=${audio.leaveRelease}; ` +
         `records=${RSx.recent().length} [${ids.join(',')}] quits=${RSx.summaryNow().quits}; both lobbies init=${lw.lobbies.map((L) => L.lobbyInit).join('/')}; toTable HiLog when idle=${warnIdle}`);
+    }
+    // 补丁轮 3/3 追补（负责人批，进 #296）：LbRouter.tripsInFlight 落地 / 失败都回 0。三个独立新世界、三个断言名；
+    // 每条都只看真 LbRouter：结束时 toTable 的 HiLog「toTable: N leave replace(s) still in flight」新增 0 行，计数读数 = 0（中途读数也逐值对上，从不为负）。
+    // 超时本身不减（那趟确实还在路上），只在 replace 自己的 promise 落地 / 失败时由 clearTrip 减一。
+    const toTableWarns = () => routerLog.warns.filter((m) => m.startsWith('toTable:')).length;
+    const reissueAfterTimeout = async (lwx) => { // #1 issued → 3000 ms timeout (live page unlocks) → player confirms again → #1 voided, #2 issued
+      const { t, clk: c, rm, LbR } = lwx;
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      const n1 = LbR.tripsInFlight;
+      c.advance(3000);
+      await settle();
+      const nTimeout = LbR.tripsInFlight; // timeout does NOT decrement: #1 is still in flight
+      c.advance(10000);
+      await drainMicrotasks();
+      await confirmLeave(t, 1);
+      return { n1, nTimeout, n2: LbR.tripsInFlight, tickets: rm.trips.map((x) => x.opt.params && x.opt.params.lbLeaveTicket) };
+    };
+    // (1) voided old trip lands late: new #2 lands first (Table destroyed, leave finished), then the voided #1 lands late.
+    {
+      const lwx = await makeLeaveWorld(false);
+      const { clk: c, rm, LbR } = lwx;
+      const pre = await reissueAfterTimeout(lwx);
+      await lwx.land(1, 'newFirst');
+      const nAfterNew = LbR.tripsInFlight; // #1 (voided) still in flight
+      c.advance(1500);
+      await lwx.land(0, 'newFirst');
+      c.advance(3000);
+      await settle();
+      const nEnd = LbR.tripsInFlight;
+      const w0 = toTableWarns();
+      LbR.toTable();
+      const dw = toTableWarns() - w0;
+      ok(rm.replaceCalls === 2 && JSON.stringify(pre.tickets) === '[1,2]' && pre.n1 === 1 && pre.nTimeout === 1 && pre.n2 === 2 && nAfterNew === 1 &&
+        nEnd === 0 && dw === 0,
+        `leave-tripsInFlight voided old trip lands late → 0: tickets=${JSON.stringify(pre.tickets)}; in flight after #1 issued=${pre.n1}, after #1 timeout=${pre.nTimeout} ` +
+        `(timeout does not decrement), after re-confirm (#1 voided, #2 issued)=${pre.n2}, after #2 lands=${nAfterNew}, after voided #1 lands late=${nEnd}; toTable HiLog +${dw}`);
+    }
+    // (2) replace fails via reject → back() also fails (stack = Table only) → lock released; the rejected trip settles → 0.
+    {
+      const lwx = await makeLeaveWorld(false);
+      const { t, clk: c, rm, LbR } = lwx;
+      LbR.toTable();
+      rm.pages = [{ name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      const n1 = LbR.tripsInFlight;
+      c.advance(500);
+      rm.trips[0].rej({ code: 100001, message: 'replace failed' });
+      await settle();
+      const viaReject = t.leaving === false && t.homeRouting === false && c.now - 50000 < 3000; // released by the reject → back ✗ path, before any timeout
+      const nAfterReject = LbR.tripsInFlight;
+      c.advance(5000);
+      await settle();
+      const nEnd = LbR.tripsInFlight;
+      const w0 = toTableWarns();
+      LbR.toTable();
+      const dw = toTableWarns() - w0;
+      ok(rm.replaceCalls === 1 && n1 === 1 && viaReject && nAfterReject === 0 && nEnd === 0 && dw === 0,
+        `leave-tripsInFlight replace rejects → 0: in flight after issue=${n1}, after reject (+500 ms, back ✗ → lock released=${viaReject})=${nAfterReject}, ` +
+        `+5000 ms=${nEnd}; toTable HiLog +${dw}`);
+    }
+    // (3) old and new both land: voided #1 lands first (while #2 is still pending), then #2 lands → 0, then toTable.
+    {
+      const lwx = await makeLeaveWorld(false);
+      const { clk: c, rm, LbR } = lwx;
+      const pre = await reissueAfterTimeout(lwx);
+      await lwx.land(0, 'oldFirst');
+      const nAfterOld = LbR.tripsInFlight; // #2 still in flight
+      await lwx.land(1, 'oldFirst');
+      c.advance(3000);
+      await settle();
+      const nEnd = LbR.tripsInFlight;
+      const w0 = toTableWarns();
+      LbR.toTable();
+      const dw = toTableWarns() - w0;
+      ok(rm.replaceCalls === 2 && JSON.stringify(pre.tickets) === '[1,2]' && pre.n2 === 2 && nAfterOld === 1 && nEnd === 0 && dw === 0,
+        `leave-tripsInFlight old and new both land → 0: in flight after re-confirm=${pre.n2}, after voided #1 lands (#2 pending)=${nAfterOld}, ` +
+        `after #2 lands=${nEnd}; toTable HiLog +${dw}`);
+    }
+    // 防重复收尾三层之一「阶段判断」单独真跑（真 Table.finishLeaveIfRouted / teardownAfterRoute / finishLeaveOnce + 真 LbRouter）：
+    // pageGone = false、离局会话令牌是新的（toTable 开了新会话，令牌可领），只有阶段挡：引擎已在 LOBBY / RECAP / END → 不再收尾；
+    // 对照：同一状态改回 TURN → 照常收尾 1 次（证明令牌确实可领、挡住的只是阶段判断）。
+    {
+      const ph = await makeLeaveWorld(false);
+      const { t, director, engine, LbR } = ph;
+      t.pageGone = false; // Table.ets field initializer (the harness constructor does not carry it)
+      LbR.toTable();
+      t.leaveRouteIssued = true;
+      t.teardownAfterRoute(); // route ok → finish once → engine LOBBY
+      const s0 = { stop: director.stopped, lobby: engine.toLobbyCalls, rel: audio.leaveRelease, phase: engine.snap.phase };
+      LbR.toTable(); // fresh leave session → the token would grant again
+      const rows = [];
+      for (const p of [PhaseE.LOBBY, PhaseE.RECAP, PhaseE.END]) {
+        engine.snap.phase = p;
+        t.finishLeaveIfRouted();
+        rows.push(`${p}:${director.stopped - s0.stop}/${engine.toLobbyCalls - s0.lobby}/${audio.leaveRelease - s0.rel}`);
+      }
+      const blocked = director.stopped === s0.stop && engine.toLobbyCalls === s0.lobby && audio.leaveRelease === s0.rel;
+      const gone = t.pageGone;
+      engine.snap.phase = PhaseE.TURN; // control: same Table, same fresh token, phase not terminal → finishes once
+      t.finishLeaveIfRouted();
+      const ctl = { stop: director.stopped - s0.stop, lobby: engine.toLobbyCalls - s0.lobby, rel: audio.leaveRelease - s0.rel };
+      ok(s0.stop === 1 && s0.lobby === 1 && s0.rel === 1 && s0.phase === PhaseE.LOBBY && gone === false && blocked && ctl.stop === 1 && ctl.lobby === 1 && ctl.rel === 1,
+        `leave-phase layer finishLeaveIfRouted (direct, pageGone=false, fresh token): route-ok finish=${s0.stop} → engine ${s0.phase}; ` +
+        `terminal phase → extra stop/LOBBY/audio release [${rows.join(' ')}]; control TURN → ${ctl.stop}/${ctl.lobby}/${ctl.rel}`);
+    }
+    // 追补（测试发现）：端到端新顺序「router replace 先成功、旧 Table 页之后才 aboutToDisappear」。真 Table + 真 LbRouter + 真 Lobby + 真 RecordStore：
+    // 收尾只 1 次（director.stop / 引擎回 LOBBY / 桌音释放 / 中退各 1）。此顺序里第二次收尾请求（aboutToDisappear → finishLeaveIfRouted）
+    // 先被阶段判断（引擎已 LOBBY）挡、再被离局令牌挡；两层一起删才会翻倍（破坏测试 B113）。
+    {
+      const rf = await makeLeaveWorld(false);
+      const { t, director, engine, RSx, rm, lw, LbR } = rf;
+      const proto = Object.getPrototypeOf(t);
+      const seen = { tearBeforeGone: null };
+      t.aboutToDisappear = function aboutToDisappear() { seen.tearBeforeGone = this.calls.includes('teardown'); return proto.aboutToDisappear.call(this); };
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      await rf.land(0, 'routeFirst');
+      const tableStops = director.stopped - lw.lobbyStops;
+      ok(seen.tearBeforeGone === true && t.pageGone === true && rm.replaceCalls === 1 && tableStops === 1 && engine.toLobbyCalls === 1 &&
+        engine.snap.phase === PhaseE.LOBBY && audio.leaveRelease === 1 && RSx.recent().length === 1 && RSx.recent()[0].quit === true && RSx.summaryNow().quits === 1 &&
+        lw.lobbies.length === 1 && lw.lobbies[0].lobbyInit === true,
+        `leave-route-first (replace resolves first, old Table disappears after): teardown before aboutToDisappear=${seen.tearBeforeGone}; ` +
+        `director.stop=${tableStops} engine LOBBY=${engine.toLobbyCalls} table audio release=${audio.leaveRelease} 中退=${RSx.recent().length} (quits=${RSx.summaryNow().quits})`);
+    }
+    // 追补（美术阻塞项）：LobbyAudio.prepare() 同代守卫——全部在真 LobbyAudio（假 media）上真跑，数实际建出的 SoundPool / AVPlayer。
+    const isPlaying = (p) => !p.released && p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'play';
+    const audioCensus = (fm, LA) => ({
+      pools: fm.pools.length, players: fm.players.length,
+      livePools: fm.pools.filter((p) => !p.released).length, livePlayers: fm.players.filter((p) => !p.released).length,
+      orphans: fm.players.filter((p) => p !== LA.bgmPlayer && p !== LA.ambPlayer && isPlaying(p)).length,
+      plays: fm.players.map((p) => p.plays)
+    });
+    // (1) 两个大厅同一 tick 落地：新趟 #2 → 初始化大厅 A（begin() 停在 await hydrate()），同 tick 老趟 #1 → 只渲染大厅 B（playIfIdle → startReturnBeds + prepare()），
+    //     随后 A 继续跑到 prepare()。两种生命周期先后都跑。
+    for (const order of ['newFirst', 'oldFirst']) {
+      const st = await makeLeaveWorld(false);
+      const { t, clk: c, rm, fm, LbR, LA } = st;
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
+      c.advance(3000);
+      await settle();
+      c.advance(10000);
+      await drainMicrotasks();
+      await confirmLeave(t, 1);
+      const A = st.newLobby('A-init');
+      const B = st.newLobby('B-render');
+      const step = (trip, L) => {
+        const old = rm.pages[rm.pages.length - 1];
+        rm.params = trip.opt.params;
+        if (order === 'newFirst') { L.aboutToAppear(); old.inst.aboutToDisappear(); } else { old.inst.aboutToDisappear(); L.aboutToAppear(); }
+        rm.pages[rm.pages.length - 1] = { name: 'Lobby', inst: L };
+      };
+      step(rm.trips[1], A); // synchronous: A.begin() runs up to `await this.hydrate()` and suspends
+      step(rm.trips[0], B); // same tick: render-only B → playIfIdle → prepare()
+      const preparedBeforeA = fm.pools.length;
+      rm.trips[1].res(); rm.trips[0].res();
+      await settle();
+      c.advance(3000);
+      await settle();
+      c.advance(3000);
+      await settle();
+      const k = audioCensus(fm, LA);
+      const bgm = LA.bgmPlayer;
+      ok(A.lobbyInit === true && B.lobbyInit === false && rm.replaceCalls === 2 && k.pools === 1 && k.players === 2 && k.livePools === 1 && k.livePlayers === 2 &&
+        k.orphans === 0 && bgm !== null && !bgm.released && bgm.plays === 1 && isPlaying(bgm),
+        `lobby-audio same-tick double lobby [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}] (init A suspended at hydrate, render-only B prepares first): ` +
+        `pools=${k.pools} AVPlayers=${k.players} plays=${JSON.stringify(k.plays)} unreferenced-but-playing=${k.orphans}; BGM play()=${bgm ? bgm.plays : -1} playing=${bgm ? isPlaying(bgm) : false} ` +
+        `(pools created before A resumed: ${preparedBeforeA})`);
+    }
+    // (2) push 进桌、大厅留在栈上（LbRouter.toTable → pushUrl；旧大厅不销毁、Lobby:120 的 leaveThenRelease 不跑），离局回来的新大厅 begin() 再调 prepare()（同代）。
+    //     局内大厅 BGM 是否在响是另一张票（#296 之后），这里不断言它，只数池 / 播放器 / 孤儿。
+    for (const order of ['newFirst', 'oldFirst']) {
+      const ps = await makeLeaveWorld(true);
+      const { t, clk: c, rm, fm, LbR, LA, lw } = ps;
+      let pushes = 0;
+      const push0 = rm.router.pushUrl;
+      rm.router.pushUrl = (o) => { pushes++; return push0(o); };
+      rm.pages = [];
+      const L0 = ps.newLobby('L0-stays');
+      let l0Gone = 0;
+      const l0Proto = Object.getPrototypeOf(L0);
+      L0.aboutToDisappear = function aboutToDisappear() { l0Gone++; return l0Proto.aboutToDisappear.call(this); };
+      rm.params = undefined;
+      L0.aboutToAppear(); // cold start lobby: prepare() → 1 pool + 2 beds
+      rm.pages = [{ name: 'Lobby', inst: L0 }];
+      await settle();
+      c.advance(12000);
+      await settle();
+      const k0 = audioCensus(fm, LA);
+      LbR.toTable(); // pushUrl: L0 stays alive under the Table
+      rm.pages.push({ name: 'Table', inst: t });
+      await confirmLeave(t, 0);
+      await ps.land(0, order); // Table → new init lobby L1 → begin() → prepare() again, same gen
+      c.advance(3000);
+      await settle();
+      const k = audioCensus(fm, LA);
+      const L1 = lw.lobbies[1];
+      ok(pushes === 1 && l0Gone === 0 && rm.pages[0].inst === L0 && L1 !== undefined && L1.lobbyInit === true && k0.pools === 1 && k0.players === 2 &&
+        k.pools === 1 && k.players === 2 && k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0,
+        `lobby-audio push-stay-return prepare guard [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: pushUrl=${pushes}, lobby under the table destroyed=${l0Gone}; ` +
+        `before the match pools=${k0.pools} AVPlayers=${k0.players}; after returning (new lobby init=${L1 ? L1.lobbyInit : '-'}, prepare() again) pools=${k.pools} AVPlayers=${k.players} ` +
+        `(live ${k.livePools}/${k.livePlayers}), unreferenced-but-playing=${k.orphans}`);
+    }
+    // (3) 防过度拦截：守卫只挡同代重复。大厅被移走 → 真 release（gen + 1）→ 回到大厅（新初始化大厅）→ prepare() 必须重建：
+    //     活着的池 1、播放器 2、BGM 在放（play 总数 +1）。
+    {
+      const rr = await makeLeaveWorld(true);
+      const { clk: c, rm, fm, LA } = rr;
+      rm.pages = [];
+      const L0 = rr.newLobby('cold');
+      rm.params = undefined;
+      L0.aboutToAppear();
+      rm.pages = [{ name: 'Lobby', inst: L0 }];
+      await settle();
+      c.advance(12000);
+      await settle();
+      const b0 = LA.bgmPlayer;
+      const k0 = audioCensus(fm, LA);
+      const bgmPlays0 = b0 ? b0.plays : -1;
+      L0.aboutToDisappear(); // lobby page removed → leaveThenRelease → release() after the leave fade (gen + 1)
+      c.advance(1000);
+      await settle();
+      const kr = audioCensus(fm, LA);
+      const released = b0 !== null && b0.released && kr.livePools === 0 && kr.livePlayers === 0 && LA.bgmPlayer === null;
+      const L1 = rr.newLobby('back');
+      rm.params = undefined;
+      L1.aboutToAppear();
+      rm.pages = [{ name: 'Lobby', inst: L1 }];
+      await settle();
+      c.advance(3000);
+      await settle();
+      const k = audioCensus(fm, LA);
+      const bgm = LA.bgmPlayer;
+      const bgmPlays1 = (b0 ? b0.plays : 0) + (bgm ? bgm.plays : 0); // BGM play() across the released + the rebuilt player
+      ok(k0.pools === 1 && k0.players === 2 && b0 !== null && b0.plays === 1 && released && L1.lobbyInit === true && k.pools === 2 && k.players === 4 &&
+        k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0 && bgm !== null && bgm !== b0 && !bgm.released && bgm.plays === 1 && isPlaying(bgm) && bgmPlays1 === bgmPlays0 + 1,
+        `lobby-audio release-then-return prepare rebuilds (guard blocks same gen only): cold lobby pools=${k0.pools} AVPlayers=${k0.players} BGM play()=${b0 ? b0.plays : -1}; ` +
+        `lobby removed → released=${released}; back to a new lobby → live pools=${k.livePools} AVPlayers=${k.livePlayers} (created ${k.pools}/${k.players}), new BGM play()=${bgm ? bgm.plays : -1} ` +
+        `playing=${bgm ? isPlaying(bgm) : false}, BGM play() total ${bgmPlays0} → ${bgmPlays1}`);
     }
     // ⑯ 补丁轮 3 第 5 条（负责人批）：只渲染大厅 LobbyAudio.playIfIdle()。真 LobbyAudio + 真 AudioSettings（vol_bgm=50 → 增益 ≠ 1）+ 假 AVPlayer。
     // 新趟 #2 先落地（初始化大厅 L1，BGM 起），老趟 #1 迟到：L1 消失后过 gap ms 只渲染大厅 L0 才出现（交接窗 LOBBY_HANDOVER_MS = 1000）。
