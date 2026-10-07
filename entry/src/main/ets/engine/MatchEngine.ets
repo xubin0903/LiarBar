@@ -196,12 +196,11 @@ export class MatchEngine {
   }
 
   /**
-   * PR-B 恢复（策划 21 §3.4）：每个已武装（>0）的 deadline
-   * new = max(old + Δ, now + graceMs)，Δ = 暂停时长。返回 Δ。
-   * graceMs = 导演 RESUME_GRACE_MS（600）：继续后 600ms 内不触发超时 / 拍推进；
-   * 剩余 ≥600ms 的项只平移 Δ，倒计时与暂停前一致（≤1s 容差，负责人 D3）。
+   * PR-B 恢复（策划 21 §3.4，统一平移）：每个已武装（>0）的 deadline 都加同一个 shift。
+   * shift 由导演用 ResumeShift.compute 算好传入（≥ 暂停时长 Δ；不足 Δ 时按 Δ）。
+   * 累计暂停时长只加真实的 Δ（战绩时长扣暂停）。返回实际使用的 shift。
    */
-  resumeClock(wallMs: number, graceMs: number): number {
+  resumeClock(wallMs: number, shiftMs: number): number {
     if (this.clockPausedAt <= 0) {
       return 0;
     }
@@ -209,24 +208,41 @@ export class MatchEngine {
     if (delta < 0) {
       delta = 0;
     }
-    const floor: number = wallMs + (graceMs > 0 ? graceMs : 0);
+    const shift: number = shiftMs > delta ? shiftMs : delta;
     this.clockPausedAt = 0;
     this.pausedTotalMs = this.pausedTotalMs + delta;
     if (this.turnEndsAtMs > 0) {
-      this.turnEndsAtMs = Math.max(this.turnEndsAtMs + delta, floor);
+      this.turnEndsAtMs = this.turnEndsAtMs + shift;
     }
     if (this.ritualEndsAtMs > 0) {
-      this.ritualEndsAtMs = Math.max(this.ritualEndsAtMs + delta, floor);
+      this.ritualEndsAtMs = this.ritualEndsAtMs + shift;
     }
     if (this.beatEndsAtMs > 0) {
-      this.beatEndsAtMs = Math.max(this.beatEndsAtMs + delta, floor);
+      this.beatEndsAtMs = this.beatEndsAtMs + shift;
     }
     if (this.penaltyEndsAtMs > 0) {
-      this.penaltyEndsAtMs = Math.max(this.penaltyEndsAtMs + delta, floor);
+      this.penaltyEndsAtMs = this.penaltyEndsAtMs + shift;
     }
     this.nowMs = wallMs;
-    Logger.info(TAG, `resumeClock shift=${delta}ms grace=${graceMs}ms`);
-    return delta;
+    Logger.info(TAG, `resumeClock paused=${delta}ms shift=${shift}ms`);
+    return shift;
+  }
+
+  /** 暂停开始的墙钟（未暂停 = 0）。 */
+  clockPausedAtMs(): number {
+    return this.clockPausedAt;
+  }
+
+  /** 4 个 deadline 里最早的已武装项（无 = 0），给导演算统一平移量。 */
+  earliestDeadline(): number {
+    const all: number[] = [this.turnEndsAtMs, this.ritualEndsAtMs, this.beatEndsAtMs, this.penaltyEndsAtMs];
+    let best: number = 0;
+    for (let i = 0; i < all.length; i++) {
+      if (all[i] > 0 && (best === 0 || all[i] < best)) {
+        best = all[i];
+      }
+    }
+    return best;
   }
 
   isClockPaused(): boolean {

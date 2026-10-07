@@ -54,6 +54,13 @@ export interface RecordSummaryV1 {
   doubtHits: number;
 }
 
+/** 读档结果：合法明细 + 是否「原来有数据但一条都不合法」（21 §2.6 明细全坏）。 */
+class RecentParse {
+  list: MatchRecordV1[] = [];
+  allBad: boolean = false;
+  dropped: number = 0;
+}
+
 /** 写入参数（类型化，避免散参）。 */
 export interface RecordCommit {
   /** 在局确认离开 = 中退。 */
@@ -80,7 +87,8 @@ export class RecordStore {
   static readonly KEY_LAST_MATCH: string = 'last_match_id';
   private static store: preferences.Preferences | null = null;
   private static recentList: MatchRecordV1[] = [];
-  private static summary: RecordSummaryV1 = RecordStore.zeroSummary();
+  /** 懒加载（负责人 #5：不在静态初始化里调方法）；用 summaryRef() 取。 */
+  private static summary: RecordSummaryV1 | null = null;
   private static lastMatchId: string = '';
   /** 演示局只在内存里占位（防 RECAP 每 tick 重复打日志），不落盘、不动 last_match_id。 */
   private static demoClaim: string = '';
@@ -93,14 +101,75 @@ export class RecordStore {
       const rawRecent: preferences.ValueType = await store.get(RecordStore.KEY_RECENT, '');
       const rawSummary: preferences.ValueType = await store.get(RecordStore.KEY_SUMMARY, '');
       const rawLast: preferences.ValueType = await store.get(RecordStore.KEY_LAST_MATCH, '');
-      RecordStore.recentList = RecordStore.parseRecent(`${rawRecent}`);
-      RecordStore.summary = RecordStore.parseSummary(`${rawSummary}`);
-      RecordStore.lastMatchId = `${rawLast}`;
-      RecordStore.loaded = true;
-      Logger.info(TAG, `loaded recent=${RecordStore.recentList.length} total=${RecordStore.summary.total}`);
+      RecordStore.loadFrom(rawRecent, rawSummary, rawLast);
+      Logger.info(TAG, `loaded recent=${RecordStore.recentList.length} total=${RecordStore.summaryRef().total}`);
     } catch (err) {
       Logger.warn(TAG, 'preferences load fail-soft — empty records');
     }
+  }
+
+  /**
+   * 21 §2.6 存档容错（S21-47，负责人最终口径 2026-10-07）：逐字段校验，不 `as T`、不 `Number(x) || 0`。
+   * - 单条明细非法（非对象 / 缺字段 / 类型错 / v 缺失或 ≠ 1）→ 只丢这一条；
+   * - 汇总非法（非 JSON / 字段非法 / 负数 / v 缺失或 ≠ 1）→ 用剩下合法明细重算（不归零、不出负数）；
+   * - 汇总合法但明细全坏 → 保留汇总，只清明细；汇总和明细都坏 → 一起清空（新玩家）；
+   * - last_match_id 坏或缺失（非字符串 / 空 / 不在合法明细里）→ 取合法明细最新一条的 matchId，没有就空。
+   * 修正只在内存里生效：读操作永不写存档（负责人 2026-10-07）；下次 commitOnce 正常写入时自然落盘。返回是否做过修复。
+   */
+  static loadFrom(rawRecent: preferences.ValueType, rawSummary: preferences.ValueType, rawLast: preferences.ValueType): boolean {
+    let repaired: boolean = false;
+    const rp: RecentParse = RecordStore.parseRecent(rawRecent);
+    const parsed: RecordSummaryV1 | null = RecordStore.parseSummary(rawSummary, rp.list);
+    if (rp.allBad) {
+      RecordStore.recentList = [];
+      repaired = true;
+      if (parsed === null) {
+        RecordStore.summary = RecordStore.zeroSummary();
+        Logger.warn(TAG, 'recent_v1 + summary_v1 both invalid — clear records (new player, 21 §2.6)');
+      } else {
+        RecordStore.summary = parsed;
+        Logger.warn(TAG, 'recent_v1 all invalid — keep valid summary, clear details (21 §2.6)');
+      }
+    } else {
+      RecordStore.recentList = rp.list;
+      if (rp.dropped > 0) {
+        repaired = true;
+        Logger.warn(TAG, `recent_v1 dropped ${rp.dropped} invalid record(s) (21 §2.6)`);
+      }
+      if (parsed === null) {
+        RecordStore.summary = RecordStore.recomputeSummary(rp.list);
+        repaired = true;
+        Logger.warn(TAG, `summary_v1 invalid — recomputed from ${rp.list.length} record(s) (21 §2.6)`);
+      } else {
+        RecordStore.summary = parsed;
+      }
+    }
+    const last: string = RecordStore.parseLastMatchId(rawLast, RecordStore.recentList);
+    if (typeof rawLast !== 'string' || last !== rawLast) {
+      repaired = true;
+    }
+    RecordStore.lastMatchId = last;
+    RecordStore.loaded = true;
+    if (repaired) {
+      Logger.info(TAG, 'repaired in memory only — next commitOnce persists it (read never writes)');
+    }
+    return repaired;
+  }
+
+  /** last_match_id：合法 = 非空字符串且是某条合法明细的 matchId；否则取最新一条明细的 matchId，没有明细 = 空。 */
+  private static parseLastMatchId(raw: preferences.ValueType, list: MatchRecordV1[]): string {
+    if (typeof raw === 'string') {
+      const id: string = raw;
+      for (let i = 0; i < list.length; i++) {
+        if (list[i].matchId === id && id.length > 0) {
+          return id;
+        }
+      }
+      if (id.length === 0 && list.length === 0) {
+        return '';
+      }
+    }
+    return list.length > 0 ? list[0].matchId : '';
   }
 
   static isLoaded(): boolean {
@@ -117,13 +186,14 @@ export class RecordStore {
   }
 
   static summaryNow(): RecordSummaryV1 {
+    const cur: RecordSummaryV1 = RecordStore.summaryRef();
     const s: RecordSummaryV1 = {
       v: 1,
-      total: RecordStore.summary.total,
-      wins: RecordStore.summary.wins,
-      quits: RecordStore.summary.quits,
-      doubts: RecordStore.summary.doubts,
-      doubtHits: RecordStore.summary.doubtHits
+      total: cur.total,
+      wins: cur.wins,
+      quits: cur.quits,
+      doubts: cur.doubts,
+      doubtHits: cur.doubtHits
     };
     return s;
   }
@@ -152,15 +222,16 @@ export class RecordStore {
     }
     RecordStore.recentList = next;
     RecordStore.lastMatchId = rec.matchId;
-    RecordStore.summary.total = RecordStore.summary.total + 1;
+    const sum: RecordSummaryV1 = RecordStore.summaryRef();
+    sum.total = sum.total + 1;
     if (rec.result === RecordResult.WIN) {
-      RecordStore.summary.wins = RecordStore.summary.wins + 1;
+      sum.wins = sum.wins + 1;
     }
     if (rec.quit) {
-      RecordStore.summary.quits = RecordStore.summary.quits + 1;
+      sum.quits = sum.quits + 1;
     }
-    RecordStore.summary.doubts = RecordStore.summary.doubts + rec.doubts;
-    RecordStore.summary.doubtHits = RecordStore.summary.doubtHits + rec.doubtHits;
+    sum.doubts = sum.doubts + rec.doubts;
+    sum.doubtHits = sum.doubtHits + rec.doubtHits;
     Logger.info(TAG, `commit ${rec.matchId} result=${rec.result} quit=${rec.quit} rank=${rec.rank} dur=${rec.durationMs}`);
     void RecordStore.persist();
     return true;
@@ -236,47 +307,235 @@ export class RecordStore {
     return MatchRank.rankAtExit(won, aliveAtExit);
   }
 
-  private static parseRecent(raw: string): MatchRecordV1[] {
-    const out: MatchRecordV1[] = [];
-    if (raw.length === 0) {
+  private static summaryRef(): RecordSummaryV1 {
+    if (RecordStore.summary === null) {
+      RecordStore.summary = RecordStore.zeroSummary();
+    }
+    return RecordStore.summary;
+  }
+
+  // ---------------------------------------------------------------- 21 §2.6 field-by-field validation
+
+  private static readonly MAX_COUNT: number = 99999;
+  private static readonly MAX_SEATS: number = 12;
+  private static readonly MAX_ID_LEN: number = 64;
+
+  private static parseRecent(raw: preferences.ValueType): RecentParse {
+    const out: RecentParse = new RecentParse();
+    if (typeof raw !== 'string') {
+      out.allBad = true;
       return out;
     }
-    try {
-      const list: MatchRecordV1[] = JSON.parse(raw) as MatchRecordV1[];
-      if (!Array.isArray(list)) {
-        return out;
-      }
-      for (let i = 0; i < list.length && out.length < RecordStore.KEEP; i++) {
-        const r: MatchRecordV1 = list[i];
-        if (r !== null && r !== undefined && r.v === 1 && typeof r.matchId === 'string') {
-          out.push(r);
-        }
-      }
-    } catch (err) {
-      Logger.warn(TAG, 'recent_v1 JSON corrupt — start empty');
+    const text: string = raw;
+    if (text.length === 0) {
+      return out;
     }
+    let parsed: Object | null = null;
+    try {
+      parsed = JSON.parse(text) as Object;
+    } catch (err) {
+      out.allBad = true;
+      return out;
+    }
+    if (parsed === null || !Array.isArray(parsed)) {
+      out.allBad = true;
+      return out;
+    }
+    const arr: Object[] = parsed as Object[];
+    const seen: string[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const rec: MatchRecordV1 | null = RecordStore.validateRecord(arr[i]);
+      if (rec === null || seen.indexOf(rec.matchId) >= 0 || out.list.length >= RecordStore.KEEP) {
+        out.dropped++;
+        continue;
+      }
+      seen.push(rec.matchId);
+      out.list.push(rec);
+    }
+    out.allBad = arr.length > 0 && out.list.length === 0;
     return out;
   }
 
-  private static parseSummary(raw: string): RecordSummaryV1 {
-    if (raw.length === 0) {
-      return RecordStore.zeroSummary();
+  private static asFields(v: Object | null | undefined): Record<string, Object> | null {
+    if (v === null || v === undefined || typeof v !== 'object' || Array.isArray(v)) {
+      return null;
     }
+    return v as Record<string, Object>;
+  }
+
+  /** 非负（或 [min,max]）整数字段；不合法返回 -1。 */
+  private static intField(o: Record<string, Object>, key: string, min: number, max: number): number {
+    const v: Object | undefined = o[key];
+    if (typeof v !== 'number') {
+      return -1;
+    }
+    const n: number = Number(v);
+    if (!Number.isInteger(n) || n < min || n > max) {
+      return -1;
+    }
+    return n;
+  }
+
+  /** 布尔字段：1 = true，0 = false，-1 = 不合法。 */
+  private static boolField(o: Record<string, Object>, key: string): number {
+    const v: Object | undefined = o[key];
+    if (typeof v !== 'boolean') {
+      return -1;
+    }
+    return v === true ? 1 : 0;
+  }
+
+  private static strField(o: Record<string, Object>, key: string): string {
+    const v: Object | undefined = o[key];
+    if (typeof v !== 'string') {
+      return '';
+    }
+    const t: string = String(v);
+    return t.length <= RecordStore.MAX_ID_LEN ? t : '';
+  }
+
+  private static validateRecord(raw: Object | null | undefined): MatchRecordV1 | null {
+    const o: Record<string, Object> | null = RecordStore.asFields(raw);
+    if (o === null) {
+      return null;
+    }
+    const big: number = RecordStore.MAX_COUNT;
+    const v: number = RecordStore.intField(o, 'v', 1, 1);
+    const matchId: string = RecordStore.strField(o, 'matchId');
+    const endedAt: number = RecordStore.intField(o, 'endedAt', 0, Number.MAX_SAFE_INTEGER);
+    const durationMs: number = RecordStore.intField(o, 'durationMs', 0, Number.MAX_SAFE_INTEGER);
+    const rounds: number = RecordStore.intField(o, 'rounds', 0, big);
+    const hands: number = RecordStore.intField(o, 'hands', 0, big);
+    const playerCount: number = RecordStore.intField(o, 'playerCount', 2, RecordStore.MAX_SEATS);
+    const rank: number = RecordStore.intField(o, 'rank', 1, RecordStore.MAX_SEATS);
+    const result: string = RecordStore.strField(o, 'result');
+    const quit: number = RecordStore.boolField(o, 'quit');
+    const ff: number = RecordStore.boolField(o, 'ff');
+    const livesLeft: number = RecordStore.intField(o, 'livesLeft', 0, big);
+    const plays: number = RecordStore.intField(o, 'plays', 0, big);
+    const fakeHands: number = RecordStore.intField(o, 'fakeHands', 0, big);
+    const doubts: number = RecordStore.intField(o, 'doubts', 0, big);
+    const doubtHits: number = RecordStore.intField(o, 'doubtHits', 0, big);
+    const doubted: number = RecordStore.intField(o, 'doubted', 0, big);
+    const caught: number = RecordStore.intField(o, 'caught', 0, big);
+    if (v !== 1 || matchId.length === 0 || endedAt < 0 || durationMs < 0 || rounds < 0 || hands < 0 ||
+      playerCount < 0 || rank < 0 || rank > playerCount || quit < 0 || ff < 0 || livesLeft < 0 ||
+      plays < 0 || fakeHands < 0 || doubts < 0 || doubtHits < 0 || doubted < 0 || caught < 0) {
+      return null;
+    }
+    if (result !== RecordResult.WIN && result !== RecordResult.LOSE) {
+      return null;
+    }
+    // 自洽：掺假 ≤ 出牌、开中 ≤ 质疑、被识破 ≤ 被质疑；中退恒 LOSE；WIN = 第 1 且非中退。
+    if (fakeHands > plays || doubtHits > doubts || caught > doubted) {
+      return null;
+    }
+    if ((quit === 1 && result === RecordResult.WIN) || (result === RecordResult.WIN && rank !== 1)) {
+      return null;
+    }
+    const oppRaw: Object | undefined = o['opponents'];
+    if (oppRaw === undefined || oppRaw === null || !Array.isArray(oppRaw)) {
+      return null;
+    }
+    const oppArr: Object[] = oppRaw as Object[];
+    if (oppArr.length > playerCount - 1) {
+      return null;
+    }
+    const opponents: string[] = [];
+    for (let i = 0; i < oppArr.length; i++) {
+      const p: Object = oppArr[i];
+      if (typeof p !== 'string' || String(p).length === 0 || String(p).length > RecordStore.MAX_ID_LEN) {
+        return null;
+      }
+      opponents.push(String(p));
+    }
+    const rec: MatchRecordV1 = {
+      v: 1,
+      matchId: matchId,
+      endedAt: endedAt,
+      durationMs: durationMs,
+      rounds: rounds,
+      hands: hands,
+      playerCount: playerCount,
+      rank: rank,
+      result: result,
+      quit: quit === 1,
+      ff: ff === 1,
+      livesLeft: livesLeft,
+      plays: plays,
+      fakeHands: fakeHands,
+      doubts: doubts,
+      doubtHits: doubtHits,
+      doubted: doubted,
+      caught: caught,
+      opponents: opponents
+    };
+    return rec;
+  }
+
+  /** 汇总校验；不合法返回 null（调用方用明细重算）。汇总必须覆盖现有明细（累计 ≥ 明细里的计数）。 */
+  private static parseSummary(raw: preferences.ValueType, recent: MatchRecordV1[]): RecordSummaryV1 | null {
+    if (typeof raw !== 'string') {
+      return null;
+    }
+    const text: string = raw;
+    if (text.length === 0) {
+      return recent.length === 0 ? RecordStore.zeroSummary() : null;
+    }
+    let parsed: Object | null = null;
     try {
-      const s: RecordSummaryV1 = JSON.parse(raw) as RecordSummaryV1;
-      const out: RecordSummaryV1 = {
-        v: 1,
-        total: Number(s.total) || 0,
-        wins: Number(s.wins) || 0,
-        quits: Number(s.quits) || 0,
-        doubts: Number(s.doubts) || 0,
-        doubtHits: Number(s.doubtHits) || 0
-      };
-      return out;
+      parsed = JSON.parse(text) as Object;
     } catch (err) {
-      Logger.warn(TAG, 'summary_v1 JSON corrupt — start empty');
-      return RecordStore.zeroSummary();
+      return null;
     }
+    const o: Record<string, Object> | null = RecordStore.asFields(parsed);
+    if (o === null) {
+      return null;
+    }
+    const max: number = Number.MAX_SAFE_INTEGER;
+    const v: number = RecordStore.intField(o, 'v', 1, 1);
+    const total: number = RecordStore.intField(o, 'total', 0, max);
+    const wins: number = RecordStore.intField(o, 'wins', 0, max);
+    const quits: number = RecordStore.intField(o, 'quits', 0, max);
+    const doubts: number = RecordStore.intField(o, 'doubts', 0, max);
+    const doubtHits: number = RecordStore.intField(o, 'doubtHits', 0, max);
+    if (v !== 1 || total < 0 || wins < 0 || quits < 0 || doubts < 0 || doubtHits < 0) {
+      return null;
+    }
+    if (wins > total || quits > total || wins + quits > total || doubtHits > doubts) {
+      return null;
+    }
+    const floor: RecordSummaryV1 = RecordStore.recomputeSummary(recent);
+    if (total < floor.total || wins < floor.wins || quits < floor.quits || doubts < floor.doubts || doubtHits < floor.doubtHits) {
+      return null;
+    }
+    const out: RecordSummaryV1 = {
+      v: 1,
+      total: total,
+      wins: wins,
+      quits: quits,
+      doubts: doubts,
+      doubtHits: doubtHits
+    };
+    return out;
+  }
+
+  /** 用合法明细重算汇总（21 §2.6：可能少于真实累计，可接受；不会为负）。 */
+  private static recomputeSummary(list: MatchRecordV1[]): RecordSummaryV1 {
+    const s: RecordSummaryV1 = RecordStore.zeroSummary();
+    for (let i = 0; i < list.length; i++) {
+      const r: MatchRecordV1 = list[i];
+      s.total = s.total + 1;
+      if (r.result === RecordResult.WIN) {
+        s.wins = s.wins + 1;
+      }
+      if (r.quit) {
+        s.quits = s.quits + 1;
+      }
+      s.doubts = s.doubts + r.doubts;
+      s.doubtHits = s.doubtHits + r.doubtHits;
+    }
+    return s;
   }
 
   private static async persist(): Promise<void> {
@@ -286,7 +545,7 @@ export class RecordStore {
     }
     try {
       await store.put(RecordStore.KEY_RECENT, JSON.stringify(RecordStore.recentList));
-      await store.put(RecordStore.KEY_SUMMARY, JSON.stringify(RecordStore.summary));
+      await store.put(RecordStore.KEY_SUMMARY, JSON.stringify(RecordStore.summaryRef()));
       await store.put(RecordStore.KEY_LAST_MATCH, RecordStore.lastMatchId);
       await store.flush();
     } catch (err) {

@@ -1,7 +1,7 @@
 /**
  * PR-B 可暂停的一次性定时器（替代页面内裸 setTimeout/clearTimeout）。
  * - schedule 返回本调度器自己的 id（≥1），-1 仍可当「未武装」哨兵。
- * - pause：撤掉所有原生定时器，记住各自剩余时长；resume：按剩余时长重新武装。
+ * - pause：撤掉所有原生定时器，记住各自剩余时长；resume(shift)：统一平移后重新武装。
  * - 回调触发前先从表里摘掉，所以回调里再 schedule 是安全的。
  */
 class TimerEntry {
@@ -26,7 +26,7 @@ export class PausableScheduler {
 
   /**
    * 不可中断的一小段（≤ 一张牌的飞行时长）：暂停时照常到点触发（牌落地），
-   * 回调里再 schedule 的后续段在暂停中挂起，恢复时按 floor 重挂。
+   * 回调里再 schedule 的后续段在暂停中挂起，恢复时按统一平移量重挂。
    */
   scheduleAtomic(fn: () => void, ms: number): number {
     return this.add(fn, ms, true);
@@ -107,21 +107,41 @@ export class PausableScheduler {
     }
   }
 
-  /**
-   * 返回暂停时长 ms。floorMs = 恢复缓冲（策划 21 §3.4：剩余 < floorMs 的抬到 floorMs，
-   * 继续后缓冲期内不进下一拍；Table 传 RESUME_GRACE_MS）。
-   */
-  resume(floorMs: number = 0): number {
+  /** 暂停中被挂起的一次性定时器里最早的到期时刻（按暂停瞬间折算的绝对 ms；无 = 0）。 */
+  earliestHeldDueAt(): number {
     if (!this.paused) {
       return 0;
     }
-    const floor: number = floorMs > 0 ? floorMs : 0;
+    let best: number = 0;
     for (let i = 0; i < this.entries.length; i++) {
-      if (this.entries[i].nativeId < 0 && this.entries[i].remainMs < floor) {
-        this.entries[i].remainMs = floor;
+      const e: TimerEntry = this.entries[i];
+      if (e.nativeId < 0) {
+        const due: number = this.pausedAt + e.remainMs;
+        if (best === 0 || due < best) {
+          best = due;
+        }
       }
     }
+    return best;
+  }
+
+  /**
+   * 恢复（策划 21 §3.4 统一平移）：所有挂起项都按同一个 shiftMs 平移——
+   * 剩余 = 剩余 + (shift − 实际暂停时长)；shift ≤ 暂停时长时等于原样续上（只平移 Δ）。
+   * 返回实际暂停时长 ms。
+   */
+  resume(shiftMs: number = 0): number {
+    if (!this.paused) {
+      return 0;
+    }
     const held: number = Date.now() - this.pausedAt;
+    const heldMs: number = held > 0 ? held : 0;
+    const extra: number = shiftMs > heldMs ? shiftMs - heldMs : 0;
+    for (let i = 0; i < this.entries.length; i++) {
+      if (this.entries[i].nativeId < 0) {
+        this.entries[i].remainMs = this.entries[i].remainMs + extra;
+      }
+    }
     this.paused = false;
     this.pausedAt = 0;
     const list: TimerEntry[] = [];
@@ -133,7 +153,7 @@ export class PausableScheduler {
         this.arm(list[i]);
       }
     }
-    return held > 0 ? held : 0;
+    return heldMs;
   }
 
   private arm(e: TimerEntry): void {
