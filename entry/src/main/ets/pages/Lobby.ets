@@ -121,6 +121,22 @@ struct Lobby {
     });
   }
 
+  /**
+   * 进桌后大厅 BGM 淡出（13 §2）：进桌是 pushUrl，大厅留在栈上不销毁（aboutToDisappear 不跑）→ 页面被盖住 / 退后台时
+   * 大厅 BGM 与环境床 400ms 淡出后 pause()（不建新播放器、不重建池）。
+   */
+  onPageHide(): void {
+    LobbyAudio.fadeOutForHide();
+  }
+
+  /** 回到可见（back 回本页 / 离局回来的大厅 / 回前台）：只在床被 onPageHide 暂停过时走 playIfIdle 恢复；冷启动 / 初始化中的大厅由 begin() 起床。 */
+  onPageShow(): void {
+    if (!LobbyAudio.isPausedByHide()) {
+      return;
+    }
+    LobbyAudio.playIfIdle();
+  }
+
   /** 只渲染（令牌已用掉）：读昵称 / 人数 / 静音给界面用，走回大厅短入场的画面部分，不碰引擎 / 导演（音频只经 aboutToAppear 的 playIfIdle）。 */
   private async renderOnly(): Promise<void> {
     await this.hydrateView();

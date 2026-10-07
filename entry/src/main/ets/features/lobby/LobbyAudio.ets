@@ -40,6 +40,8 @@ export class LobbyAudio {
   static readonly VOL_CTA_PEEK: number = 0.226;
   static readonly VOL_VO: number = 0.40;
   static readonly DUCK_FACTOR: number = 0.42;
+  /** 进桌后大厅 BGM 淡出（13 §2 进桌：大厅 BGM 400ms 淡出）：大厅页 onPageHide → 两张床 400ms 淡到 0 再 pause()，不 stop、不 release。 */
+  static readonly HIDE_FADE_MS: number = 400;
 
   private static context: common.UIAbilityContext | null = null;
   private static pool: media.SoundPool | null = null;
@@ -74,6 +76,14 @@ export class LobbyAudio {
   private static ambFdOpen: boolean = false;
   /** 最近一次 prepare() 发起时的代际号（补丁轮 3）：== gen 表示本代的池 / 床已建或正在建，playIfIdle 不重复 prepare。 */
   private static preparedGen: number = -1;
+  /** 本代上次 prepare 有一部分失败（allowRetry 记下的代际号）：== gen 时下一次 prepare 只补缺的池 / 床，已建好的不重建。 */
+  private static retryGen: number = -1;
+  /** 大厅页被盖住 / 退后台（onPageHide）时淡出并暂停的床：true = 等 onPageShow → playIfIdle 恢复（同一组播放器，不重建）。 */
+  private static hiddenPaused: boolean = false;
+  /** onPageHide 淡出结束后 pause() 两张床的定时器。 */
+  private static hideTimer: number = -1;
+  /** 本次显示里 playIfIdle 已把被隐藏暂停的床 play() 回来：初始化大厅随后的 startReturnBeds 只淡到常驻，不再 play() 第二次。 */
+  private static resumedOnShow: boolean = false;
 
   static bind(context: common.UIAbilityContext): void {
     LobbyAudio.context = context;
@@ -98,6 +108,7 @@ export class LobbyAudio {
   }
 
   static setSilent(on: boolean): void {
+    const wasSilent: boolean = LobbyAudio.silent;
     LobbyAudio.silent = on;
     if (on) {
       Logger.info(TAG,
@@ -115,7 +126,8 @@ export class LobbyAudio {
       LobbyAudio.stopBedsNow();
       return;
     }
-    if (LobbyAudio.bedsWanted) {
+    // 只在「静默 → 有声」时补起床；本来就有声（如回大厅 begin() 里的 setSilent(false)）不再 play() 第二次。
+    if (wasSilent && LobbyAudio.bedsWanted) {
       LobbyAudio.ensureBeds(true);
     }
   }
@@ -130,6 +142,32 @@ export class LobbyAudio {
     }
     const gen: number = LobbyAudio.gen;
     LobbyAudio.preparedGen = gen;
+    const retry: boolean = LobbyAudio.retryGen === gen;
+    LobbyAudio.retryGen = -1;
+    const poolOk: boolean = retry && LobbyAudio.pool !== null ? true : await LobbyAudio.preparePool(gen);
+    const bgmOk: boolean = retry && LobbyAudio.bgmPlayer !== null ? true : await LobbyAudio.prepareBed(true, gen);
+    const ambOk: boolean = retry && LobbyAudio.ambPlayer !== null ? true : await LobbyAudio.prepareBed(false, gen);
+    if (!poolOk || !bgmOk || !ambOk) {
+      LobbyAudio.allowRetry(gen);
+    }
+  }
+
+  /**
+   * 同代 prepare 失败可重试（负责人，进桌后大厅 BGM 淡出票第 2 条）：建池 / 建床任一失败且代际没变 → preparedGen 复位 -1，
+   * 下一次回大厅（begin() / onPageShow → playIfIdle）再 prepare，只补缺的那部分（retryGen：池为空才建池、床为空才建床）。
+   * 放在本次 prepare 全部步骤跑完之后：失败后同一次 prepare 还在建另一张床时，不让并发重试再建一份。
+   */
+  private static allowRetry(gen: number): void {
+    if (LobbyAudio.gen !== gen || LobbyAudio.preparedGen !== gen) {
+      return;
+    }
+    Logger.warn(TAG, 'prepare incomplete — same gen may retry on the next lobby show');
+    LobbyAudio.retryGen = gen;
+    LobbyAudio.preparedGen = -1;
+  }
+
+  /** 建池 + 载入四个短音。返回 false = 本代建池失败（已丢掉半成品池，可重试）；代际已变 = 不算失败。 */
+  private static async preparePool(gen: number): Promise<boolean> {
     try {
       const info: audio.AudioRendererInfo = {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
@@ -141,7 +179,7 @@ export class LobbyAudio {
         pool.release().catch((err: BusinessError): void => {
           Logger.warn(TAG, `stale pool release fail-soft: ${err.message}`);
         });
-        return;
+        return true;
       }
       LobbyAudio.pool = pool;
       pool.on('loadComplete', (soundId: number): void => {
@@ -152,15 +190,32 @@ export class LobbyAudio {
       LobbyAudio.voId = await LobbyAudio.loadPath(PATH_VO, gen);
       LobbyAudio.matchOpenId = await LobbyAudio.loadPath(PATH_MATCH_OPEN, gen);
       Logger.info(TAG, 'sound pool ready');
+      return true;
     } catch (err) {
       if (LobbyAudio.gen !== gen) {
         Logger.info(TAG, 'prepare dropped: released while loading');
-        return;
+        return true;
       }
       Logger.warn(TAG, `sound pool unavailable — fail-soft, timeline continues: ${err}`);
+      LobbyAudio.dropPool();
+      return false;
     }
-    await LobbyAudio.prepareBed(true, gen);
-    await LobbyAudio.prepareBed(false, gen);
+  }
+
+  /** 本代建池失败：丢掉半成品池与已载入的 id（下次重试从头建池）。 */
+  private static dropPool(): void {
+    const pool: media.SoundPool | null = LobbyAudio.pool;
+    LobbyAudio.pool = null;
+    LobbyAudio.hitId = -1;
+    LobbyAudio.ctaId = -1;
+    LobbyAudio.voId = -1;
+    LobbyAudio.matchOpenId = -1;
+    if (pool === null) {
+      return;
+    }
+    pool.release().catch((err: BusinessError): void => {
+      Logger.warn(TAG, `failed pool release fail-soft: ${err.message}`);
+    });
   }
 
   static playBootHit(): void {
@@ -261,8 +316,53 @@ export class LobbyAudio {
       Logger.info(TAG, `return beds skipped (silent)`);
       return;
     }
+    LobbyAudio.hiddenPaused = false;
+    LobbyAudio.cancelHideTimer();
+    if (LobbyAudio.resumedOnShow) {
+      // 本次显示里 onPageShow → playIfIdle 已把床 play() 回来：初始化大厅的回大厅短入场只淡到常驻，不再 play()。
+      LobbyAudio.resumedOnShow = false;
+      Logger.info(TAG, 'return beds: already resumed on page show — fade to steady only (no second play)');
+      LobbyAudio.fadeAmb(LobbyAudio.ambVol, LobbyAudio.VOL_AMB, fadeMs);
+      LobbyAudio.fadeBgm(LobbyAudio.bgmVol, LobbyAudio.VOL_BGM_STEADY, fadeMs);
+      return;
+    }
     LobbyAudio.startAmb(fadeMs);
     LobbyAudio.startBgm(fadeMs, true);
+  }
+
+  /**
+   * 进桌后大厅 BGM 淡出（13 §2；大厅页 onPageHide 调）：push 进桌时大厅留在栈上不销毁，大厅床原来整局一直在响。
+   * 现在：BGM 与环境床 HIDE_FADE_MS（400ms）淡到 0，到点 pause()；不 stop、不 release、不建新播放器。
+   * 还没就绪的床（pending）一并取消，局内不会再被拉起。onPageShow → playIfIdle 恢复。
+   */
+  static fadeOutForHide(): void {
+    LobbyAudio.resumedOnShow = false;
+    if (LobbyAudio.silent || LobbyAudio.releaseTimer >= 0) {
+      return;
+    }
+    LobbyAudio.hiddenPaused = true;
+    LobbyAudio.bedsWanted = false;
+    LobbyAudio.pendingHit = false;
+    LobbyAudio.pendingCta = false;
+    LobbyAudio.pendingCtaPeek = false;
+    LobbyAudio.pendingVo = false;
+    LobbyAudio.pendingMatchOpen = false;
+    LobbyAudio.pendingBgmOpen = false;
+    LobbyAudio.pendingBgmSteady = false;
+    LobbyAudio.pendingAmb = false;
+    Logger.info(TAG, `page hidden — beds fade ${LobbyAudio.HIDE_FADE_MS}ms then pause (no stop / release)`);
+    LobbyAudio.fadeBgm(LobbyAudio.bgmVol, 0, LobbyAudio.HIDE_FADE_MS);
+    LobbyAudio.fadeAmb(LobbyAudio.ambVol, 0, LobbyAudio.HIDE_FADE_MS);
+    LobbyAudio.cancelHideTimer();
+    LobbyAudio.hideTimer = setTimeout((): void => {
+      LobbyAudio.hideTimer = -1;
+      LobbyAudio.stopBedsNow();
+    }, LobbyAudio.HIDE_FADE_MS);
+  }
+
+  /** 大厅床是否正因页面隐藏而淡出 / 暂停（大厅页 onPageShow 只在这时走 playIfIdle；冷启动 / 初始化中的大厅由 begin() 起床）。 */
+  static isPausedByHide(): boolean {
+    return LobbyAudio.hiddenPaused;
   }
 
   /**
@@ -283,6 +383,10 @@ export class LobbyAudio {
         clearTimeout(LobbyAudio.releaseTimer);
         LobbyAudio.releaseTimer = -1;
         LobbyAudio.bedsWanted = true;
+        if (LobbyAudio.hiddenPaused) {
+          LobbyAudio.resumeFromHide();
+          return;
+        }
         Logger.info(TAG, 'playIfIdle: leave fade cancelled — beds back to steady (no re-play)');
         LobbyAudio.fadeBgm(LobbyAudio.bgmVol, LobbyAudio.VOL_BGM_STEADY, LobbyBoot.BOOT_MS_RETURN_ENTER);
         if (LobbyAudio.ambPlayer !== null && LobbyAudio.ambReady) {
@@ -292,6 +396,10 @@ export class LobbyAudio {
       }
       LobbyAudio.release();
     }
+    if (LobbyAudio.hiddenPaused) {
+      LobbyAudio.resumeFromHide();
+      return;
+    }
     if (LobbyAudio.preparedGen === LobbyAudio.gen) {
       Logger.info(TAG, 'playIfIdle: lobby beds already playing / starting — no-op');
       return;
@@ -299,6 +407,41 @@ export class LobbyAudio {
     Logger.info(TAG, 'playIfIdle: lobby audio was released — rebuild, beds at current gain');
     LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
     void LobbyAudio.prepare();
+  }
+
+  /**
+   * 页面重新可见（onPageShow → playIfIdle）且床是被 fadeOutForHide 暂停的：同一组播放器淡回常驻并 play() 一次，不建池、不建播放器。
+   * 本代 prepare 曾失败（preparedGen 已复位）→ 顺带重试补建。
+   */
+  private static resumeFromHide(): void {
+    const bgm: media.AVPlayer | null = LobbyAudio.bgmPlayer;
+    if (LobbyAudio.hideTimer >= 0 && bgm !== null && LobbyAudio.bgmReady) {
+      // 淡出还没到 pause()（400ms 内又可见）：床一直在放 → 撤销暂停、淡回常驻，不 play()、不从头放。
+      LobbyAudio.cancelHideTimer();
+      LobbyAudio.hiddenPaused = false;
+      LobbyAudio.bedsWanted = true;
+      Logger.info(TAG, 'playIfIdle: shown again before the hide pause — fade back to steady (no re-play)');
+      LobbyAudio.fadeBgm(LobbyAudio.bgmVol, LobbyAudio.VOL_BGM_STEADY, LobbyBoot.BOOT_MS_RETURN_ENTER);
+      if (LobbyAudio.ambPlayer !== null && LobbyAudio.ambReady) {
+        LobbyAudio.fadeAmb(LobbyAudio.ambVol, LobbyAudio.VOL_AMB, LobbyBoot.BOOT_MS_RETURN_ENTER);
+      } else {
+        LobbyAudio.startAmb(LobbyBoot.BOOT_MS_RETURN_ENTER);
+      }
+    } else {
+      Logger.info(TAG, 'playIfIdle: page shown again — beds resume from the hide pause (same players, no rebuild)');
+      LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
+    }
+    LobbyAudio.resumedOnShow = true;
+    if (LobbyAudio.preparedGen !== LobbyAudio.gen) {
+      void LobbyAudio.prepare();
+    }
+  }
+
+  private static cancelHideTimer(): void {
+    if (LobbyAudio.hideTimer >= 0) {
+      clearTimeout(LobbyAudio.hideTimer);
+      LobbyAudio.hideTimer = -1;
+    }
   }
 
   static duckBgmForVo(): void {
@@ -347,6 +490,9 @@ export class LobbyAudio {
   static release(): void {
     LobbyAudio.gen = LobbyAudio.gen + 1;
     LobbyAudio.bedsWanted = false;
+    LobbyAudio.hiddenPaused = false;
+    LobbyAudio.resumedOnShow = false;
+    LobbyAudio.cancelHideTimer();
     LobbyAudio.pendingHit = false;
     LobbyAudio.pendingCta = false;
     LobbyAudio.pendingCtaPeek = false;
@@ -410,25 +556,28 @@ export class LobbyAudio {
     LobbyAudio.startBgm(LobbyBoot.BOOT_MS_RETURN_ENTER, toSteady);
   }
 
-  private static async prepareBed(isBgm: boolean, gen: number): Promise<void> {
+  /** 建一张床。返回 false = 本代建床失败（半成品播放器已丢掉，可重试）；代际已变 = 不算失败。 */
+  private static async prepareBed(isBgm: boolean, gen: number): Promise<boolean> {
     const ctx: common.UIAbilityContext | null = LobbyAudio.context;
     if (ctx === null || LobbyAudio.gen !== gen) {
-      return;
+      return true;
     }
     const path: string = isBgm ? PATH_BGM : PATH_AMB;
+    let made: media.AVPlayer | null = null;
     try {
       const player: media.AVPlayer = await media.createAVPlayer();
       if (LobbyAudio.gen !== gen) {
         LobbyAudio.dropStalePlayer(player);
-        return;
+        return true;
       }
+      made = player;
       const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
       if (LobbyAudio.gen !== gen) {
         LobbyAudio.dropStalePlayer(player);
         ctx.resourceManager.closeRawFd(path).catch((err: BusinessError): void => {
           Logger.warn(TAG, `closeRawFd fail-soft: ${err.message}`);
         });
-        return;
+        return true;
       }
       player.on('stateChange', (state: string): void => {
         LobbyAudio.onBedState(isBgm, state);
@@ -446,8 +595,19 @@ export class LobbyAudio {
         LobbyAudio.ambFdOpen = true;
       }
       player.fdSrc = desc;
+      return true;
     } catch (err) {
       Logger.warn(TAG, `${path} bed unavailable — fail-soft: ${err}`);
+      if (LobbyAudio.gen !== gen) {
+        return true;
+      }
+      const registered: media.AVPlayer | null = isBgm ? LobbyAudio.bgmPlayer : LobbyAudio.ambPlayer;
+      if (made !== null && registered === made) {
+        LobbyAudio.releasePlayer(isBgm);
+      } else if (made !== null) {
+        LobbyAudio.dropStalePlayer(made);
+      }
+      return false;
     }
   }
 
