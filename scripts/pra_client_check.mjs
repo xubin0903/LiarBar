@@ -5,11 +5,10 @@
  *  ② 大厅「战绩」不走输音效（Report 仅 RECAP/END 才 playResult）
  *  ③ Report 内容包 Scroll，横屏底部按钮可滚到
  *  ④ lb_btn_home / 系统返回键 先过离局二次确认
- *  ⑤ string.json 只增不删（对 origin/develop 键集）
+ *  ⑤ string.json 必需键都在 + 无重复 name（不比对 git 基线、不查临时串文案；只增不删放 PR 正文自查）
  *  ⑥ 结算页回大厅 id = lb_btn_report_lobby；lb_btn_home 只留局内退出键
  * Box has no DevEco — this is not CompileArkTS. 合入 ≠ 终验.
  */
-import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -182,35 +181,9 @@ if (table.includes('.id(ControlIds.HOME)') && !table.includes('REPORT_LOBBY')) {
   fail('Table lb_btn_home changed or REPORT_LOBBY leaked into table');
 }
 
-// ⑤ string.json add-only vs origin/develop
-let baseJson = null;
-try {
-  baseJson = JSON.parse(execSync(`git show origin/develop:${STR}`, { cwd: root, encoding: 'utf8' }));
-} catch (e) {
-  fail(`cannot read origin/develop:${STR} (${e.message.split('\n')[0]})`);
-}
+// ⑤ string.json: required keys present + no duplicate names (负责人 #293 打回 2026-10-07).
+// No git baseline: 策划 21 will replace the PR-A 临时串 values in place, so text is not checked.
 const headJson = JSON.parse(src(STR));
-if (baseJson !== null) {
-  const headMap = new Map(headJson.string.map((x) => [x.name, x.value]));
-  const removed = baseJson.string.filter((x) => !headMap.has(x.name)).map((x) => x.name);
-  const changed = baseJson.string.filter((x) => headMap.has(x.name) && headMap.get(x.name) !== x.value).map((x) => x.name);
-  if (removed.length === 0 && changed.length === 0) {
-    pass(`string.json add-only (${headJson.string.length - baseJson.string.length} new keys, 0 removed, 0 changed)`);
-  } else {
-    fail(`string.json removed=${removed.join(',')} changed=${changed.join(',')}`);
-  }
-  try {
-    const numstat = execSync(`git diff --numstat origin/develop -- ${STR}`, { cwd: root, encoding: 'utf8' }).trim();
-    const del = numstat.length === 0 ? 0 : Number(numstat.split(/\s+/)[1]);
-    if (del === 0) {
-      pass('string.json diff has 0 deleted lines (no reformat)');
-    } else {
-      fail(`string.json diff deletes ${del} lines (reformat?)`);
-    }
-  } catch (e) {
-    fail('git diff numstat failed');
-  }
-}
 const names = headJson.string.map((x) => x.name);
 const dup = names.filter((n, i) => names.indexOf(n) !== i);
 if (dup.length === 0) {
