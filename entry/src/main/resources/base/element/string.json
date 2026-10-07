@@ -122,7 +122,7 @@
     },
     {
       "name": "lb_str_home",
-      "value": "回开桌"
+      "value": "回大厅"
     },
     {
       "name": "lb_str_nav_table",
@@ -738,35 +738,631 @@
     },
     {
       "name": "lb_str_records_empty",
-      "value": "还没有战绩，先打一局吧。"
+      "value": "还没有战绩。先去开一桌。"
     },
     {
       "name": "lb_str_leave_confirm_title",
-      "value": "离开这桌？"
+      "value": "回大厅？"
     },
     {
       "name": "lb_str_leave_confirm_body",
-      "value": "牌局还没结束，现在离开会回到开桌。"
+      "value": "这局算你输，记入战绩（中退），直接回大厅。"
     },
     {
       "name": "lb_str_leave_confirm_ok",
-      "value": "离开"
+      "value": "回大厅"
     },
     {
       "name": "lb_str_leave_confirm_cancel",
-      "value": "继续打"
+      "value": "再想想"
     },
     {
       "name": "_comment_lb_str_leave_confirm",
-      "value": "PR-A 临时串：离局二次确认与战绩空态，策划 21 交稿后替换文案，键名不变。"
+      "value": "离局二次确认与战绩空态：已按策划 21 v0.1 定稿文案替换，键名不变。"
     },
     {
       "name": "lb_str_report_lobby",
-      "value": "回开桌"
+      "value": "回大厅"
     },
     {
       "name": "_comment_lb_str_report_lobby",
       "value": "结算页/战绩页回大厅按钮文案（id lb_btn_report_lobby）。局内退出仍用 lb_str_home / lb_btn_home。"
+    },
+    {
+      "name": "lb_str_rpt_win",
+      "value": "你留到了最后"
+    },
+    {
+      "name": "lb_str_rpt_lose",
+      "value": "你没撑到最后"
+    },
+    {
+      "name": "lb_str_rpt_quit",
+      "value": "中途离桌，记一负"
+    },
+    {
+      "name": "lb_str_rpt_winner_fmt",
+      "value": "胜者：{胜者}"
+    },
+    {
+      "name": "lb_str_rpt_winner_none",
+      "value": "胜者：未决"
+    },
+    {
+      "name": "lb_str_rpt_rank_fmt",
+      "value": "第 {名次} 名"
+    },
+    {
+      "name": "lb_str_rpt_duration_fmt",
+      "value": "用时 {分}分{秒}秒"
+    },
+    {
+      "name": "lb_str_rpt_rounds_fmt",
+      "value": "{轮} 轮 · {手} 手"
+    },
+    {
+      "name": "lb_str_rpt_col_seat",
+      "value": "座位"
+    },
+    {
+      "name": "lb_str_rpt_col_candles",
+      "value": "剩烛"
+    },
+    {
+      "name": "lb_str_rpt_col_burnt",
+      "value": "熄烛"
+    },
+    {
+      "name": "lb_str_rpt_col_play",
+      "value": "出牌"
+    },
+    {
+      "name": "lb_str_rpt_col_fake",
+      "value": "掺假"
+    },
+    {
+      "name": "lb_str_rpt_col_doubt",
+      "value": "质疑"
+    },
+    {
+      "name": "lb_str_rpt_col_hit",
+      "value": "开中"
+    },
+    {
+      "name": "lb_str_rpt_col_rank",
+      "value": "名次"
+    },
+    {
+      "name": "lb_str_rpt_tag_alive",
+      "value": "留下"
+    },
+    {
+      "name": "lb_str_rpt_tag_out_fmt",
+      "value": "第 {序} 个出局"
+    },
+    {
+      "name": "lb_str_rpt_tag_quit",
+      "value": "中退"
+    },
+    {
+      "name": "lb_str_rpt_tag_left",
+      "value": "在桌"
+    },
+    {
+      "name": "lb_str_rpt_ff_note",
+      "value": "你出局后余局已快进裁定"
+    },
+    {
+      "name": "lb_str_hl_bluff_title",
+      "value": "最大连骗"
+    },
+    {
+      "name": "lb_str_hl_doubt_title",
+      "value": "最准质疑"
+    },
+    {
+      "name": "lb_str_hl_burn_title",
+      "value": "最惨连熄"
+    },
+    {
+      "name": "lb_str_hl_bluff_fmt",
+      "value": "{昵称} 连骗 {k} 手没被拆穿"
+    },
+    {
+      "name": "lb_str_hl_doubt_fmt",
+      "value": "{昵称} 质疑 {k} 次，开中 {h} 次"
+    },
+    {
+      "name": "lb_str_hl_burn_fmt",
+      "value": "{昵称} 连熄 {k} 烛"
+    },
+    {
+      "name": "lb_str_hl_burn_out_fmt",
+      "value": "{昵称} 连熄 {k} 烛，直接出局"
+    },
+    {
+      "name": "lb_str_hl_bluff_none",
+      "value": "没人连骗得手"
+    },
+    {
+      "name": "lb_str_hl_doubt_none",
+      "value": "没人开中过"
+    },
+    {
+      "name": "lb_str_hl_burn_none",
+      "value": "没人连熄两烛"
+    },
+    {
+      "name": "lb_str_replay_caught_fmt",
+      "value": "{被质疑者} 第 {手} 手{方式}后被拆穿，熄了一支烛"
+    },
+    {
+      "name": "lb_str_replay_hit_fmt",
+      "value": "{质疑者} 第 {手} 手开中了 {被质疑者}"
+    },
+    {
+      "name": "lb_str_replay_wrong_fmt",
+      "value": "{质疑者} 第 {手} 手开错了，自己熄了一支烛"
+    },
+    {
+      "name": "lb_str_style_word_soft",
+      "value": "轻放"
+    },
+    {
+      "name": "lb_str_style_word_slam",
+      "value": "甩出"
+    },
+    {
+      "name": "lb_str_style_word_hesitate",
+      "value": "犹豫着出"
+    },
+    {
+      "name": "lb_str_elim_title",
+      "value": "你的烛灭了"
+    },
+    {
+      "name": "lb_str_elim_body",
+      "value": "你已出局。直接看结算，还是留下看完？"
+    },
+    {
+      "name": "lb_str_elim_to_report",
+      "value": "直接看结算"
+    },
+    {
+      "name": "lb_str_elim_spectate",
+      "value": "继续观战"
+    },
+    {
+      "name": "lb_str_spectating",
+      "value": "观战中"
+    },
+    {
+      "name": "lb_str_ff_running",
+      "value": "快进中"
+    },
+    {
+      "name": "lb_str_rec_sum_fmt",
+      "value": "共 {场} 局 · 胜 {胜} · 胜率 {率}"
+    },
+    {
+      "name": "lb_str_rec_doubt_fmt",
+      "value": "质疑命中率 {率}（{中}/{疑}）"
+    },
+    {
+      "name": "lb_str_rec_quit_fmt",
+      "value": "中退 {退} 局"
+    },
+    {
+      "name": "lb_str_rec_rate_na",
+      "value": "—"
+    },
+    {
+      "name": "lb_str_rec_recent",
+      "value": "最近 20 局"
+    },
+    {
+      "name": "lb_str_rec_row_fmt",
+      "value": "{日期} · 第 {名次}/{人数} 名 · {时长}"
+    },
+    {
+      "name": "lb_str_rec_detail_fmt",
+      "value": "质疑 {疑} 中 {中} · 被质疑 {被疑} 被识破 {破}"
+    },
+    {
+      "name": "lb_str_rec_opp_fmt",
+      "value": "对手：{对手}"
+    },
+    {
+      "name": "lb_str_rec_tag_win",
+      "value": "胜"
+    },
+    {
+      "name": "lb_str_rec_tag_lose",
+      "value": "负"
+    },
+    {
+      "name": "lb_str_rec_tag_quit",
+      "value": "中退"
+    },
+    {
+      "name": "lb_str_back",
+      "value": "返回"
+    },
+    {
+      "name": "lb_str_pause",
+      "value": "暂停"
+    },
+    {
+      "name": "lb_str_pause_title",
+      "value": "已暂停"
+    },
+    {
+      "name": "lb_str_pause_pending",
+      "value": "这一手翻完就停"
+    },
+    {
+      "name": "lb_str_pause_resume",
+      "value": "继续"
+    },
+    {
+      "name": "lb_str_pause_settings",
+      "value": "设置"
+    },
+    {
+      "name": "lb_str_pause_rules",
+      "value": "规则"
+    },
+    {
+      "name": "lb_str_pause_end",
+      "value": "结束游戏"
+    },
+    {
+      "name": "lb_str_pause_lobby",
+      "value": "回大厅"
+    },
+    {
+      "name": "lb_str_pause_bg_note",
+      "value": "切到后台，已自动暂停"
+    },
+    {
+      "name": "lb_str_lv_paused",
+      "value": "已暂停"
+    },
+    {
+      "name": "lb_str_confirm_end_title",
+      "value": "结束这一局？"
+    },
+    {
+      "name": "lb_str_confirm_end_body",
+      "value": "现在结束算你输，记入战绩（中退）。"
+    },
+    {
+      "name": "lb_str_confirm_end_ok",
+      "value": "结束并看战报"
+    },
+    {
+      "name": "lb_str_confirm_lobby_ghost_body",
+      "value": "你已出局，离开不改战绩。"
+    },
+    {
+      "name": "lb_str_confirm_cancel",
+      "value": "再想想"
+    },
+    {
+      "name": "lb_str_settings",
+      "value": "设置"
+    },
+    {
+      "name": "lb_str_set_bgm",
+      "value": "音乐"
+    },
+    {
+      "name": "lb_str_set_sfx",
+      "value": "音效与语音"
+    },
+    {
+      "name": "lb_str_set_mute",
+      "value": "静音"
+    },
+    {
+      "name": "lb_str_set_mute_hint",
+      "value": "静音只关声音，不动滑条"
+    },
+    {
+      "name": "lb_str_set_silent_match_note",
+      "value": "本局是静默局，声音已全关"
+    },
+    {
+      "name": "lb_str_set_rules",
+      "value": "规则说明"
+    },
+    {
+      "name": "lb_str_set_about",
+      "value": "关于"
+    },
+    {
+      "name": "lb_str_set_version_fmt",
+      "value": "版本 {版本}"
+    },
+    {
+      "name": "lb_str_set_about_body",
+      "value": "谎馆 LiarBar · AI 荷官驱动的虚张声势社交博弈 · HarmonyOS 原生 · 华为高校创新赛应用创新参赛作品"
+    },
+    {
+      "name": "lb_str_set_credits",
+      "value": "音频为原创程序化或 CC0 素材，来源见 ATTRIBUTION-audio"
+    },
+    {
+      "name": "lb_str_set_demo",
+      "value": "答辩演示"
+    },
+    {
+      "name": "lb_str_set_demo_hint",
+      "value": "只对下一局生效：固定种子，必出一次质疑；局结束自动关"
+    },
+    {
+      "name": "lb_str_demo_armed",
+      "value": "演示已开，下一局生效"
+    },
+    {
+      "name": "lb_str_demo_badge",
+      "value": "演示"
+    },
+    {
+      "name": "lb_str_rules_entry",
+      "value": "规则"
+    },
+    {
+      "name": "lb_str_rules_title",
+      "value": "规则说明"
+    },
+    {
+      "name": "lb_str_rules_h_goal",
+      "value": "目标"
+    },
+    {
+      "name": "lb_str_rules_goal",
+      "value": "每人 3 支烛。揭牌输了熄 1 支，烛全灭就出局。最后留在桌上的人赢。"
+    },
+    {
+      "name": "lb_str_rules_h_deal",
+      "value": "发牌"
+    },
+    {
+      "name": "lb_str_rules_deal",
+      "value": "牌堆 20 张：K、Q、A 各 6 张，Joker 2 张。每人发 5 张，3 人桌余下的牌不进本局。手牌只有你能看：按住看牌，松手盖回。"
+    },
+    {
+      "name": "lb_str_rules_h_play",
+      "value": "宣称与出牌"
+    },
+    {
+      "name": "lb_str_rules_play",
+      "value": "每轮荷官宣布目标牌：K、Q 或 A（Joker 不当目标）。轮到你时扣着出 1～3 张，声称都是目标牌，可真可假。Joker 永远算目标牌。新一轮由上次熄烛者的下家先出，他已出局就再往下。"
+    },
+    {
+      "name": "lb_str_rules_h_doubt",
+      "value": "质疑与相信"
+    },
+    {
+      "name": "lb_str_rules_doubt",
+      "value": "有人出牌后（含本轮第一手），下家必须二选一。相信：不翻，接着出牌。质疑：翻开上家刚出的这一手。全是目标牌或 Joker，质疑者熄 1 烛；只要有一张不是，出牌的人熄 1 烛。熄烛后收齐所有牌，存活者各重发 5 张，荷官宣布新目标。"
+    },
+    {
+      "name": "lb_str_rules_h_empty",
+      "value": "手牌打光"
+    },
+    {
+      "name": "lb_str_rules_empty",
+      "value": "出完最后一张时：桌上还有 3 人以上，下家选「质疑你」就翻你最后一手；不质疑，你这一轮安全，等其他人出完进下一轮。只剩 2 人时，下家必须质疑你最后一手。"
+    },
+    {
+      "name": "lb_str_rules_h_out",
+      "value": "三烛与出局"
+    },
+    {
+      "name": "lb_str_rules_out",
+      "value": "烛数降到 0 即出局，转为旁观：不发牌、不出牌、不质疑，可以继续看。"
+    },
+    {
+      "name": "lb_str_rules_h_win",
+      "value": "胜利"
+    },
+    {
+      "name": "lb_str_rules_win",
+      "value": "桌上只剩 1 人存活，他赢下这一局。"
+    },
+    {
+      "name": "lb_str_pause_timer_runs",
+      "value": "暂停后计时仍走"
+    },
+    {
+      "name": "lb_str_pause_ai_acts",
+      "value": "暂停后AI仍出手"
+    },
+    {
+      "name": "lb_str_pause_bgm_plays",
+      "value": "暂停BGM仍响"
+    },
+    {
+      "name": "lb_str_pause_anim_runs",
+      "value": "暂停动画仍走"
+    },
+    {
+      "name": "lb_str_resume_clock_drift",
+      "value": "恢复后剩余时间偏差超1秒"
+    },
+    {
+      "name": "lb_str_resume_skips_beat",
+      "value": "恢复后跳拍"
+    },
+    {
+      "name": "lb_str_resume_ai_burst",
+      "value": "恢复后AI连发"
+    },
+    {
+      "name": "lb_str_resume_bgm_restart",
+      "value": "恢复后BGM重头"
+    },
+    {
+      "name": "lb_str_resume_bgm_double",
+      "value": "恢复后BGM叠播"
+    },
+    {
+      "name": "lb_str_pause_cuts_sequence",
+      "value": "序列中暂停截半"
+    },
+    {
+      "name": "lb_str_pause_pending_retrigger",
+      "value": "待停连按多次触发"
+    },
+    {
+      "name": "lb_str_pause_tap_through",
+      "value": "暂停层点穿到桌面"
+    },
+    {
+      "name": "lb_str_bg_no_pause",
+      "value": "切后台未自动暂停"
+    },
+    {
+      "name": "lb_str_leave_no_confirm",
+      "value": "离局无确认"
+    },
+    {
+      "name": "lb_str_quit_not_recorded",
+      "value": "中退未记战绩"
+    },
+    {
+      "name": "lb_str_quit_wrong_result",
+      "value": "中退未算负"
+    },
+    {
+      "name": "lb_str_record_dup",
+      "value": "战绩重复写入"
+    },
+    {
+      "name": "lb_str_record_lost",
+      "value": "战绩重启丢失"
+    },
+    {
+      "name": "lb_str_records_opens_report",
+      "value": "大厅战绩打开空战报"
+    },
+    {
+      "name": "lb_str_records_in_table",
+      "value": "局内出现战绩入口"
+    },
+    {
+      "name": "lb_str_volume_reset",
+      "value": "音量重启复原"
+    },
+    {
+      "name": "lb_str_volume_no_effect",
+      "value": "音量改了不生效"
+    },
+    {
+      "name": "lb_str_mute_moves_slider",
+      "value": "静音改了滑条"
+    },
+    {
+      "name": "lb_str_settings_two_panels",
+      "value": "大厅与局内设置不一致"
+    },
+    {
+      "name": "lb_str_report_hl_blank",
+      "value": "结算高光半空"
+    },
+    {
+      "name": "lb_str_report_hand_as_cards",
+      "value": "结算手数写成张数"
+    },
+    {
+      "name": "lb_str_report_candle_mismatch",
+      "value": "结算烛数对不上"
+    },
+    {
+      "name": "lb_str_report_cut_landscape",
+      "value": "结算横屏裁按钮"
+    },
+    {
+      "name": "lb_str_again_goes_lobby",
+      "value": "再来一局回了大厅"
+    },
+    {
+      "name": "lb_str_elim_no_choice",
+      "value": "出局后无选择"
+    },
+    {
+      "name": "lb_str_rules_not_v02",
+      "value": "规则说明不是v0.2"
+    },
+    {
+      "name": "lb_str_peek_still_empty_table",
+      "value": "进桌看看仍进空桌"
+    },
+    {
+      "name": "lb_str_about_no_version",
+      "value": "关于页无版本号"
+    },
+    {
+      "name": "lb_str_demo_default_on",
+      "value": "演示开关默认开"
+    },
+    {
+      "name": "lb_str_demo_recorded",
+      "value": "演示局记入战绩"
+    },
+    {
+      "name": "lb_str_demo_survives_restart",
+      "value": "重启后演示仍开"
+    },
+    {
+      "name": "lb_str_demo_no_challenge",
+      "value": "演示局90秒内无质疑"
+    },
+    {
+      "name": "lb_str_demo_flag_after_quit",
+      "value": "中退后演示仍生效"
+    },
+    {
+      "name": "lb_str_demo_seed_default_on",
+      "value": "交付包demo_seed默认开"
+    },
+    {
+      "name": "lb_str_bg_layer_extra_btns",
+      "value": "后台恢复层不止继续一键"
+    },
+    {
+      "name": "lb_str_debug_pause_in_release",
+      "value": "交付包有调试暂停入口"
+    },
+    {
+      "name": "lb_str_ff_other_rng",
+      "value": "快进走了另一套随机"
+    },
+    {
+      "name": "lb_str_ff_rank_not_recorded",
+      "value": "快进名次未进战绩"
+    },
+    {
+      "name": "lb_str_ff_seed_rank_mismatch",
+      "value": "同种子快进与观战名次不一致"
+    },
+    {
+      "name": "lb_str_leave_dialog_clock_runs",
+      "value": "弹窗开着倒计时/AI 仍在走"
+    },
+    {
+      "name": "lb_str_report_hl_repeat_winner",
+      "value": "无高光时重复胜者行 / 兜底句与回放句同屏重复"
+    },
+    {
+      "name": "lb_str_hl_none",
+      "value": "这一局，没人掀过牌。"
+    },
+    {
+      "name": "lb_str_hl_quiet",
+      "value": "这一局，没有谁特别出挑。"
     }
   ]
 }
