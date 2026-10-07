@@ -469,7 +469,9 @@ export class ReportModel {
       const outAt: number = outs.indexOf(s.seatId);
       let rank: number = -1;
       if (outAt >= 0) {
-        rank = Math.max(1, ReportModel.aliveAtExitOf(input.recap, s.seatId));
+        // 2b：出局座 aliveAtExit 缺失（=0）时不硬凑「第 1 名」，名次格显示「—」。
+        const exited: number = ReportModel.aliveAtExitOf(input.recap, s.seatId);
+        rank = exited > 0 ? exited : -1;
         r.tagText = ReportModel.fill(ReportModel.text(texts, 'lb_str_rpt_tag_out_fmt'), ['序'], [`${outAt + 1}`]);
       } else if (input.quit && r.isHuman) {
         rank = Math.max(1, aliveNow);

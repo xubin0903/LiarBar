@@ -325,6 +325,8 @@ export class MatchEngine {
     this.roundIndex = 0;
     this.playIndexInRound = 0;
     this.stallSkipCount = 0;
+    // 2b：上一局停在 CHALLENGE_ONLY / EMPTY_SAFE / FORCE_CHALLENGE 时「再来一局」不得带进新局（Report 不经 resetToLobby 直接开局）。
+    this.turnWindow = TurnWindow.NORMAL;
     this.winnerSeatId = -1;
     this.currentClaim = null;
     this.lastPlay = null;

@@ -421,7 +421,27 @@ M = [
  "    } catch (err) {\n      Logger.warn(TAG, 'portrait request fail-soft');\n    }\n",
  "    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;\n    await WindowOrientation.lockPortrait(ctx);\n",
  'pagestack push-failure rollback with lockPortrait rejecting'),
+# 2b 结算收尾（21 §1.5 / 22 §4.2 / §4.5）
+('B154 startMatch no longer resets turnWindow (stale FORCE_CHALLENGE carried into 再来一局)', ME,
+ "    this.turnWindow = TurnWindow.NORMAL;\n    this.winnerSeatId = -1;\n", "    this.winnerSeatId = -1;\n",
+ '2b real MatchEngine.startMatch resets turnWindow'),
+('B155 OUT seat with aliveAtExit=0 shows 第 1 名 again (Math.max(1, …))', RM,
+ "        rank = exited > 0 ? exited : -1;", "        rank = Math.max(1, exited);", '2b aliveAtExit=0 on an OUT seat'),
+('B156 Report reads pausedTotalAt twice (record recomputes its own)', RP,
+ "        pausedMs: pausedMs\n      };", "        pausedMs: AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now())\n      };",
+ '2b pausedTotalAt read once on the real Report'),
+('B157 columns back to 58% / 42% widths (+12vp overflow)', E + 'features/report/ReportPanel.ets',
+ "    .width('100%')\n    // 22 §4.2 两栏 ≈58 / 42 按权重分「行宽 − 12vp 栏缝」（不再 58% + 42% + 12vp 溢出）；单栏不加权。\n    .layoutWeight(this.narrow ? 0 : 58)",
+ "    .width(this.narrow ? '100%' : '58%')", '2b two columns = layoutWeight(58) / (42)'),
+('B158 L-fold upper bound inclusive (W/H = 1.60 treated as fold)', E + 'features/report/ReportPanel.ets',
+ "ratio >= 1.20 && ratio < 1.60;", "ratio >= 1.20 && ratio <= 1.60;", '2b real ReportPanel.applyTier tiers'),
+('B159 L-fold margin dropped', E + 'features/report/ReportPanel.ets',
+ "    .padding({ left: this.fold ? '8%' : 0, right: this.fold ? '8%' : 0 })\n", "", '2b L-fold → root padding left / right 8%'),
+('B160 head back to 36vp result bar (ff note no longer fits 72vp at 360vp)', E + 'features/report/ReportPanel.ets',
+ "      .width('100%')\n      .height(30)\n      Row({ space: 12 }) {", "      .width('100%')\n      .height(36)\n      Row({ space: 12 }) {",
+ '2b report head ≤ 20% with ff note at 360vp'),
 ]
+
 
 
 def run_gate(cwd):

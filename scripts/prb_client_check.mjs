@@ -551,7 +551,8 @@ RUN(false);
 // Both entry points go through commitOnce; no other writer of the three keys.
 const reportSrc = src(E + 'pages/Report.ets');
 const rpa = code(body(reportSrc, '  aboutToAppear(): void {'));
-ok(/if \(snap\.phase === Phase\.RECAP\) \{[\s\S]*?quit: false,\s*isDemo: AppRuntime\.engine\.isDemoMatch\(\),\s*ff: false,\s*pausedMs: AppRuntime\.engine\.pausedTotalAt\(/.test(rpa) &&
+ok(/if \(snap\.phase === Phase\.RECAP\) \{[\s\S]*?quit: false,\s*isDemo: AppRuntime\.engine\.isDemoMatch\(\),\s*ff: false,\s*pausedMs: pausedMs\s*\}/.test(rpa) &&
+  count(rpa, /AppRuntime\.engine\.pausedTotalAt\(/) === 1 &&
   rpa.includes('RecordStore.commitOnce(snap, recapCommit)') && count(code(reportSrc), /RecordStore\.commitOnce\(/) === 1,
   'Report.aboutToAppear backstop: RECAP → commitOnce with the director\'s shape (idempotent via last_match_id)');
 ok(count(code(dir), /RecordStore\.commitOnce\(/) === 1 && count(code(table), /RecordStore\.commitOnce\(/) === 1 &&
@@ -3396,7 +3397,14 @@ export { ReportHarness };`;
     const log = [];
     const snap = mkRecapSnap(mid, o);
     const pausedStub = o && o.paused ? o.paused : 0;
-    const eng = { current: () => snap, isDemoMatch: () => false, pausedTotalAt: () => pausedStub, recapPlayLog: () => [],
+    // o.pausedSeq: successive pausedTotalAt() answers (a second call would read a later, larger total) — proves the page reads it once.
+    const pausedCalls = { n: 0 };
+    const pausedAt = () => {
+      pausedCalls.n++;
+      if (o && o.pausedSeq) return o.pausedSeq[Math.min(pausedCalls.n - 1, o.pausedSeq.length - 1)];
+      return pausedStub;
+    };
+    const eng = { current: () => snap, isDemoMatch: () => false, pausedTotalAt: pausedAt, recapPlayLog: () => [],
       toLobby: () => { log.push('engine.toLobby'); return true; }, startMatch: (o) => { log.push(`engine.startMatch:${o.nickname}/${o.playerCount}/${o.silent}`); return startOk; } };
     const director = { stop: () => log.push('director.stop'), start: () => log.push('director.start') };
     const H = (await importFresh(rpJs, {
@@ -3408,7 +3416,7 @@ export { ReportHarness };`;
       getContext: () => ({ resourceManager: { getStringByNameSync: (k) => strMap.get(k) } }),
       Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'Report'
     })).ReportHarness;
-    return { RSr, log, snap, h: new H() };
+    return { RSr, log, snap, h: new H(), pausedCalls };
   };
   // ⓐ director has NOT written yet → Report appears → written; leave at once (button / back key) → still 1, bytes identical
   for (const via of ['button', 'back']) {
@@ -3489,6 +3497,16 @@ export { ReportHarness };`;
     ok(w.h.view && w.h.view.durationText === '用时 3分30秒' && rec0 && rec0.durationMs === 210000,
       `report duration excludes pause (pausedTotalAt=30000): view "${w.h.view && w.h.view.durationText}", record durationMs=${rec0 && rec0.durationMs} (RPT-4)`);
   }
+  // 2b（Report.ets 原 :42 / :49 各算一次）：pausedTotalAt 只读一次，战绩与战报同一个值。桩第 1 次答 30000、第 2 次答 45000：
+  // 只读一次 → 战报 3分30秒、记录 210000 ms；读两次 → 两处对不上（或都变成 3分15秒）。
+  {
+    const w = await world(`m-${T0r}-paused-once`, true, { pausedSeq: [30000, 45000] });
+    w.h.aboutToAppear();
+    await tickIo();
+    const rec0 = w.RSr.recent()[0];
+    ok(w.pausedCalls.n === 1 && w.h.view && w.h.view.durationText === '用时 3分30秒' && rec0 && rec0.durationMs === 210000,
+      `2b pausedTotalAt read once on the real Report: calls=${w.pausedCalls.n}, view "${w.h.view && w.h.view.durationText}", record durationMs=${rec0 && rec0.durationMs} (same Δ)`);
+  }
   // view built from the real model + real strings on the same page instance
   {
     const w = await world(`m-${T0r}-view`, true);
@@ -3499,6 +3517,94 @@ export { ReportHarness };`;
   }
 }
 RUN(false);
+
+// ---------------------------------------------------------------- ⑲ 2b 结算面板收尾（21 §1.5 / §1.7 · 22 §4.2 / §4.5）
+RUN(true);
+// 2b ①：startMatch 复位 turnWindow（「再来一局」由 Report 直接 startMatch，不经 resetToLobby）。真 startMatch 方法体挂最小宿主跑。
+{
+  const smBody = body(engine, '  startMatch(opts: StartMatchOpts): boolean {');
+  ok(smBody.length > 0, '2b startMatch harness: real MatchEngine.startMatch found');
+  if (smBody.length > 0) {
+    const TW = enumObj('TurnWindow');
+    const PhS = enumObj('Phase');
+    const smJs = `class StartHarness {
+  constructor() { Object.assign(this, { playLog: { clear() {} }, turnWindow: TurnWindow.FORCE_CHALLENGE, phase: Phase.TURN, dealt: 0 }); }
+  buildSeats() {} dealFresh() { this.dealt++; } clearEmptyGate() {}
+${stripEts(smBody + '\n  }\n', ['MatchDefaults', 'StartMatchOpts', 'number', 'boolean', 'string'], ['DeckConfig', 'DemoSeedConfig'])}
+}
+export { StartHarness };`;
+    try {
+      const SH = (await importFresh(smJs, {
+        TurnWindow: TW, Phase: PhS, LifeReason: { NONE: 'NONE' }, TAG: 'MatchEngine', Logger: { info: () => {}, warn: () => {}, error: () => {} },
+        SeededRng: class { constructor(s) { this.s = s; } },
+        ConfigRepository: { isReady: () => true, snapshotMatchDefaults: () => ({ min_players: 3, max_players: 4, demo_seed_enabled: false, demo_seed_value: 7, lives_default: 3 }),
+          deck: () => ({}), demo: () => ({}) }
+      })).StartHarness;
+      const res = [];
+      for (const prev of [TW.FORCE_CHALLENGE, TW.EMPTY_SAFE, TW.CHALLENGE_ONLY, TW.AUTO_SKIP]) {
+        const h = new SH();
+        h.turnWindow = prev;
+        const started = h.startMatch({ nickname: '阿龙', playerCount: 4, silent: false });
+        res.push(`${prev}→${h.turnWindow}`);
+        if (!(started === true && h.turnWindow === TW.NORMAL && h.phase === PhS.DEAL && h.dealt === 1)) res.push('BAD');
+      }
+      ok(!res.includes('BAD'), `2b real MatchEngine.startMatch resets turnWindow to NORMAL before the new deal (${res.join(', ')})`);
+    } catch (e) {
+      fail(`2b startMatch harness did not run: ${e.message}`);
+    }
+  }
+}
+// 2b ③：出局座 aliveAtExit 缺失（=0）→ 名次格「—」，出局序标照常；对照 aliveAtExit=3 → 第 3 名（真 ReportModel + 真 string.json）。
+if (RMod) {
+  const texts2b = new Map(RKEYS.map((k) => [k, strMap.get(k)]));
+  const seatsX = [0, 1, 2, 3].map((i) => ({ seatId: i, role: i === 0 ? SRo.HUMAN : SRo.AI, nickname: ['阿龙', '老千', '怂货', '杠精'][i], lives: i === 1 ? 2 : 0 }));
+  const evX = [{ kind: EK.OUT, seatId: 2, detail: '', at: 0 }, { kind: EK.OUT, seatId: 0, detail: '', at: 0 }, { kind: EK.OUT, seatId: 3, detail: '', at: 0 }];
+  const mk = (alive0) => RMod.build({ seats: seatsX, recap: [0, 1, 2, 3].map((i) => ({ seatId: i, aliveAtExit: [alive0, 0, 4, 2][i] })),
+    eventLog: evX, playLog: [], winnerSeatId: 1, roundIndex: 3, startedAt: 0, endedAt: 60000, pausedMs: 0, livesDefault: 3, quit: false, ff: false }, texts2b);
+  const v0 = mk(0);
+  const v3 = mk(3);
+  const r0 = v0.rows.map((r) => `${r.slot}:${r.rankText}:${r.tagText}`);
+  ok(v0.rows[0].rankText === '—' && v0.rows[0].tagText === '第 2 个出局' && v3.rows[0].rankText === '第 3 名' &&
+    v0.rows[1].rankText === '第 1 名' && v0.rows[2].rankText === '第 4 名',
+    `2b aliveAtExit=0 on an OUT seat → rank "—" (not 第 1 名), tag kept; control aliveAtExit=3 → ${v3.rows[0].rankText} (${r0.join(' / ')})`);
+}
+// 2b ④：22 §4.5 档位 —— 真 ReportPanel.applyTier（L-small 单栏 / L-fold 1.20 ≤ W/H < 1.60 左右 8% / L-phone）。
+{
+  const atBody = body(reportPanelSrc, '  applyTier(w: number, h: number): void {');
+  ok(atBody.length > 0, '2b ReportPanel.applyTier found');
+  if (atBody.length > 0) {
+    const tierJs = `class TierHarness {
+  constructor() { this.narrow = false; this.fold = false; }
+${stripEts(atBody + '\n  }\n', ['number', 'boolean'])}
+}
+export { TierHarness };`;
+    const TH = (await importFresh(tierJs, {})).TierHarness;
+    const tier = (w, h) => { const t = new TH(); t.applyTier(w, h); return t.narrow ? 'small' : (t.fold ? 'fold' : 'phone'); };
+    const cases = [[800, 360, 'phone'], [768, 480, 'phone'], [767, 480, 'fold'], [720, 600, 'fold'], [719, 600, 'phone'], [640, 480, 'fold'], [600, 300, 'small'], [400, 316, 'small']];
+    const got = cases.map(([w, h, want]) => `${w}x${h}:${tier(w, h)}${tier(w, h) === want ? '' : '≠' + want}`);
+    ok(got.every((x) => !x.includes('≠')), `2b real ReportPanel.applyTier tiers (22 §4.5): ${got.join(', ')}`);
+  }
+}
+RUN(false);
+{
+  const rp = reportPanelSrc;
+  ok(!/'58%'|'42%'/.test(rp) && /\.id\(ControlIds\.RECAP_LIST\)\s*\.width\('100%'\)\s*\.layoutWeight\(this\.narrow \? 0 : 58\)/.test(rp) &&
+    /\.id\(ControlIds\.REPORT_HL\)\s*\.width\('100%'\)\s*\.layoutWeight\(this\.narrow \? 0 : 42\)/.test(rp) &&
+    /Row\(\{ space: 12 \}\) \{\s*this\.recapTable\(\)\s*this\.highlights\(\)/.test(rp),
+    '2b two columns = layoutWeight(58) / (42) inside Row({ space: 12 }) — no 58% + 42% + 12vp overflow; single column unweighted (22 §4.2)');
+  ok(/\.padding\(\{ left: this\.fold \? '8%' : 0, right: this\.fold \? '8%' : 0 \}\)/.test(rp) && /this\.applyTier\(Number\(newArea\.width\), Number\(newArea\.height\)\)/.test(rp),
+    '2b L-fold → root padding left / right 8% driven by applyTier from onAreaChange (22:283)');
+  // 360vp landscape: head ≤ 20% = 72vp even with the ff note (padding + result bar + spaces + line heights, read from the source)
+  const hd = body(reportPanelSrc, '  head() {');
+  const num = (re) => { const m = re.exec(hd); return m ? Number(m[1]) : NaN; };
+  const padT = num(/top: (\d+), bottom: \d+ \}\)/); const padB = num(/top: \d+, bottom: (\d+) \}\)/);
+  const space = num(/Column\(\{ space: (\d+) \}\)/); const bar = num(/\.width\('100%'\)\s*\.height\((\d+)\)\s*Row/);
+  const lhs = [...hd.matchAll(/\.lineHeight\((\d+)\)/g)].map((m) => Number(m[1]));
+  const rowH = Math.max(lhs[0] || NaN, lhs[1] || NaN); const ffH = lhs[2];
+  const total = padT + bar + space + rowH + space + ffH + padB;
+  ok(/\.constraintSize\(\{ maxHeight: '20%' \}\)/.test(hd) && /\.clip\(true\)/.test(hd) && lhs.length === 3 && Number.isFinite(total) && total <= 360 * 0.2,
+    `2b report head ≤ 20% with ff note at 360vp landscape: ${padT}+${bar}+${space}+${rowH}+${space}+${ffH}+${padB} = ${total} ≤ 72vp (22:211)`);
+}
 
 // ---------------------------------------------------------------- ⑦ strings (21 §6 keys, no PR-B temp keys)
 const names = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);

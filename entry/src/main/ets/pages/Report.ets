@@ -39,6 +39,7 @@ struct Report {
       return;
     }
     this.recordsMode = false;
+    // 2b：暂停总时长只取一次，战绩与战报同一个值（不各算一遍）。
     const pausedMs: number = AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now());
     if (snap.phase === Phase.RECAP) {
       // RPT-11：结算页一出现就写（不等玩家点任何键）；与导演 RECAP 回调同一口径，commitOnce 按 last_match_id 幂等。
@@ -46,7 +47,7 @@ struct Report {
         quit: false,
         isDemo: AppRuntime.engine.isDemoMatch(),
         ff: false,
-        pausedMs: AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now())
+        pausedMs: pausedMs
       };
       RecordStore.commitOnce(snap, recapCommit);
     }
