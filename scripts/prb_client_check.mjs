@@ -322,9 +322,12 @@ ok(records.includes('ff: opts.ff') && records.includes('quit: opts.quit'), 'quit
 ok(/opponents\.push\(s\.aiPersona\.length > 0 \? s\.aiPersona : AiPersonaRegistry\.personaIdForSeat\(s\.seatId\)\)/.test(records) &&
   records.includes('s.role === SeatRole.AI'), 'opponents = AI aiPersona in seat order');
 ok(records.includes('doubted: mine === null ? 0 : mine.doubtedCount') && records.includes('caught: mine === null ? 0 : mine.caughtCount') &&
-  /doubtedCount: number;/.test(types) && /caughtCount: number;/.test(types), 'doubted / caught from engine per-seat counters (RecapRow)');
-ok(/bumpSeatCount\(this\.doubtedCounts, this\.lastPlay\.actorSeatId\)/.test(engine) &&
-  /bumpSeatCount\(this\.caughtCounts, this\.lastPlay\.actorSeatId\)/.test(engine), 'engine counts doubted at challenge, caught on SUCCESS (actor seat)');
+  /doubtedCount: number;/.test(types) && /caughtCount: number;/.test(types), 'doubted / caught from RecapRow (engine derives it from playLog)');
+// 结算面板 PR（21 §1.3）：六个逐座计数器逐值对拍后删除，RecapRow 全部由 playLog.tally() 推出（被质疑 / 被识破 = 裁定写入时的出牌者座）。
+ok(!/\b(?:playCounts|fakeHandCounts|challengeCounts|doubtedCounts|caughtCounts|bumpSeatCount)\b|this\.challengeHits\b/.test(code(engine)) &&
+  /const t: PlayLogTally = this\.playLog\.tally\(this\.seats\[i\]\.seatId\);/.test(engine) &&
+  /doubtedCount: t\.doubted,/.test(engine) && /caughtCount: t\.caught,/.test(engine) && /challengeHits: t\.doubtHits,/.test(engine),
+  'engine: old per-seat counters removed; buildRecap reads playLog.tally() (doubted / caught at applyJudged, actor seat)');
 // ⑪ rank (21 §1.5, PM 2026-10-07): one rule for everyone — rank = seats alive at the moment the seat
 // leaves, counting itself; winner = 1. Eliminated and quitters alike. No 'n − elimination order'.
 const rankSrc = src(E + 'engine/MatchRank.ets');
@@ -2884,6 +2887,321 @@ for (const [name, text, nTimeout] of [['LifeCandles', candles, 4], ['CardFace', 
     `${name}: ${nTimeout} setTimeout, 0 setInterval, 0 onFinish — classified in PR body (new timer ⇒ reclassify)`);
 }
 
+// ---------------------------------------------------------------- ⑱ 结算面板 PR（21 §1.2-§1.6 · 22 §4）：playLog / ReportModel / Report 真跑
+const playLogSrc = src(E + 'engine/PlayLog.ets');
+const reportModelSrc = src(E + 'features/report/ReportModel.ets');
+const reportPage = src(E + 'pages/Report.ets');
+const reportPanelSrc = src(E + 'features/report/ReportPanel.ets');
+// structural: engine write points (21 §1.3 写死 1-3)
+const cpk = code(body(engine, '  private commitPicked('));
+const ajd = code(body(engine, '  private applyJudged(): void {'));
+const rlb = code(body(engine, '  rollbackLastPlay(): boolean {'));
+const stm = code(body(engine, '  startMatch(opts: StartMatchOpts): boolean {'));
+ok(cpk.includes('this.playLog.append(this.roundIndex, actor, picked.length, fake, style);') &&
+  ajd.includes('this.playLog.markJudged(this.lastPlay.actorSeatId, this.challenge.challengerSeatId, success, loser);') &&
+  rlb.includes('this.playLog.popLast(actor);') && stm.includes('this.playLog.clear();') &&
+  count(code(engine), /this\.playLog\.clear\(\)/) === 1 && count(code(engine), /this\.playLog\.append\(/) === 1,
+  'playLog write points: commitPicked append · applyJudged mark · rollbackLastPlay pop · startMatch clear (collectRedeal / dealFresh never clear)');
+ok(/recapPlayLog\(\): PlayLogEntry\[\] \{\s*if \(this\.phase !== Phase\.RECAP && this\.phase !== Phase\.END\) \{\s*return \[\];\s*\}\s*return this\.playLog\.entries\(\);/.test(code(engine)) &&
+  !/playLog/.test(code(body(engine, '  private buildSnapshot(): MatchSnapshot {'))),
+  'playLog copy only after RECAP / END (never in the mid-match snapshot)');
+ok(/return this\.playLog\.size\(\);/.test(code(body(engine, '  private matchHandNo(): number {'))), 'matchHandNo = playLog length (rollback pops, no gaps)');
+ok(!/highlightLine|dealerLine/.test(code(reportPage)) && !/snap\.lastPlay|snap\.challenge/.test(code(reportPage)) &&
+  reportPage.includes('playLog: AppRuntime.engine.recapPlayLog(),') && reportPage.includes('this.view = ReportModel.build(input, this.readTexts());'),
+  'Report reads playLog via ReportModel only (no highlightLine / dealerLine fallback, no snap.lastPlay / challenge — S21-25 / S21-46)');
+const rpBar = code(body(reportPanelSrc, '  btnBar() {'));
+ok(/\.id\(ControlIds\.REPORT_LOBBY\)[\s\S]*?this\.onHome\(\)/.test(rpBar) && /\.id\(ControlIds\.AGAIN\)[\s\S]*?this\.onAgain\(\)/.test(rpBar) &&
+  /onAgain: \(\) => \{\s*this\.leaveMatchReport\(true\);/.test(code(reportPage)) && /onHome: \(\) => \{\s*this\.leaveMatchReport\(false\);/.test(code(reportPage)),
+  'button bar → Report.leaveMatchReport(true / false) (the methods run below)');
+const cardB = code(body(reportPanelSrc, '  card(id: string, badge: Resource, title: Resource, c: ReportCardView) {'));
+ok(cardB.includes('.grayscale(c.ok ? 0 : 1)') && cardB.includes('.opacity(c.ok ? 1 : 0.4)') &&
+  /if \(this\.view\.showCards\) \{[\s\S]*?REPORT_HL_BLUFF[\s\S]*?REPORT_HL_DOUBT[\s\S]*?REPORT_HL_BURN[\s\S]*?\} else \{[\s\S]*?REPORT_HL_FALLBACK/.test(code(reportPanelSrc)) &&
+  /\.visibility\(this\.view\.replayText\.length > 0 \? Visibility\.Visible : Visibility\.None\)/.test(code(reportPanelSrc)),
+  'cards fixed order bluff → doubt → burn; failing card badge grayscale 100% + 40%; none entered → one fallback line; empty replay → Visibility.None (22 §4.4)');
+const mediaUsed = [...new Set([...reportPanelSrc.matchAll(/app\.media\.(\w+)/g)].map((m) => m[1]))].sort();
+const MEDIA_OK = ['art_hl_best_challenge', 'art_hl_long_bluff', 'art_hl_worst_break', 'art_life_candle_body', 'art_life_candle_extinguish_3',
+  'art_life_candle_flame_full', 'art_result_bar_lose', 'art_result_bar_win'];
+ok(JSON.stringify(mediaUsed) === JSON.stringify(MEDIA_OK), `ReportPanel media = existing ids only, no new media id (${mediaUsed.join(',')})`);
+
+RUN(true);
+const PL_TYPES = ['PlayLogEntry[]', 'PlayLogEntry', 'PlayLogTally', 'PlayStyle', 'number', 'boolean'];
+const RM_TYPES = ['Map<string, string>', 'string | undefined', 'PlayLogEntry[]', 'PlayLogEntry | null', 'PlayLogEntry', 'MatchEvent[]', 'RecapRow[]',
+  'SeatModel[]', 'SeatModel', 'ReportInput', 'ReportView', 'ReportRowView[]', 'ReportRowView', 'ReportCardView', 'BluffPick | null', 'BluffPick',
+  'DoubtPick | null', 'DoubtPick', 'BurnPick | null', 'BurnPick', 'PlayLogTally', 'PlayStyle', 'string[]', 'number[]', 'boolean[]', 'string', 'number', 'boolean'];
+const plJs = stripEts(playLogSrc, PL_TYPES);
+const rmJs = stripEts(reportModelSrc, RM_TYPES);
+const PSt2 = enumObj('PlayStyle');
+const EK = enumObj('EventKind');
+const SRo = enumObj('SeatRole');
+let PL = null;
+let RMod = null;
+let RKEYS = null;
+try {
+  const m = await importFresh(`${plJs}\n${rmJs}`, { PlayStyle: PSt2, EventKind: EK, SeatRole: SRo });
+  PL = m.PlayLog; RMod = m.ReportModel; RKEYS = m.REPORT_TEXT_KEYS;
+} catch (e) {
+  fail(`结算面板: real PlayLog.ets + ReportModel.ets did not load in node after type strip: ${e.message}`);
+}
+const strJson = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string;
+const strMap = new Map(strJson.map((x) => [x.name, x.value]));
+if (PL && RMod) {
+  // --- playLog (21 §1.3): seq = hand order, rollback pops without gaps, judge marks the last hand, copies are detached
+  const L = new PL();
+  L.append(1, 0, 2, 0, PSt2.SOFT);            // seq1 seat0 true
+  L.append(1, 1, 1, 1, PSt2.SLAM);            // seq2 seat1 fake
+  const markWrongSeat = L.markJudged(0, 2, true, 0);
+  const markOk = L.markJudged(1, 2, true, 1);  // seat2 catches seat1
+  const markTwice = L.markJudged(1, 3, false, 3);
+  const popJudged = L.popLast(1);
+  L.append(2, 3, 1, 1, PSt2.SOFT);            // seq3 seat3 fake …
+  const popOther = L.popLast(0);
+  const popOk = L.popLast(3);                  // … rolled back
+  L.append(2, 3, 3, 0, PSt2.HESITATE);        // seq3 again (no gap)
+  L.markJudged(3, 0, false, 0);                // seat0 doubts wrongly
+  const ent = L.entries();
+  ent[0].count = 99;
+  const t1 = L.tally(1); const t2 = L.tally(2); const t3 = L.tally(3); const t0 = L.tally(0);
+  ok(!markWrongSeat && markOk && !markTwice && !popJudged && !popOther && popOk && L.size() === 3 &&
+    JSON.stringify(L.entries().map((e) => e.seq)) === '[1,2,3]' && L.entries()[0].count === 2 &&
+    t1.plays === 1 && t1.fakeHands === 1 && t1.doubted === 1 && t1.caught === 1 && t2.doubts === 1 && t2.doubtHits === 1 &&
+    t3.plays === 1 && t3.fakeHands === 0 && t3.doubted === 1 && t3.caught === 0 && t0.doubts === 1 && t0.doubtHits === 0 && t0.plays === 1,
+    'real PlayLog: seq 1..3 with a rollback in between (no gap), rolled-back fake hand not counted, judge marks only the unjudged last hand, entries() is a copy');
+  L.clear();
+  ok(L.size() === 0 && L.entries().length === 0, 'real PlayLog.clear() (startMatch)');
+
+  // --- ReportModel fixtures (4 seats, human = 0); texts = the real string.json values
+  const texts = new Map(RKEYS.map((k) => [k, strMap.get(k)]));
+  const missingKeys = RKEYS.filter((k) => !strMap.has(k));
+  ok(missingKeys.length === 0, `REPORT_TEXT_KEYS all exist in string.json (${RKEYS.length} keys${missingKeys.length ? '; missing ' + missingKeys.join(',') : ''})`);
+  const seats4 = (lives) => [0, 1, 2, 3].map((i) => ({ seatId: i, role: i === 0 ? SRo.HUMAN : SRo.AI, nickname: ['阿龙', '老千', '怂货', '杠精'][i], lives: lives[i] }));
+  const E_ = (kind, seatId) => ({ kind, seatId, detail: '', at: 0 });
+  const pe = (seq, actor, count, fake, style, ch, chal, caught) => ({ seq, round: 1, actorSeatId: actor, count, fakeCount: fake, style,
+    challenged: ch, challengerSeatId: ch ? chal : -1, caught: ch ? caught : false, loserSeatId: ch ? (caught ? actor : chal) : -1 });
+  const inp = (over) => ({ seats: seats4([2, 0, 0, 0]), recap: [0, 1, 2, 3].map((i) => ({ seatId: i, aliveAtExit: [0, 3, 4, 2][i] })),
+    eventLog: [], playLog: [], winnerSeatId: 0, roundIndex: 5, startedAt: 1000, endedAt: 1000 + 125000 + 30000, pausedMs: 30000,
+    livesDefault: 3, quit: false, ff: false, ...over });
+  // A: seat1 bluffs 3 in a row (one is a 3-card hand ⇒ {手} must be seq not count), seat0 catches seat1 later; seat2 burns 3 straight and goes out
+  const logA = [pe(1, 1, 3, 2, PSt2.SOFT, false), pe(2, 1, 1, 1, PSt2.SOFT, false), pe(3, 2, 1, 0, PSt2.SOFT, false), pe(4, 1, 2, 1, PSt2.SLAM, false),
+    pe(5, 3, 1, 0, PSt2.SOFT, true, 2, false), pe(6, 1, 3, 3, PSt2.SLAM, true, 0, true), pe(7, 2, 1, 1, PSt2.SOFT, true, 3, true)];
+  const evA = [E_(EK.PLAY, 1), E_(EK.LIFE_CHANGE, 2), E_(EK.LIFE_CHANGE, 1), E_(EK.LIFE_CHANGE, 3), E_(EK.LIFE_CHANGE, 2), E_(EK.LIFE_CHANGE, 2), E_(EK.LIFE_CHANGE, 2),
+    E_(EK.OUT, 2), E_(EK.LIFE_CHANGE, 1), E_(EK.LIFE_CHANGE, 1), E_(EK.OUT, 1), E_(EK.LIFE_CHANGE, 3), E_(EK.LIFE_CHANGE, 0), E_(EK.LIFE_CHANGE, 3), E_(EK.LIFE_CHANGE, 3), E_(EK.OUT, 3)];
+  const vA = RMod.build(inp({ playLog: logA, eventLog: evA }), texts);
+  const rowsA = vA.rows.map((r) => `${r.slot}:${r.nickname}:${r.candles.map((c) => (c ? 1 : 0)).join('')}:${r.burnt}:${r.plays}/${r.fakes}/${r.doubts}/${r.hits}:${r.rankText}:${r.tagText}`);
+  ok(vA.showCards && vA.bluff.ok && vA.bluff.text === '老千 连骗 3 手没被拆穿' && vA.doubt.ok && vA.doubt.text === '阿龙 质疑 1 次，开中 1 次' &&
+    vA.burn.ok && vA.burn.text === '怂货 连熄 3 烛，直接出局' && vA.fallbackText === '',
+    `H1 / H2 / H3 on a real-run fixture: ${vA.bluff.text} | ${vA.doubt.text} | ${vA.burn.text} (21 §1.4.1-§1.4.3)`);
+  ok(vA.replayText === '阿龙 第 6 手开中了 老千', `replay target = last judged hand involving the human, {手} = seq (6) not card count (3): "${vA.replayText}" (21 §1.4.4 / §1.4.5)`);
+  ok(JSON.stringify(rowsA) === JSON.stringify(['self:阿龙:110:1:0/0/1/1:第 1 名:留下', 'p1:老千:000:3:4/4/0/0:第 3 名:第 2 个出局',
+    'p2:怂货:000:3:2/1/1/0:第 4 名:第 1 个出局', 'p3:杠精:000:3:1/0/1/1:第 2 名:第 3 个出局']) &&
+    vA.rows.every((r) => r.candles.filter((c) => c).length + r.burnt === 3),
+    `rows: human first then seat order; candles lit + burnt = 3; rank = alive-at-exit, winner 1; 第 k 个出局 by OUT order (${rowsA.join(' / ')})`);
+  ok(vA.topText === '你留到了最后' && vA.winnerText === '胜者：阿龙' && vA.durationText === '用时 2分5秒' && vA.roundsText === '5 轮 · 7 手' && vA.humanWon,
+    `head: ${vA.topText} · ${vA.winnerText} · ${vA.durationText} (pause excluded) · ${vA.roundsText} (手 = playLog.length)`);
+  // ties: H1 equal best → larger fake sum; H2 equal h → higher h/k; H3 equal k → ends with OUT beats human
+  const logT = [pe(1, 1, 1, 1, PSt2.SOFT, false), pe(2, 2, 2, 2, PSt2.SOFT, false), pe(3, 1, 1, 1, PSt2.SOFT, false), pe(4, 2, 1, 1, PSt2.SOFT, false),
+    pe(5, 3, 1, 1, PSt2.SOFT, true, 0, true), pe(6, 0, 1, 0, PSt2.SOFT, true, 3, false), pe(7, 1, 1, 0, PSt2.SOFT, true, 3, false),
+    pe(8, 0, 1, 1, PSt2.SOFT, true, 3, true)];
+  const evT = [E_(EK.LIFE_CHANGE, 0), E_(EK.LIFE_CHANGE, 0), E_(EK.LIFE_CHANGE, 1), E_(EK.LIFE_CHANGE, 1), E_(EK.OUT, 1)];
+  const bT = RMod.pickBluff(logT); const dT = RMod.pickDoubt(logT, [0, 1, 2, 3]); const uT = RMod.pickBurn(evT, 0);
+  ok(bT && bT.seatId === 2 && bT.best === 2 && bT.fakeSum === 3 && dT && dT.seatId === 0 && dT.hits === 1 && dT.doubts === 1 &&
+    uT && uT.seatId === 1 && uT.out === true,
+    `tie-breaks: H1 best=2 tie → fake sum (seat ${bT && bT.seatId}); H2 h=1 tie → h/k 1/1 beats 1/3 (seat ${dT && dT.seatId}); H3 k=2 tie → ends with OUT beats human (seat ${uT && uT.seatId})`);
+  // rule 1: only H2 enters → three cards, the other two use their own *_none line
+  const v1 = RMod.build(inp({ playLog: [pe(1, 1, 1, 1, PSt2.SOFT, true, 0, true)], eventLog: [E_(EK.LIFE_CHANGE, 1)] }), texts);
+  ok(v1.showCards && !v1.bluff.ok && v1.bluff.text === '没人连骗得手' && v1.doubt.ok && !v1.burn.ok && v1.burn.text === '没人连熄两烛' && v1.fallbackText === '',
+    '§1.4.3a rule 1: one card enters → three cards stay, failing cards show bluff_none / burn_none (badge dimmed in the panel)');
+  // rule 2a: nothing judged → hl_none, replay hidden; rule 2b: judged but nobody qualifies → hl_quiet, replay shown
+  const v2a = RMod.build(inp({ playLog: [pe(1, 1, 1, 0, PSt2.SOFT, false)], eventLog: [] }), texts);
+  const v2b = RMod.build(inp({ playLog: [pe(1, 1, 1, 0, PSt2.HESITATE, true, 2, false)], eventLog: [E_(EK.LIFE_CHANGE, 2)] }), texts);
+  ok(!v2a.showCards && v2a.fallbackText === '这一局，没人掀过牌。' && v2a.replayText === '' &&
+    !v2b.showCards && v2b.fallbackText === '这一局，没有谁特别出挑。' && v2b.replayText === '怂货 第 1 手开错了，自己熄了一支烛',
+    `§1.4.3a rule 2 / 3: none entered → one line (none: "${v2a.fallbackText}" replay hidden · quiet: "${v2b.fallbackText}" + replay "${v2b.replayText}")`);
+  const v2c = RMod.build(inp({ playLog: [pe(1, 2, 2, 1, PSt2.SLAM, true, 3, true)] }), texts);
+  ok(v2c.replayText === '怂货 第 1 手甩出后被拆穿，熄了一支烛', `replay caught template with {方式} = style word: "${v2c.replayText}"`);
+  // D1 quit report (model only — the pause PR wires the entry)
+  const vq = RMod.build(inp({ quit: true, winnerSeatId: -1, seats: seats4([2, 1, 0, 1]), eventLog: [E_(EK.OUT, 2)],
+    recap: [0, 1, 2, 3].map((i) => ({ seatId: i, aliveAtExit: i === 2 ? 4 : 0 })) }), texts);
+  ok(vq.topText === '中途离桌，记一负' && vq.winnerText === '胜者：未决' && !vq.humanWon &&
+    JSON.stringify(vq.rows.map((r) => `${r.slot}:${r.rankText}:${r.tagText}`)) === JSON.stringify(['self:第 3 名:中退', 'p1:—:在桌', 'p2:第 4 名:第 1 个出局', 'p3:—:在桌']),
+    'quit report: top = rpt_quit, winner 未决, human rank = alive now (3) + 中退, other alive seats — + 在桌 (21 §1.5 D1)');
+  const allText = [vA, v1, v2a, v2b, v2c, vq].map((v) => [v.topText, v.winnerText, v.durationText, v.roundsText, v.bluff.text, v.doubt.text, v.burn.text,
+    v.fallbackText, v.replayText, ...v.rows.map((r) => r.rankText + r.tagText)].join('|')).join('|');
+  ok(!/命|开枪|左轮|膛位|\{[^}]*\}/.test(allText) && !/胜者：阿龙/.test([vA.fallbackText, vA.replayText, v2a.fallbackText, v2b.fallbackText].join('|')),
+    'report text: no 命 / 开枪 / 左轮 / 膛位, no unfilled {placeholder}, winner line never reused in highlight slots (RPT-6 / S21-46)');
+}
+
+// --- engine playLog wiring: REAL MatchEngine methods (commitPicked / rollbackLastPlay / applyJudged / buildRecap / matchHandNo / recapPlayLog)
+const PLE_SIGS = ['  private commitPicked(', '  rollbackLastPlay(): boolean {', '  private applyJudged(): void {', '  private buildRecap(): RecapRow[] {',
+  '  private matchHandNo(): number {', '  recapPlayLog(): PlayLogEntry[] {', '  private seatCount(arr: number[], seat: number): number {'];
+const plMiss = PLE_SIGS.filter((sg) => body(engine, sg).length === 0);
+ok(plMiss.length === 0, `playLog engine harness: ${PLE_SIGS.length} real MatchEngine methods found (${plMiss.join(' | ') || 'ok'})`);
+if (PL && plMiss.length === 0) {
+  const PhaseE3 = enumObj('Phase');
+  const pleJs = `class PLEngine {
+  constructor(n) {
+    Object.assign(this, { playLog: new PlayLog(), seats: [], hands: [], aliveAtExits: [], phase: PhaseE.TURN, currentSeatId: 0, roundIndex: 1,
+      playIndexInRound: 0, playSeq: 0, stallSkipCount: 0, lastPlay: null, lastPlayRanks: [], lastPicked: [], emptyOrder: [], emptyHandSeatId: -1,
+      roundWinPending: false, currentClaim: { rank: 'K' }, challenge: null, cfg: { lives_default: 3 }, revealOpen: false, judged: false,
+      lastLoserSeatId: -1, lastLoserReason: '', extinguishPending: false, dealerKey: '', dealerLine: '', events: [] });
+    for (let i = 0; i < n; i++) { this.seats.push({ seatId: i, nickname: 's' + i }); this.hands.push([]); this.aliveAtExits.push(0); }
+  }
+  handOf(s) { return this.hands[s]; }
+  returnCards(s, cards) { for (const c of cards) this.hands[s].push(c); }
+  clearEmptyGate() {} enterTurn() {} enterHandEmptyGate() {} maybeSettleRoundSafeWait() {} recordAiReveal() {} settleBets() {}
+  pushEvent(k, s, d) { this.events.push(k); } buildSnapshot() { return {}; }
+${stripEts(PLE_SIGS.map((sg) => body(engine, sg) + '\n  }\n').join('\n'),
+  ['CardModel[]', 'PlayStyle', 'RecapRow[]', 'PlayLogEntry[]', 'PlayLogTally', 'LifeReason', 'string[]', 'number[]', 'string', 'number', 'boolean'])}
+}
+export { PLEngine };`;
+  let PLE = null;
+  try {
+    PLE = (await importFresh(pleJs, { PlayLog: PL, PhaseE: PhaseE3, Phase: PhaseE3, EventKind: EK, PlayStyle: PSt2, ChallengeResult: enumObj('ChallengeResult'),
+      LifeReason: enumObj('LifeReason'), Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'MatchEngine',
+      isFakeRank: (r, c) => !(r === c || r === 'JOKER'), isChallengeSuccess: (rs, c) => rs.some((r) => !(r === c || r === 'JOKER')),
+      lineForKey: () => '', nextAlive: (seats, s) => (s + 1) % seats.length })).PLEngine;
+  } catch (e) {
+    fail(`playLog engine harness did not load: ${e.message}`);
+  }
+  if (PLE) {
+    const en = new PLE(4);
+    const play = (seat, ranks, style) => { en.currentSeatId = seat; en.commitPicked(ranks.map((r, i) => ({ cardId: `${seat}-${en.playSeq}-${i}`, rank: r })), style, '', -1, false); };
+    const judge = (challenger) => { en.challenge = { targetPlayId: en.lastPlay.playId, challengerSeatId: challenger, result: '', fakeCount: 0, judgedAt: 0 }; en.applyJudged(); };
+    play(0, ['K', 'K'], PSt2.SOFT);              // seq1 true
+    play(1, ['Q'], PSt2.SLAM);                   // seq2 fake …
+    en.rollbackLastPlay();                       // … rolled back (old fakeHandCounts kept it — playLog pops it)
+    play(1, ['K'], PSt2.SOFT);                   // seq2 true
+    judge(2);                                    // seat2 doubts wrongly
+    play(3, ['A', 'JOKER'], PSt2.HESITATE);      // seq3 fake
+    judge(0);                                    // human catches seat3
+    const midCopy = en.recapPlayLog();
+    en.phase = PhaseE3.RECAP;
+    const recap = en.buildRecap();
+    const copy = en.recapPlayLog();
+    copy[0].seq = 42;
+    const r = (i) => recap[i];
+    ok(midCopy.length === 0 && copy.length === 3 && en.recapPlayLog()[0].seq === 1 && JSON.stringify(en.recapPlayLog().map((e) => e.seq)) === '[1,2,3]' &&
+      en.matchHandNo() === 3 && r(1).playCount === 1 && r(1).fakeHandCount === 0 && r(1).doubtedCount === 1 && r(1).caughtCount === 0 &&
+      r(2).challengeCount === 1 && r(2).challengeHits === 0 && r(3).fakeHandCount === 1 && r(3).doubtedCount === 1 && r(3).caughtCount === 1 &&
+      r(0).challengeCount === 1 && r(0).challengeHits === 1 && r(0).playCount === 1,
+      `real engine methods: commitPicked append / rollbackLastPlay pop / applyJudged mark → buildRecap from playLog (hands=${en.matchHandNo()}, ` +
+      `seat1 fake after rollback=${r(1).fakeHandCount}, seat3 caught=${r(3).caughtCount}, human hits=${r(0).challengeHits}); mid-match copy empty`);
+  }
+}
+
+// --- RPT-11 (21:298 / :305 · S21-17): REAL Report methods + REAL RecordStore. Report commits the moment it appears; leaving at once keeps
+// the record (recent = 1) and the saved bytes are identical before / after leaving. 再来一局 restarts in place (no lobby).
+const REPORT_SIGS = ['  aboutToAppear(): void {', '  onBackPress(): boolean {', '  private readTexts(): Map<string, string> {',
+  '  private leaveMatchReport(again: boolean): void {', '  private restartMatch(): boolean {', '  private async portraitThenLobby(): Promise<void> {'];
+const rpMiss = REPORT_SIGS.filter((sg) => body(reportPage, sg).length === 0);
+ok(rpMiss.length === 0, `RPT-11 harness: ${REPORT_SIGS.length} real Report.ets methods found (${rpMiss.join(' | ') || 'ok'})`);
+if (RMod && MR && rpMiss.length === 0) {
+  const PhaseE4 = enumObj('Phase');
+  const SS4 = enumObj('SeatStatus');
+  const rpJs = `class ReportHarness {
+  constructor() { Object.assign(this, { view: null, recordsMode: true, leaving: false, againOpts: null }); }
+${stripEts(REPORT_SIGS.map((sg) => body(reportPage, sg) + '\n  }\n').join('\n'),
+  ['MatchSnapshot | null', 'StartMatchOpts | null', 'StartMatchOpts', 'common.UIAbilityContext', 'Map<string, string>', 'RecordCommit',
+    'ReportInput', 'number', 'string', 'boolean'], ['common.UIAbilityContext']).replace(/new Map<string, string>\(\)/g, 'new Map()')}
+}
+export { ReportHarness };`;
+  const T0r = 1759900000000;
+  const mkRecapSnap = (mid) => ({
+    matchId: mid, phase: PhaseE4.RECAP, config: { lives_default: 3 }, silentMode: false, startedAt: T0r, endedAt: T0r + 240000, roundIndex: 4,
+    winnerSeatId: 1, eventLog: [{ kind: EK.LIFE_CHANGE, seatId: 0, detail: '', at: 0 }, { kind: EK.OUT, seatId: 0, detail: '', at: 0 }],
+    seats: [0, 1, 2, 3].map((i) => ({ seatId: i, role: i === 0 ? SRo.HUMAN : SRo.AI, aiPersona: i === 0 ? '' : 'AI_SHARK', nickname: i === 0 ? '阿龙' : `ai${i}`,
+      lives: i === 1 ? 2 : 0, status: i === 1 ? SS4.ALIVE : SS4.GHOST })),
+    recap: [0, 1, 2, 3].map((i) => ({ seatId: i, nickname: `s${i}`, playCount: 2, fakeHandCount: 1, challengeCount: 1, challengeHits: 0, doubtedCount: 1,
+      caughtCount: 0, aliveAtExit: [4, 0, 3, 2][i] }))
+  });
+  const world = async (mid, startOk) => {
+    curPrefStore = makePrefStore();
+    const RSr = await loadRecordStore();
+    await RSr.init({});
+    const log = [];
+    const snap = mkRecapSnap(mid);
+    const eng = { current: () => snap, isDemoMatch: () => false, pausedTotalAt: () => 0, recapPlayLog: () => [],
+      toLobby: () => { log.push('engine.toLobby'); return true; }, startMatch: (o) => { log.push(`engine.startMatch:${o.nickname}/${o.playerCount}/${o.silent}`); return startOk; } };
+    const director = { stop: () => log.push('director.stop'), start: () => log.push('director.start') };
+    const H = (await importFresh(rpJs, {
+      AppRuntime: { engine: eng, director, bootDirector: () => log.push('bootDirector') },
+      Phase: PhaseE4, SeatRole: SRo, RecordStore: RSr, ReportModel: RMod, REPORT_TEXT_KEYS: RKEYS,
+      TableAudio: { setSilent: () => {}, playResult: () => log.push('playResult'), fadeBgmOut: () => {}, BGM_FADE_OUT_MS: 400, release: () => log.push('TableAudio.release') },
+      LbRouter: { toLobby: () => log.push('LbRouter.toLobby'), replaceTable: () => log.push('LbRouter.replaceTable'), back: () => log.push('LbRouter.back') },
+      WindowOrientation: { lockPortrait: async () => { log.push('lockPortrait'); } },
+      getContext: () => ({ resourceManager: { getStringByNameSync: (k) => strMap.get(k) } }),
+      Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'Report'
+    })).ReportHarness;
+    return { RSr, log, snap, h: new H() };
+  };
+  // ⓐ director has NOT written yet → Report appears → written; leave at once (button / back key) → still 1, bytes identical
+  for (const via of ['button', 'back']) {
+    const w = await world(`m-${T0r}-${via}`, true);
+    w.h.aboutToAppear();
+    await tickIo();
+    const afterAppear = w.RSr.recent().length;
+    const dumpA = curPrefStore.dump();
+    const writesA = curPrefStore.writes().length;
+    let consumed = true;
+    if (via === 'button') {
+      w.h.leaveMatchReport(false);
+    } else {
+      consumed = w.h.onBackPress();
+    }
+    await drainMicrotasks();
+    await tickIo();
+    const RSre = await loadRecordStore();
+    await RSre.init({});
+    ok(afterAppear === 1 && writesA > 0 && curPrefStore.dump() === dumpA && curPrefStore.writes().length === writesA && RSre.recent().length === 1 &&
+      consumed && w.log.indexOf('lockPortrait') >= 0 && w.log.indexOf('lockPortrait') < w.log.indexOf('LbRouter.toLobby') && !w.log.includes('LbRouter.replaceTable'),
+      `RPT-11 ⓐ real Report commits on appear, leave at once (${via}): recent=${afterAppear} → restart recent=${RSre.recent().length}; save bytes identical before / after leaving (${w.log.join(' → ')})`);
+  }
+  // ⓑ director already committed (RECAP tick) → Report appears → no second write; leave → still 1
+  {
+    const w = await world(`m-${T0r}-dir`, true);
+    const wDir = w.RSr.commitOnce(w.snap, { quit: false, isDemo: false, ff: false, pausedMs: 0 });
+    await tickIo();
+    const writes0 = curPrefStore.writes().length;
+    const dump0 = curPrefStore.dump();
+    w.h.aboutToAppear();
+    await tickIo();
+    w.h.leaveMatchReport(false);
+    await drainMicrotasks();
+    await tickIo();
+    const stored = JSON.parse(prefData.get('recent_v1') || '[]');
+    ok(wDir === true && stored.length === 1 && w.RSr.recent().length === 1 && curPrefStore.writes().length === writes0 && curPrefStore.dump() === dump0,
+      `RPT-11 ⓑ director wrote first → Report appear + leave add nothing (recent_v1=${stored.length}, writes ${writes0} → ${curPrefStore.writes().length}; dedup by last_match_id)`);
+  }
+  // 再来一局 (21 §1.6 · S21-29): same opts → startMatch → director.start → release table audio → replaceTable; no lobby, no portrait lock
+  {
+    const w = await world(`m-${T0r}-again`, true);
+    w.h.aboutToAppear();
+    await tickIo();
+    const dumpA = curPrefStore.dump();
+    w.h.leaveMatchReport(true);
+    w.h.leaveMatchReport(true);
+    await drainMicrotasks();
+    const seq = w.log.filter((x) => x !== 'playResult').join(' → ');
+    ok(seq === 'director.stop → bootDirector → engine.startMatch:阿龙/4/false → director.start → TableAudio.release → LbRouter.replaceTable' &&
+      curPrefStore.dump() === dumpA && w.RSr.recent().length === 1,
+      `再来一局 real Report: ${seq} (once; stays landscape; record untouched)`);
+    const w2 = await world(`m-${T0r}-again-rejected`, false);
+    w2.h.aboutToAppear();
+    w2.h.leaveMatchReport(true);
+    await drainMicrotasks();
+    ok(w2.log.includes('engine.toLobby') && w2.log.includes('LbRouter.toLobby') && !w2.log.includes('LbRouter.replaceTable') && !w2.log.includes('director.start'),
+      `再来一局 START_MATCH rejected → falls back to the lobby path (${w2.log.filter((x) => x !== 'playResult').join(' → ')})`);
+  }
+  // view built from the real model + real strings on the same page instance
+  {
+    const w = await world(`m-${T0r}-view`, true);
+    w.h.aboutToAppear();
+    ok(w.h.recordsMode === false && w.h.view && w.h.view.topText === '你没撑到最后' && w.h.view.winnerText === '胜者：ai1' && w.h.view.rows[0].slot === 'self' &&
+      w.h.view.rows[0].rankText === '第 4 名' && w.h.view.durationText === '用时 4分0秒' && w.h.view.fallbackText === '这一局，没人掀过牌。' && w.h.view.replayText === '',
+      `real Report.aboutToAppear → ReportModel view via getStringByNameSync (${w.h.view && w.h.view.topText} · ${w.h.view && w.h.view.winnerText} · self ${w.h.view && w.h.view.rows[0].rankText})`);
+  }
+}
+RUN(false);
+
 // ---------------------------------------------------------------- ⑦ strings (21 §6 keys, no PR-B temp keys)
 const names = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
 const prbKeys = ['lb_str_pause', 'lb_str_pause_title', 'lb_str_pause_resume', 'lb_str_pause_bg_note',
@@ -2902,9 +3220,10 @@ const hits = findInCode([
   { path: 'MatchDirector', text: dir }, { path: 'AudioSettings', text: settings }, { path: 'RecordStore', text: records },
   { path: 'PausableScheduler', text: sched }, { path: 'DebugBuild', text: debugBuild }, { path: 'Table', text: table },
   { path: 'MatchEngine', text: engine }, { path: 'EntryAbility', text: ability }, { path: 'MatchRank', text: rankSrc },
-  { path: 'MatchTypes', text: types }, { path: 'LbRouter', text: lbRouter }, ...audioTexts
+  { path: 'MatchTypes', text: types }, { path: 'LbRouter', text: lbRouter }, ...audioTexts,
+  { path: 'PlayLog', text: playLogSrc }, { path: 'ReportModel', text: reportModelSrc }, { path: 'Report', text: reportPage }, { path: 'ReportPanel', text: reportPanelSrc }
 ], [...ANY_ESOBJECT, /:\s*unknown\b/]);
-ok(hits.length === 0, hits.length === 0 ? 'PR-B files: no any/unknown/ESObject in code' : `any/unknown/ESObject:\n  ${formatHits(hits)}`);
+ok(hits.length === 0, hits.length === 0 ? 'PR-B + 结算面板 files: no any/unknown/ESObject in code' : `any/unknown/ESObject:\n  ${formatHits(hits)}`);
 
 console.log(`TALLY real-run ${tally.run}, structural ${tally.struct}, total ${tally.run + tally.struct}`);
 console.log(process.exitCode === 1 ? 'prb_client_check FAILED' : 'prb_client_check OK');

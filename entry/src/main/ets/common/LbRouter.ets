@@ -301,7 +301,9 @@ export class LbRouter {
     }
   }
 
+  /** 21 §1.6 再来一局：结算页原地换成新桌（不经大厅、不压栈）。进桌 = 新离局会话，上一局令牌全部过期。 */
   static replaceTable(): void {
+    LbRouter.beginLeaveSession();
     LbRouter.replace(PageUrls.TABLE);
   }
 

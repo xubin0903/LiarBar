@@ -75,6 +75,20 @@ export class ControlIds {
   static readonly WINNER: string = 'lb_txt_winner';
   static readonly HIGHLIGHT: string = 'lb_txt_highlight';
   static readonly RECAP_LIST: string = 'lb_list_recap';
+  /** 结算战报版面（22 §4 · 02:324-328 已登记）。 */
+  static readonly REPORT_HEAD: string = 'lb_cmp_report_head';
+  static readonly REPORT_BODY: string = 'lb_cmp_report_body';
+  static readonly REPORT_SCROLL: string = 'lb_cmp_report_scroll';
+  static readonly REPORT_BTNBAR: string = 'lb_cmp_report_btnbar';
+  static readonly REPORT_HL: string = 'lb_cmp_report_hl';
+  static readonly REPORT_HL_BLUFF: string = 'lb_cmp_report_hl_bluff';
+  static readonly REPORT_HL_DOUBT: string = 'lb_cmp_report_hl_doubt';
+  static readonly REPORT_HL_BURN: string = 'lb_cmp_report_hl_burn';
+  static readonly REPORT_HL_FALLBACK: string = 'lb_txt_report_hl_fallback';
+  static readonly REPORT_FF_NOTE: string = 'lb_txt_report_ff_note';
+  /** + self / p1 / p2 / p3（逐座行 / 三烛组）。 */
+  static readonly RECAP_ROW_PREFIX: string = 'lb_cmp_recap_row_';
+  static readonly RECAP_CANDLES_PREFIX: string = 'lb_cmp_recap_candles_';
   static readonly SEAT_SELF: string = 'lb_cmp_seat_self';
   static readonly SEAT_P1: string = 'lb_cmp_seat_p1';
   static readonly SEAT_P2: string = 'lb_cmp_seat_p2';
