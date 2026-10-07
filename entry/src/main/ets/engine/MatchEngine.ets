@@ -1,6 +1,7 @@
 import { ConfigRepository } from '../config/ConfigRepository';
 import { MatchDefaults } from '../config/MatchDefaults';
 import { DeckConfig, RankCounts, deckCountsFor } from '../config/DeckConfig';
+import { MatchRank } from './MatchRank';
 import { DemoForceEvent, DemoSeedConfig } from '../config/DemoSeedConfig';
 import { ChallengeBeatIds } from '../common/Ids';
 import { Logger } from '../common/Logger';
@@ -97,6 +98,10 @@ export class MatchEngine {
   private beatEndsAtMs: number = 0;
   private penaltyEndsAtMs: number = 0;
   private nowMs: number = 0;
+  /** PR-B pause: wall time the clock froze at; 0 = running. */
+  private clockPausedAt: number = 0;
+  /** PR-B 21 §1.2 / §2.2：本局累计暂停时长 ms（含切后台、离局弹窗），战绩时长扣掉它。 */
+  private pausedTotalMs: number = 0;
   private revealOpen: boolean = false;
   private judged: boolean = false;
   private challenge: ChallengeModel | null = null;
@@ -119,6 +124,11 @@ export class MatchEngine {
   private fakeHandCounts: number[] = [];
   private challengeCounts: number[] = [];
   private challengeHits: number[] = [];
+  /** PR-B 战绩 21 §2.2 doubted / caught：被质疑次数、被识破次数（按出牌者座位）。结算 playLog 落地后由它取代。 */
+  private doubtedCounts: number[] = [];
+  private caughtCounts: number[] = [];
+  /** PR-B 战绩：每座离场时刻的存活座数（含自己），0 = 还在场（21 §1.5 名次）。 */
+  private aliveAtExits: number[] = [];
   private tableMode: TableMode = TableMode.SOCIAL;
   private skipDepth: number = 0;
   private emptyOrder: number[] = [];
@@ -173,7 +183,69 @@ export class MatchEngine {
       (this.phase === Phase.TURN || this.phase === Phase.PLAY_REVEAL_SELF);
   }
 
+  /**
+   * PR-B 暂停：冻结引擎时钟。pulse 期间不推进任何 deadline，
+   * turnRemainMs 停在暂停瞬间。不改任何规则结果，只平移时间。
+   */
+  pauseClock(wallMs: number): void {
+    if (this.clockPausedAt > 0) {
+      return;
+    }
+    this.clockPausedAt = wallMs;
+    this.nowMs = wallMs;
+  }
+
+  /**
+   * PR-B 恢复（策划 21 §3.4）：每个已武装（>0）的 deadline
+   * new = max(old + Δ, now + graceMs)，Δ = 暂停时长。返回 Δ。
+   * graceMs = 导演 RESUME_GRACE_MS（600）：继续后 600ms 内不触发超时 / 拍推进；
+   * 剩余 ≥600ms 的项只平移 Δ，倒计时与暂停前一致（≤1s 容差，负责人 D3）。
+   */
+  resumeClock(wallMs: number, graceMs: number): number {
+    if (this.clockPausedAt <= 0) {
+      return 0;
+    }
+    let delta: number = wallMs - this.clockPausedAt;
+    if (delta < 0) {
+      delta = 0;
+    }
+    const floor: number = wallMs + (graceMs > 0 ? graceMs : 0);
+    this.clockPausedAt = 0;
+    this.pausedTotalMs = this.pausedTotalMs + delta;
+    if (this.turnEndsAtMs > 0) {
+      this.turnEndsAtMs = Math.max(this.turnEndsAtMs + delta, floor);
+    }
+    if (this.ritualEndsAtMs > 0) {
+      this.ritualEndsAtMs = Math.max(this.ritualEndsAtMs + delta, floor);
+    }
+    if (this.beatEndsAtMs > 0) {
+      this.beatEndsAtMs = Math.max(this.beatEndsAtMs + delta, floor);
+    }
+    if (this.penaltyEndsAtMs > 0) {
+      this.penaltyEndsAtMs = Math.max(this.penaltyEndsAtMs + delta, floor);
+    }
+    this.nowMs = wallMs;
+    Logger.info(TAG, `resumeClock shift=${delta}ms grace=${graceMs}ms`);
+    return delta;
+  }
+
+  isClockPaused(): boolean {
+    return this.clockPausedAt > 0;
+  }
+
+  /** 累计暂停时长 ms；仍在暂停中（如离局弹窗开着时确认离开）把进行中的这段也算上。 */
+  pausedTotalAt(wallMs: number): number {
+    let ongoing: number = 0;
+    if (this.clockPausedAt > 0 && wallMs > this.clockPausedAt) {
+      ongoing = wallMs - this.clockPausedAt;
+    }
+    return this.pausedTotalMs + ongoing;
+  }
+
   pulse(nowMs: number): boolean {
+    if (this.clockPausedAt > 0) {
+      return false;
+    }
     this.nowMs = nowMs;
     if (this.cfg === null) {
       return false;
@@ -223,6 +295,8 @@ export class MatchEngine {
     this.seed = this.demoOn ? cfg.demo_seed_value : Date.now();
     this.rng = new SeededRng(this.seed);
     this.nowMs = Date.now();
+    this.clockPausedAt = 0;
+    this.pausedTotalMs = 0;
     this.matchId = `m-${this.seed}`;
     this.silentMode = opts.silent;
     this.startedAt = Date.now();
@@ -291,6 +365,8 @@ export class MatchEngine {
     }
     const cfg: MatchDefaults = ConfigRepository.snapshotMatchDefaults();
     this.cfg = cfg;
+    this.clockPausedAt = 0;
+    this.pausedTotalMs = 0;
     this.demo = ConfigRepository.demo();
     this.seed = cfg.demo_seed_enabled ? cfg.demo_seed_value : 0;
     this.phase = Phase.LOBBY;
@@ -494,6 +570,7 @@ export class MatchEngine {
     };
     this.challengeHappened = true;
     this.challengeCounts[this.currentSeatId] = this.challengeCounts[this.currentSeatId] + 1;
+    this.bumpSeatCount(this.doubtedCounts, this.lastPlay.actorSeatId);
     this.stallSkipCount = 0;
     this.phase = Phase.CHALLENGE_RITUAL;
     this.revealOpen = false;
@@ -709,6 +786,14 @@ export class MatchEngine {
     return AiInfoSetBuilder.build(src);
   }
 
+  /**
+   * PR-B 战绩：本局是否演示局（走既有 demo_seed 通道；后续「关于」连点 7 下只开下一局的内存标志）。
+   * 演示局不入战绩（RecordStore.commitOnce isDemo）。
+   */
+  isDemoMatch(): boolean {
+    return this.demoOn;
+  }
+
   /** Live play default: false. Demo PLAY/CHALLENGE force stays behind this flag. */
   demoForceAiEnabled(): boolean {
     if (!this.demoOn || this.demo === null) {
@@ -858,6 +943,7 @@ export class MatchEngine {
     this.lastExtinguishSeatId = seatId;
     this.pushEvent(EventKind.LIFE_CHANGE, seatId, `EXTINGUISH1|lives=${next}`);
     if (next <= 0) {
+      this.recordAliveAtExit(seatId);
       seat.status = SeatStatus.GHOST;
       this.hands[seatId] = [];
       this.lastEliminated = true;
@@ -879,6 +965,9 @@ export class MatchEngine {
     this.fakeHandCounts = [];
     this.challengeCounts = [];
     this.challengeHits = [];
+    this.doubtedCounts = [];
+    this.caughtCounts = [];
+    this.aliveAtExits = [];
     let nick: string = opts.nickname;
     if (nick.length === 0) {
       nick = '你';
@@ -914,6 +1003,9 @@ export class MatchEngine {
       this.fakeHandCounts.push(0);
       this.challengeCounts.push(0);
       this.challengeHits.push(0);
+      this.doubtedCounts.push(0);
+      this.caughtCounts.push(0);
+      this.aliveAtExits.push(0);
     }
   }
 
@@ -1337,6 +1429,7 @@ export class MatchEngine {
       reason = LifeReason.CHALLENGE_SUCCESS_ON_TARGET;
       this.challengeHits[this.challenge.challengerSeatId] =
         this.challengeHits[this.challenge.challengerSeatId] + 1;
+      this.bumpSeatCount(this.caughtCounts, this.lastPlay.actorSeatId);
       this.dealerKey = 'lb_str_dlr_judge_success';
     } else {
       this.challenge.result = ChallengeResult.FAIL;
@@ -1678,6 +1771,27 @@ export class MatchEngine {
     });
   }
 
+  /** 出局前调用：记下此刻存活座数（含自己），即该座名次（21 §1.5）。 */
+  private recordAliveAtExit(seatId: number): void {
+    const alive: boolean[] = [];
+    for (let i = 0; i < this.seats.length; i++) {
+      alive.push(this.seats[i].status === SeatStatus.ALIVE);
+    }
+    if (seatId >= 0 && seatId < this.aliveAtExits.length) {
+      this.aliveAtExits[seatId] = MatchRank.aliveIncludingSelf(alive);
+    }
+  }
+
+  private bumpSeatCount(arr: number[], seat: number): void {
+    if (seat >= 0 && seat < arr.length) {
+      arr[seat] = arr[seat] + 1;
+    }
+  }
+
+  private seatCount(arr: number[], seat: number): number {
+    return seat >= 0 && seat < arr.length ? arr[seat] : 0;
+  }
+
   private buildRecap(): RecapRow[] {
     const rows: RecapRow[] = [];
     for (let i = 0; i < this.seats.length; i++) {
@@ -1687,7 +1801,10 @@ export class MatchEngine {
         playCount: this.playCounts[i],
         fakeHandCount: this.fakeHandCounts[i],
         challengeCount: this.challengeCounts[i],
-        challengeHits: this.challengeHits[i]
+        challengeHits: this.challengeHits[i],
+        doubtedCount: this.seatCount(this.doubtedCounts, i),
+        caughtCount: this.seatCount(this.caughtCounts, i),
+        aliveAtExit: this.seatCount(this.aliveAtExits, i)
       });
     }
     return rows;

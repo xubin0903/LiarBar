@@ -29,6 +29,30 @@ export class LbRouter {
     LbRouter.replace(PageUrls.LOBBY);
   }
 
+  /**
+   * PR-B 离桌路由（Table 离局锁用，负责人裁定「锁不许死在路由失败上」）：
+   * ① replaceUrl 大厅 → ② 失败（reject/throw）退 router.back()（页栈只剩本页也算失败）→ ③ 再失败返回 false。
+   * 成败如实返回，调用方据此决定是否解锁。Report 等其它页仍用 toLobby()。
+   */
+  static async toLobbyOrBack(): Promise<boolean> {
+    try {
+      await router.replaceUrl({ url: PageUrls.LOBBY });
+      return true;
+    } catch (err) {
+      Logger.warn('LbRouter', `toLobbyOrBack: replace lobby failed: ${(err as Error).message}`);
+    }
+    try {
+      if (Number(router.getLength()) <= 1) {
+        throw new Error('page stack has nothing to go back to');
+      }
+      router.back();
+      return true;
+    } catch (err) {
+      Logger.error('LbRouter', `toLobbyOrBack: back() failed: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
   static replaceTable(): void {
     LbRouter.replace(PageUrls.TABLE);
   }

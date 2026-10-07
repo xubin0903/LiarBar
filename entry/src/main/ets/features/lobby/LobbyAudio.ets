@@ -7,6 +7,7 @@ import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { LobbyBoot } from './LobbyBoot';
 import { MatchLoad } from './MatchLoad';
+import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'LobbyAudio';
 
@@ -62,6 +63,7 @@ export class LobbyAudio {
   private static ambReady: boolean = false;
   private static bgmVol: number = 0;
   private static ambVol: number = 0;
+  private static settingsHooked: boolean = false;
   private static bgmFadeId: number = -1;
   private static ambFadeId: number = -1;
   private static releaseTimer: number = -1;
@@ -70,6 +72,24 @@ export class LobbyAudio {
 
   static bind(context: common.UIAbilityContext): void {
     LobbyAudio.context = context;
+    if (!LobbyAudio.settingsHooked) {
+      LobbyAudio.settingsHooked = true;
+      AudioSettings.addListener((): void => {
+        LobbyAudio.applyAudioSettings();
+      });
+    }
+  }
+
+  /** PR-B 设置即时生效：BGM 与环境床都走 BGM 轨（淡入淡出进行中由 ramp 自己带乘子）。 */
+  static applyAudioSettings(): void {
+    const bgm: media.AVPlayer | null = LobbyAudio.bgmPlayer;
+    if (bgm !== null && LobbyAudio.bgmFadeId < 0 && LobbyAudio.bgmVol > 0) {
+      bgm.setVolume(AudioSettings.bgm01(LobbyAudio.bgmVol));
+    }
+    const amb: media.AVPlayer | null = LobbyAudio.ambPlayer;
+    if (amb !== null && LobbyAudio.ambFadeId < 0 && LobbyAudio.ambVol > 0) {
+      amb.setVolume(AudioSettings.bgm01(LobbyAudio.ambVol));
+    }
   }
 
   static setSilent(on: boolean): void {
@@ -409,7 +429,7 @@ export class LobbyAudio {
     }
     LobbyAudio.bgmFadeId = LobbyAudio.ramp(fromVol, toVol, fadeMs, (vol: number): void => {
       LobbyAudio.bgmVol = vol;
-      player.setVolume(vol);
+      player.setVolume(AudioSettings.bgm01(vol));
     }, (): void => {
       LobbyAudio.bgmFadeId = -1;
     });
@@ -423,7 +443,7 @@ export class LobbyAudio {
     }
     LobbyAudio.ambFadeId = LobbyAudio.ramp(fromVol, toVol, fadeMs, (vol: number): void => {
       LobbyAudio.ambVol = vol;
-      player.setVolume(vol);
+      player.setVolume(AudioSettings.bgm01(vol));
     }, (): void => {
       LobbyAudio.ambFadeId = -1;
     });
@@ -517,11 +537,16 @@ export class LobbyAudio {
     if (pool === null || soundId < 0) {
       return;
     }
+    // PR-B: VO 跟音效轨（voice01 = sfx 乘子）；其余短 SFX 走 sfx01。
+    const gained: number = rememberVo ? AudioSettings.voice01(volume) : AudioSettings.sfx01(volume);
+    if (gained <= 0) {
+      return;
+    }
     const params: media.PlayParameters = {
       loop: 0,
       rate: audio.AudioRendererRate.RENDER_RATE_NORMAL,
-      leftVolume: volume,
-      rightVolume: volume,
+      leftVolume: gained,
+      rightVolume: gained,
       priority: 0
     };
     pool.play(soundId, params).then((streamId: number): void => {

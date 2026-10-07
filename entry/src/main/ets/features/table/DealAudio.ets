@@ -5,6 +5,7 @@ import { resourceManager } from '@kit.LocalizationKit';
 import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
+import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'DealAudio';
 const PATH_DEAL: string = 'audio/sfx/sfx_deal_card.wav';
@@ -83,11 +84,15 @@ export class DealAudio {
     if (pool === null) {
       return;
     }
+    const gained: number = AudioSettings.sfx01(DealAudio.VOL_DEAL);
+    if (gained <= 0) {
+      return;
+    }
     const params: media.PlayParameters = {
       loop: 0,
       rate: audio.AudioRendererRate.RENDER_RATE_NORMAL,
-      leftVolume: DealAudio.VOL_DEAL,
-      rightVolume: DealAudio.VOL_DEAL,
+      leftVolume: gained,
+      rightVolume: gained,
       priority: 0
     };
     pool.play(DealAudio.dealId, params).catch((err: BusinessError): void => {

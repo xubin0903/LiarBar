@@ -6,6 +6,7 @@ import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { PlayStyle } from '../../engine/Phase';
+import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'TableAudio';
 
@@ -161,9 +162,18 @@ export class TableAudio {
   private static duckTimer: number = -1;
   private static bgmFdOpen: boolean = false;
   private static resultPlayed: boolean = false;
+  /** PR-B 局内暂停：BGM 立即停在当前位置；恢复时从 0 淡回 VOL_BGM。 */
+  private static gamePaused: boolean = false;
+  private static settingsHooked: boolean = false;
 
   static bind(context: common.UIAbilityContext): void {
     TableAudio.context = context;
+    if (!TableAudio.settingsHooked) {
+      TableAudio.settingsHooked = true;
+      AudioSettings.addListener((): void => {
+        TableAudio.applyAudioSettings();
+      });
+    }
     TableAudio.bgmMuted = TableAudio.EXP_MUTE_BGM;
     Logger.info('SfxDiag',
       `SfxDiag bgmMute bind exp=${TableAudio.EXP_MUTE_BGM} runtime=${TableAudio.bgmMuted}`);
@@ -261,6 +271,10 @@ export class TableAudio {
 
   static startBgm(fadeMs: number): void {
     TableAudio.bedsWanted = true;
+    if (TableAudio.gamePaused) {
+      Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} deferred (game paused)`);
+      return;
+    }
     if (TableAudio.silent) {
       Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} skipped (silent)`);
       return;
@@ -282,6 +296,50 @@ export class TableAudio {
     Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} fade ${fadeMs}ms`);
     TableAudio.fadeBgm(TableAudio.bgmVol, TableAudio.VOL_BGM, fadeMs);
     TableAudio.playIfIdle(TableAudio.bgmPlayer);
+  }
+
+  /** PR-B 设置变更即时生效：只重设 BGM 床当前音量（短 SFX 下一发起生效）。 */
+  static applyAudioSettings(): void {
+    const player: media.AVPlayer | null = TableAudio.bgmPlayer;
+    if (player === null || TableAudio.bgmFadeId >= 0 || TableAudio.bgmVol <= 0) {
+      return;
+    }
+    player.setVolume(AudioSettings.bgm01(TableAudio.bgmVol));
+  }
+
+  /** PR-B 局内暂停：冻结 BGM（不淡出，立即停）；bedsWanted 保留以便恢复。 */
+  static pauseForGame(): void {
+    if (TableAudio.gamePaused) {
+      return;
+    }
+    TableAudio.gamePaused = true;
+    TableAudio.pendingBgm = false;
+    if (TableAudio.duckTimer >= 0) {
+      clearTimeout(TableAudio.duckTimer);
+      TableAudio.duckTimer = -1;
+    }
+    TableAudio.stopBedsNow();
+    Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} paused (game pause)`);
+  }
+
+  /** PR-B 局内恢复：仍想要 BGM 且未静默/未实验静音 → 从暂停处淡回。 */
+  static resumeForGame(): void {
+    if (!TableAudio.gamePaused) {
+      return;
+    }
+    TableAudio.gamePaused = false;
+    if (TableAudio.bedsWanted && !TableAudio.silent && !TableAudio.bgmMuted) {
+      TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
+    }
+  }
+
+  /** PR-B 离桌：丢弃暂停标记但不拉起 BGM（离桌流程自己淡出/释放）。 */
+  static clearGamePause(): void {
+    TableAudio.gamePaused = false;
+  }
+
+  static isGamePaused(): boolean {
+    return TableAudio.gamePaused;
   }
 
   static fadeBgmOut(fadeMs: number): void {
@@ -432,6 +490,7 @@ export class TableAudio {
 
   static release(): void {
     TableAudio.bedsWanted = false;
+    TableAudio.gamePaused = false;
     TableAudio.bgmMuted = TableAudio.EXP_MUTE_BGM;
     TableAudio.clearPendings();
     TableAudio.resultPlayed = false;
@@ -688,7 +747,7 @@ export class TableAudio {
     }
     TableAudio.bgmFadeId = TableAudio.ramp(fromVol, toVol, fadeMs, (vol: number): void => {
       TableAudio.bgmVol = vol;
-      player.setVolume(vol);
+      player.setVolume(AudioSettings.bgm01(vol));
     }, (): void => {
       TableAudio.bgmFadeId = -1;
       if (toVol <= 0) {
@@ -758,11 +817,15 @@ export class TableAudio {
     if (pool === null || soundId < 0) {
       return;
     }
+    const gained: number = AudioSettings.sfx01(volume);
+    if (gained <= 0) {
+      return;
+    }
     const params: media.PlayParameters = {
       loop: 0,
       rate: audio.AudioRendererRate.RENDER_RATE_NORMAL,
-      leftVolume: volume,
-      rightVolume: volume,
+      leftVolume: gained,
+      rightVolume: gained,
       priority: 0
     };
     pool.play(soundId, params).catch((err: BusinessError): void => {

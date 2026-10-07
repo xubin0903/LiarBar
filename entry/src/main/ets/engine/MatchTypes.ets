@@ -82,6 +82,12 @@ export interface RecapRow {
   fakeHandCount: number;
   challengeCount: number;
   challengeHits: number;
+  /** PR-B 战绩：本座出的牌被质疑次数（21 §2.2 doubted）。 */
+  doubtedCount: number;
+  /** PR-B 战绩：本座被识破次数（裁定 SUCCESS，21 §2.2 caught）。 */
+  caughtCount: number;
+  /** PR-B 战绩：离场时刻存活座数（含自己），0 = 还在场（21 §1.5）。 */
+  aliveAtExit: number;
 }
 
 export interface MatchSnapshot {
