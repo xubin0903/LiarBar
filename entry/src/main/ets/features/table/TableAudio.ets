@@ -354,16 +354,34 @@ export class TableAudio {
 
   /**
    * PR-B 局内恢复：仍想要 BGM 且未静音/未静默局/未实验静音 → 从暂停处 RESUME_FADE_IN_MS（300）淡回 VOL_BGM × 音量乘子。
-   * 原位续播：fadeBgm 先撤掉还没淡完的暂停淡出（不会再 pause），playIfIdle 只在未在播时 play → 不重头、不叠播。
+   * 原位续播：先作废还在跑的暂停淡出（不会再 pause），再从当前 bgmVol 淡回 VOL_BGM，然后 play（不重头、不叠播）。
+   * 补丁轮 2 第 8 条：暂停后很快恢复（淡出第一步已把 bgmVol 设回 VOL_BGM）不再走 startBgm「已满音量只 play 早返回」，
+   * 否则淡出跑完照样 pause() → BGM 一直没声。开局加载的 BGM_FADE_IN_MS 淡入不经此处，不变。
    */
   static resumeForGame(): void {
     if (!TableAudio.gamePaused) {
       return;
     }
     TableAudio.gamePaused = false;
-    if (TableAudio.bedsWanted && !TableAudio.silent && !TableAudio.bgmMuted) {
-      TableAudio.startBgm(TableAudio.RESUME_FADE_IN_MS);
+    if (!TableAudio.bedsWanted || TableAudio.silent || TableAudio.bgmMuted) {
+      return;
     }
+    // 作废还在跑的暂停淡出（否则它跑完照样 pause()）。
+    TableAudio.bgmFadeId = TableAudio.clearIntervalId(TableAudio.bgmFadeId);
+    const player: media.AVPlayer | null = TableAudio.bgmPlayer;
+    if (!TableAudio.bgmReady || player === null) {
+      TableAudio.startBgm(TableAudio.RESUME_FADE_IN_MS);
+      return;
+    }
+    if (TableAudio.bgmVol >= TableAudio.VOL_BGM - 0.01) {
+      // 淡出才走第一步就恢复：音量还在 VOL_BGM，不用再淡，原位保持并确保在播。
+      TableAudio.bgmVol = TableAudio.VOL_BGM;
+      player.setVolume(AudioSettings.bgm01(TableAudio.VOL_BGM));
+      TableAudio.playIfIdle(player);
+      return;
+    }
+    TableAudio.fadeBgm(TableAudio.bgmVol, TableAudio.VOL_BGM, TableAudio.RESUME_FADE_IN_MS);
+    TableAudio.playIfIdle(player);
   }
 
   /** 暂停时丢弃所有挂起的补播（pendingBgm 另算）。 */

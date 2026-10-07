@@ -276,8 +276,6 @@ struct Table {
   private debugPauseOn: boolean = false;
   /** 离局路由已发起（goHome）；超时判失败后也不复位——迟到的路由成功仍要在 aboutToDisappear 收尾（负责人 #12 / #6）。 */
   private leaveRouteIssued: boolean = false;
-  /** 离局终态已执行（finishLeaveOnce）：路由成功与迟到成功页面被移走两条路只生效一次（负责人 #12）。 */
-  private leaveFinished: boolean = false;
   /**
    * PR-B 离局锁（负责人裁定）：点「离开」确认后置位，直到路由完成都不复位（页面被 replace 掉即随之销毁）；
    * 唯一例外：路由 replace 与 back 都失败 → releaseLeaveLock() 解锁并打 error。
@@ -525,10 +523,6 @@ struct Table {
 
         // F3: home exit above fly/reveal/debug chrome so mid-match return works.
         this.homeExitChrome()
-
-        if (this.pauseLayerOn) {
-          this.pauseLayer()
-        }
       }
       .width('100%')
       .height('100%')
@@ -602,6 +596,12 @@ struct Table {
           .scale({ x: this.flyScale, y: this.flyScale })
           .rotate({ angle: this.flyRot })
           .zIndex(this.flyZ)
+      }
+
+      // 补丁轮 2 第 1 条（UI 22 S22-32）：暂停层 = 根 Stack 最后一个子节点，压过桌面 Stack（含桌槌 / 回大厅键）、
+      // PeekMaskOverlay、出牌面板与飞牌；zIndex 只在同一父容器内比，所以必须挂在这里而不是桌面 Stack 里。
+      if (this.pauseLayerOn) {
+        this.pauseLayer()
       }
     }
     .id(ScreenIds.TABLE)
@@ -1807,6 +1807,16 @@ struct Table {
       // Same freeze for every reason (user / background / leave-confirm): timers + BGM.
       this.timers.pause();
       TableAudio.pauseForGame();
+      SoundPlayer.pauseForGame();
+      // 补丁轮 2 第 2 条：暂停期间不能出牌 / 偷看。暂停那一刻出牌面板开着 → 关面板并清空选牌（cancelPlaySheet）；
+      // 偷看层一律关。面板没开、只是手牌直选 + 确认条 → 选牌保留（21 §3.3 第 14 项，21:396），恢复后防误触靠 RESUME_GRACE_MS。
+      // 恢复后不自动重开面板 / 偷看。
+      if (this.showPlay) {
+        this.cancelPlaySheet();
+      }
+      if (this.showPeek) {
+        void this.closePeek();
+      }
       // Leave-confirm pause shows the dialog only; user/background pause shows the layer.
       const reason: string = AppRuntime.director.pauseReasonNow();
       this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM;
@@ -1866,6 +1876,9 @@ struct Table {
         .height('100%')
         .backgroundColor($r('app.color.tavern_shadow'))
         .opacity(0.72)
+        .onClick(() => {
+          // 遮罩吃掉点击：下层（回大厅键 / 出牌 / 偷看 / 手牌）都收不到。
+        })
       Column({ space: 14 }) {
         Text($r('app.string.lb_str_pause_title'))
           .fontColor($r('app.color.tavern_candle'))
@@ -1891,6 +1904,11 @@ struct Table {
     }
     .width('100%')
     .height('100%')
+    // 22:106 全屏：盖到四周安全区（根 Stack 已 ignoreLayoutSafeArea，此处再铺满绘制区）。
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+    // Default = 命中本层即阻断其下的兄弟节点（不穿透）；「继续」按钮在本层内照常可点。
+    .hitTestBehavior(HitTestMode.Default)
     .zIndex(PAUSE_LAYER_Z)
     .id(ControlIds.PAUSE_LAYER)
   }
@@ -1932,12 +1950,13 @@ struct Table {
    * 离局终态，只做一次（负责人 #12「超时与成功只生效一次」/ #6）：停导演、引擎回 LOBBY、
    * 局内音频清暂停标记后淡出并释放（不 resume、不淡入 BGM；挂起补播清空）。
    * 路由成功（teardownAfterRoute）与迟到成功页面被移走（finishLeaveIfRouted）共用；返回本次是否真的执行。
+   * 一次性由 LbRouter.claimLeaveFinish()（按离局会话）保证。
    */
   private finishLeaveOnce(why: string): boolean {
-    if (this.leaveFinished) {
+    // 补丁轮 2：「只收尾一次」认 LbRouter 的离局会话令牌（不放在 Table：第二趟成功时本页可能已销毁）。
+    if (!LbRouter.claimLeaveFinish()) {
       return false;
     }
-    this.leaveFinished = true;
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
     TableAudio.clearGamePause();
@@ -2415,6 +2434,10 @@ struct Table {
    * Land does not submit. confirmBusy swallows a second confirm.
    */
   private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {
+    if (AppRuntime.director.isPaused()) {
+      // 补丁轮 2 第 2 条：已暂停 → 不出牌（不飞牌、不放音、不 submitPlay）。
+      return;
+    }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
     if (snap === null || this.confirmBusy || this.challengeEntryOn || this.challengeCommitBusy ||
       this.emptySafeEntryOn) {

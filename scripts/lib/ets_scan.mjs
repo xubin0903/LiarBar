@@ -73,6 +73,51 @@ export function stripCommentsAndStrings(text) {
   return out.join('');
 }
 
+/**
+ * Return `text` with only comments blanked (string / template text kept), newlines preserved.
+ * Structural gates match against this so a rule left behind in a comment never counts as code.
+ */
+export function stripComments(text) {
+  const masked = stripCommentsAndStrings(text);
+  const out = [];
+  let i = 0;
+  const n = text.length;
+  let mode = 'code';
+  const tplStack = [];
+  while (i < n) {
+    const c = text[i];
+    const d = i + 1 < n ? text[i + 1] : '';
+    if (mode === 'code') {
+      if (c === '/' && d === '/') { mode = 'line'; out.push('  '); i += 2; continue; }
+      if (c === '/' && d === '*') { mode = 'block'; out.push('  '); i += 2; continue; }
+      if (c === "'") { mode = 'sq'; } else if (c === '"') { mode = 'dq'; } else if (c === '`') { mode = 'tpl'; }
+      else if (tplStack.length > 0 && c === '{') { tplStack[tplStack.length - 1]++; }
+      else if (tplStack.length > 0 && c === '}') {
+        if (tplStack[tplStack.length - 1] === 0) { tplStack.pop(); mode = 'tpl'; } else { tplStack[tplStack.length - 1]--; }
+      }
+      out.push(c); i++; continue;
+    }
+    if (mode === 'line') { if (c === '\n') { mode = 'code'; out.push('\n'); } else { out.push(' '); } i++; continue; }
+    if (mode === 'block') {
+      if (c === '*' && d === '/') { mode = 'code'; out.push('  '); i += 2; continue; }
+      out.push(c === '\n' ? '\n' : ' '); i++; continue;
+    }
+    if (mode === 'sq' || mode === 'dq') {
+      const q = mode === 'sq' ? "'" : '"';
+      if (c === '\\' && i + 1 < n) { out.push(c, d); i += 2; continue; }
+      if (c === q || c === '\n') { mode = 'code'; }
+      out.push(c); i++; continue;
+    }
+    if (c === '\\' && i + 1 < n) { out.push(c, d); i += 2; continue; }
+    if (c === '`') { mode = 'code'; out.push(c); i++; continue; }
+    if (c === '$' && d === '{') { tplStack.push(0); mode = 'code'; out.push('${'); i += 2; continue; }
+    out.push(c); i++;
+  }
+  const r = out.join('');
+  if (r.length !== masked.length) throw new Error('stripComments length mismatch');
+  return r;
+}
+
 /** Code-only matches of `res` (RegExp[]) in each { path, text }; returns [{ path, line, code }]. */
 export function findInCode(files, res) {
   const hits = [];

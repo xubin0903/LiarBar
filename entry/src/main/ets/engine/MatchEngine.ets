@@ -433,6 +433,10 @@ export class MatchEngine {
   }
 
   submitPlay(cardIds: string[], style: PlayStyle, speech: string, namedSeatId: number): boolean {
+    if (this.clockPausedAt > 0) {
+      // 补丁轮 2 第 2 条：局内暂停中不收出牌（纯加法守卫，规则 / 质疑 / 判定不变）。
+      return false;
+    }
     if (this.phase !== Phase.PLAY_REVEAL_SELF && this.phase !== Phase.TURN) {
       return false;
     }

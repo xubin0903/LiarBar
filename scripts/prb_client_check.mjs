@@ -17,19 +17,31 @@
  *  ⑭ 修复轮（负责人 2026-10-07）真跑：统一平移 ResumeShift + PausableScheduler（顺序不变、最早 ≥ 600）、PAU-3 发牌、
  *     Table 真方法离局待停两入口 / 启动竞态 / 路由双失败与 3000ms 超时、S21-47 坏档（读不写存档）、lb.settings 逐键、
  *     迟到成功收尾、离桌音频释放、release 后才返回的异步 prepare（代际号作废）
+ *  ⑮ 补丁轮 2（负责人 2026-10-07 夜）真跑：离局令牌（两趟 replace 都落地、两个大厅实例都走 aboutToAppear）/ 暂停层挂载位置 /
+ *     暂停关出牌面板 + 两道出牌暂停门 / RecordStore 读一半抛错不覆盖原档 / SoundPlayer 暂停清 pending / 静音与 SFX=0 实际增益 /
+ *     快速恢复 BGM / 150ms 淡出步数 / 真 MatchDirector 待停-封顶-恢复 + 真 MatchEngine.resumeClock
+ * 破坏测试：python3 scripts/prb_break_tests.py（不是闸，不进闸清单）。
  * No git, no diff against origin/develop (负责人规则). Box has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ANY_ESOBJECT, findInCode, formatHits, stripCommentsAndStrings } from './lib/ets_scan.mjs';
+import { ANY_ESOBJECT, findInCode, formatHits, stripComments, stripCommentsAndStrings } from './lib/ets_scan.mjs';
 import { clockStubs, drainMicrotasks, importFresh, makeClock, stripEts } from './lib/ets_sim.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const src = (rel) => readFileSync(join(root, rel), 'utf8');
+const rawSrc = (rel) => readFileSync(join(root, rel), 'utf8');
+// 补丁轮 2 第 6 条：结构断言一律读去掉注释后的 .ets（规则只留在注释里不算数）；只有专查注释的两条用 rawSrc。
+const src = (rel) => (rel.endsWith('.ets') ? stripComments(rawSrc(rel)) : rawSrc(rel));
 const fail = (m) => { console.error('FAIL', m); process.exitCode = 1; };
-const pass = (m) => console.log('PASS', m);
+// Tally: real-run (REAL .ets code executed in node) vs structural (source pattern) assertions; RUN(true/false) brackets the sim regions.
+let RUNMODE = false;
+const tally = { run: 0, struct: 0 };
+const RUN = (on) => { RUNMODE = on; };
+const pass = (m) => { tally[RUNMODE ? 'run' : 'struct']++; console.log('PASS', m); };
 const ok = (c, m) => (c ? pass(m) : fail(m));
+// A sim that throws (e.g. under a break-test mutation) must still end red with a FAIL line, not just a stack trace.
+process.on('uncaughtException', (e) => { fail(`gate crashed (uncaught): ${e && e.stack ? e.stack.split('\n').slice(0, 2).join(' | ') : e}`); process.exit(1); });
 /** Method body from `sig` to the closing brace at 2-space indent (raw text). */
 function body(text, sig) {
   const at = text.indexOf(sig);
@@ -207,16 +219,17 @@ const tda = code(body(table, '  private teardownAfterRoute(): void {'));
 const flo = code(body(table, '  private finishLeaveOnce(why: string): boolean {'));
 ok(/if \(!this\.finishLeaveOnce\(/.test(tda) && tda.indexOf('this.finishLeaveOnce(') < tda.indexOf('this.timers.cancelAll()') &&
   count(tableCode, /this\.teardownAfterRoute\(\)/) === 1, 'teardown only after a successful route, through finishLeaveOnce (second success = no side effect)');
-ok(/if \(this\.leaveFinished\) \{\s*return false;\s*\}\s*this\.leaveFinished = true;/.test(flo) && flo.includes('AppRuntime.director.stop()') &&
+ok(/^[^{]*\{\s*if \(!LbRouter\.claimLeaveFinish\(\)\) \{\s*return false;\s*\}/.test(flo) && !/leaveFinished/.test(tableCode) && flo.includes('AppRuntime.director.stop()') &&
   flo.includes('AppRuntime.engine.toLobby()') && flo.indexOf('TableAudio.clearGamePause()') < flo.indexOf('TableAudio.leaveThenRelease()') &&
   !/resumeForGame|startBgm/.test(flo) && count(tableCode, /AppRuntime\.director\.stop\(\)/) === 1 && count(tableCode, /AppRuntime\.engine\.toLobby\(\)/) === 1 &&
   count(tableCode, /this\.finishLeaveOnce\(/) === 2,
-  'finishLeaveOnce: once-only (leaveFinished) director.stop + engine LOBBY + audio leaveThenRelease (no BGM resume); the only stop/toLobby in Table');
+  'finishLeaveOnce: once-only via LbRouter.claimLeaveFinish() (leave-session token, not a Table field) → director.stop + engine LOBBY + audio leaveThenRelease (no BGM resume); the only stop/toLobby in Table');
 const tlb = body(lbRouter, '  static toLobbyOrBack(timeoutMs: number = LbRouter.LEAVE_ROUTE_TIMEOUT_MS): Promise<boolean> {');
-ok(/private static leaveInFlight: Promise<void> \| null = null;/.test(lbRouter) && /let nav: Promise<void> \| null = LbRouter\.leaveInFlight;\s*if \(nav === null\) \{/.test(tlb) &&
-  count(lbRouter, /router\.replaceUrl\(\{ url: PageUrls\.LOBBY \}\)/) === 1, 'toLobbyOrBack reuses a still-in-flight leave replace (one navigation even after a timeout retry)');
-ok(/static readonly LEAVE_ROUTE_TIMEOUT_MS: number = 3000;/.test(lbRouter) && tlb.includes('router.replaceUrl({ url: PageUrls.LOBBY })') &&
-  tlb.includes("once.settle(true, 'replace')") && tlb.includes("once.settle(LbRouter.tryBack(), 'back')") && tlb.includes("once.settle(false, 'timeout')"),
+ok(/if \(trip !== null && now - trip\.issuedAtMs >= timeoutMs\) \{/.test(tlb) && count(lbRouter, /router\.replaceUrl\(\{ url: PageUrls\.LOBBY, params: params \}\)/) === 1 &&
+  /params\.lbLeaveTicket = LbRouter\.leaveSeq;/.test(tlb),
+  'toLobbyOrBack: in-flight leave replace ≥ 3000 ms is voided → the next confirmed leave issues a new replaceUrl carrying the next ticket (no auto re-send)');
+ok(/static readonly LEAVE_ROUTE_TIMEOUT_MS: number = 3000;/.test(lbRouter) &&
+  tlb.includes('once.settle(true, `replace #${ticket}`)') && tlb.includes("once.settle(LbRouter.tryBack(), 'back')") && tlb.includes("once.settle(false, 'timeout')"),
   'LbRouter.toLobbyOrBack: replace → (reject / throw) tryBack → 3000 ms timeout = failure; RouteOnce settles once');
 ok(/catch \(e\) \{\s*const be: BusinessError = e as BusinessError;/.test(code(lbRouter)) && /\(err: BusinessError\): void =>/.test(lbRouter) &&
   /Number\(router\.getLength\(\)\) <= 1/.test(code(body(lbRouter, '  private static tryBack(): boolean {'))),
@@ -311,6 +324,7 @@ const rae = code(body(engine, '  private recordAliveAtExit(seatId: number): void
 ok(rae.includes('this.aliveAtExits[seatId] = MatchRank.aliveIncludingSelf(alive);') && engine.includes('aliveAtExit: this.seatCount(this.aliveAtExits, i)') &&
   /aliveAtExit: number;/.test(types) && count(code(engine), /this\.aliveAtExits = \[\];/) === 1 && engine.includes('this.aliveAtExits.push(0);'),
   'aliveAtExit captured via MatchRank.aliveIncludingSelf, reset per match, exposed on RecapRow');
+RUN(true);
 // Run the real MatchRank code in node (types stripped, same idea as the deal sim).
 const rankJs = rankSrc.replace(/:\s*(?:boolean\[\]|number|boolean)(?=\s*[=,){])/g, '');
 let MR = null;
@@ -332,6 +346,7 @@ if (MR) {
   const quitRank = MR.rankAtExit(false, MR.aliveIncludingSelf([true, true, false, true]));
   ok(quitRank === 3, `quitter with 3 alive (incl. self) = 3, same rule (got ${quitRank})`);
 }
+RUN(false);
 // ⑫ 21 §2.1 size: one record ≤ 400 B. No runtime truncation — prove the fully loaded record fits.
 // Mirror of MatchRecordV1 with every field at its max; the mirror must cover the interface exactly.
 const md = JSON.parse(src('entry/src/main/resources/rawfile/config/match_defaults.json'));
@@ -386,6 +401,7 @@ globalThis.__prbStub = recStubs();
 const loadRecordStore = async () => (await importFresh(recordsJs, recStubs())).RecordStore; // fresh statics = app restart
 const tickIo = () => new Promise((r) => setTimeout(r, 0));
 let RS = null;
+RUN(true);
 try {
   RS = await loadRecordStore();
 } catch (e) {
@@ -443,6 +459,37 @@ if (RS && MR) {
   const sum2 = JSON.parse(prefData.get('summary_v1') || '{}');
   ok(wOther === true && sum2.total === 2 && sum2.quits === 1 && sum2.wins === 1,
     `S21-17 control: next match writes normally (total=${sum2.total} quits=${sum2.quits} wins=${sum2.wins})`);
+  // ⑮ 补丁轮 2 第 3 段：getPreferences 成功但某个 get 抛错 → store 不挂、未载入不写盘；下次 commitOnce 不拿 1 条列表覆盖原档。
+  {
+    const origData = new Map(curPrefStore.data);
+    const origDump = curPrefStore.dump();
+    const mkBroken = (throwKey) => {
+      curPrefStore = makePrefStore(Object.fromEntries(origData));
+      const get0 = curPrefStore.get;
+      curPrefStore.get = async (k, d) => { if (k === throwKey) { throw new Error(`get ${k} failed`); } return get0(k, d); };
+    };
+    let allSame = true;
+    const perKey = [];
+    for (const key of ['recent_v1', 'summary_v1', 'last_match_id']) {
+      mkBroken(key);
+      const RSb = await loadRecordStore();
+      await RSb.init({});
+      const w = RSb.commitOnce(mkSnap(`m-${T0 + 77}`, SS.ALIVE, 0), { quit: false, isDemo: false, ff: false, pausedMs: 0 });
+      await tickIo();
+      const same = curPrefStore.dump() === origDump && curPrefStore.writes().length === 0;
+      allSame = allSame && same;
+      perKey.push(`${key}:commit=${w},writes=${curPrefStore.writes().length}`);
+    }
+    // control: same data, no throw → the next commitOnce does write (so "no write" above is the fix, not a dead store)
+    curPrefStore = makePrefStore(Object.fromEntries(origData));
+    const RSc = await loadRecordStore();
+    await RSc.init({});
+    RSc.commitOnce(mkSnap(`m-${T0 + 78}`, SS.ALIVE, 0), { quit: false, isDemo: false, ff: false, pausedMs: 0 });
+    await tickIo();
+    const ctlRecent = JSON.parse(curPrefStore.data.get('recent_v1') || '[]');
+    ok(allSame && ctlRecent.length === JSON.parse(origData.get('recent_v1') || '[]').length + 1,
+      `RecordStore.init get throws → original save byte-identical after commitOnce (${perKey.join('; ')}); control without throw appends (recent ${ctlRecent.length})`);
+  }
   // Counter-check: same quit path with nobody out yet (4 alive incl. self) must give rank 4 — rank follows the alive count.
   const snap4 = mkSnap(`m-${T0 + 2}`, SS.ALIVE, -1);
   snap4.seats[2].status = SS.ALIVE;
@@ -469,6 +516,7 @@ if (RS && MR) {
   // Worst case also on the longest result spelling (WIN/LOSE) — build picks LOSE for a quit; LOSE is the longer one.
   ok(results.reduce((x, y) => (y.length > x.length ? y : x), '') === built.result, `measured with the longest result value (${built.result})`);
 }
+RUN(false);
 // Both entry points go through commitOnce; no other writer of the three keys.
 const reportSrc = src(E + 'pages/Report.ets');
 const rpa = code(body(reportSrc, '  aboutToAppear(): void {'));
@@ -496,6 +544,7 @@ ok(count(engine, /this\.pausedTotalMs = 0;/) === 2, 'pausedTotalMs reset at star
 ok(/pausedTotalAt\(wallMs: number\): number \{[\s\S]*?this\.clockPausedAt > 0 && wallMs > this\.clockPausedAt[\s\S]*?return this\.pausedTotalMs \+ ongoing;/.test(engine),
   'pausedTotalAt includes a pause still in progress (leave confirmed while dialog-paused)');
 
+RUN(true);
 // ---------------------------------------------------------------- ⑭ S21-47 bad save files (real RecordStore, read never writes)
 // 21 §2.6 (16476d5 / v0.1 补5) + PM 2026-10-07: every repair lives in memory only. Loading never put / flush / delete / clear;
 // the stored bytes stay identical; the next normal commitOnce overwrites with the repaired state.
@@ -555,7 +604,23 @@ if (MR) {
     { name: 'last_match_id missing → newest valid matchId', init: { recent_v1: S([A, C]), summary_v1: S(SUM_OK) },
       want: { ids: 'm-a,m-c', total: 10, last: 'm-a' } },
     { name: 'last_match_id bad + no valid record → empty', init: { recent_v1: S([]), summary_v1: S(SUM_OK), last_match_id: 7 },
-      want: { ids: '', total: 10, last: '' } }
+      want: { ids: '', total: 10, last: '' } },
+    // ⑮ 补丁轮 2 第 3 段追加（21:320 / 21:322，ed6dd0e）
+    { name: 'record self-contradictory: WIN but rank≠1 → that record dropped (21:320)',
+      init: { recent_v1: S([A, goodRec('m-w2', { result: 'WIN', rank: 2, livesLeft: 1 }), C]), summary_v1: S(SUM_OK), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 10, last: 'm-a' } },
+    { name: 'summary impossible: total below recomputed from valid records → recomputed (21:322)',
+      init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 1, wins: 1, quits: 0, doubts: 20, doubtHits: 8 }), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 2, wins: 1, quits: 1, doubts: 4, last: 'm-a' } },
+    { name: 'summary impossible: wins / doubtHits below recomputed → recomputed (21:322)',
+      init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 10, wins: 0, quits: 1, doubts: 20, doubtHits: 1 }), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 2, wins: 1, quits: 1, doubts: 4, last: 'm-a' } },
+    { name: 'summary impossible: wins+quits > total → recomputed (21:322)',
+      init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 5, wins: 3, quits: 3, doubts: 20, doubtHits: 8 }), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 2, wins: 1, quits: 1, doubts: 4, last: 'm-a' } },
+    { name: 'no false kill: summary above recomputed (older matches beyond the 20-record window) → kept, not recomputed (21:322)',
+      init: { recent_v1: S([A, C]), summary_v1: S({ v: 1, total: 40, wins: 12, quits: 5, doubts: 90, doubtHits: 30 }), last_match_id: 'm-a' },
+      want: { ids: 'm-a,m-c', total: 40, wins: 12, quits: 5, doubts: 90, last: 'm-a' } }
   ];
   let allNoWrite = true;
   let allSame = true;
@@ -602,10 +667,26 @@ if (MR) {
   const p3 = await after(cases[1].init, 0, 0);
   ok(p3.wrote && p3.rec.length === 3 && p3.rec.every((x) => x.v === 1) && p3.sum.total === 11,
     `S21-47 dropped records → next commitOnce persists only valid ones (recent=${p3.rec.map((x) => x.matchId).join(',')})`);
+  // S21-47 红例「last_match_id 坏导致写入崩」：坏 last_match_id 载入后下一次 commitOnce 照常写入、不抛、last_match_id 落成新局。
+  const lastRows = [];
+  let lastOk = true;
+  for (const [lbl, lm] of [['42', 42], ['empty', ''], ['unknown', 'm-zzz'], ['missing', undefined], ['true', true]]) {
+    const init = { recent_v1: S([A, C]), summary_v1: S(SUM_OK) };
+    if (lm !== undefined) { init.last_match_id = lm; }
+    let pr = null;
+    let err = '';
+    try { pr = await after(init, 11, 3); } catch (e) { err = e.message; }
+    const good = pr !== null && pr.wrote && pr.writes.includes('flush') && pr.last === 'm-next' && pr.rec.length === 3 && pr.sum.total === 11;
+    lastOk = lastOk && good;
+    lastRows.push(`${lbl}:${pr === null ? 'threw ' + err : `wrote=${pr.wrote},last=${pr.last},recent=${pr.rec.length}`}`);
+  }
+  ok(lastOk, `S21-47 bad last_match_id → next commitOnce writes normally (no crash): ${lastRows.join(' | ')}`);
 }
+RUN(false);
 ok(!/persist\(\)/.test(code(body(records, '  static loadFrom(rawRecent: preferences.ValueType, rawSummary: preferences.ValueType, rawLast: preferences.ValueType): boolean {'))) &&
   !/\.(?:delete|deleteSync|clear|clearSync)\(/.test(code(records)), 'RecordStore: loadFrom never persists; no delete / clear anywhere');
 
+RUN(true);
 // ---------------------------------------------------------------- ⑭ lb.settings per key (real AudioSettings, read never writes)
 const AS_TYPES = ['preferences.Preferences | null', 'preferences.Preferences', 'preferences.ValueType', 'common.UIAbilityContext', 'Promise<void>',
   'AudioSettingsListener[]', 'AudioSettingsListener', 'number', 'boolean', 'string'];
@@ -661,8 +742,10 @@ for (const [init, want, name] of AUDIO_CASES) {
     asStore.writes().includes('flush'), 'control: the player\'s next set (slider release) is what persists the repaired values (37 → 35)');
 }
 ok(asNoWrite, `lb.settings read never writes: ${AUDIO_CASES.length} loads → 0 put / flush / delete, bytes identical`);
+RUN(false);
 ok(!/persist\(\)/.test(code(body(settings, '  static async init(context: common.UIAbilityContext): Promise<void> {'))), 'AudioSettings.init never persists');
 
+RUN(true);
 // ---------------------------------------------------------------- ⑭ unified resume shift (real ResumeShift + real PausableScheduler)
 const shiftSrc = src(E + 'engine/ResumeShift.ets');
 let RSh = null;
@@ -728,6 +811,42 @@ if (RSh && PSched) {
     `PAU-3 deal sim (real scheduler): during pause [${duringPause}] (in-flight card landed, next held); next card ${fly2 && fly2[1] - r2At} ms after resume; order ${ev.map((x) => x[0]).join(',')}`);
 }
 
+const makeFakeMedia = () => {
+  // hold.pool / hold.player = true → the next create* stays pending until m.resolveHeld() (async prepare hanging).
+  const m = { pools: [], players: [], hold: { pool: false, player: false }, held: [] };
+  const gate = (kind, make) => {
+    if (!m.hold[kind]) return Promise.resolve(make());
+    m.hold[kind] = false;
+    return new Promise((res) => { m.held.push(() => res(make())); });
+  };
+  m.resolveHeld = () => { const h = m.held.splice(0); for (const f of h) f(); };
+  m.untilHeld = async () => { for (let i = 0; i < 2000 && m.held.length === 0; i++) await Promise.resolve(); return m.held.length; };
+  m.live = () => m.pools.filter((x) => !x.released).length + m.players.filter((x) => !x.released).length;
+  m.createSoundPool = () => gate('pool', () => {
+    const p = { handlers: {}, nextId: 1, loaded: [], plays: [], released: false, releases: 0 };
+    p.on = (ev, fn) => { p.handlers[ev] = fn; };
+    p.load = async () => { const id = p.nextId++; p.loaded.push(id); return id; };
+    p.play = async (id, prm) => { p.plays.push({ id, vol: prm.leftVolume }); return 1; };
+    p.release = async () => { p.released = true; p.releases++; };
+    p.emitAll = () => { for (const id of p.loaded) if (p.handlers.loadComplete) p.handlers.loadComplete(id); };
+    m.pools.push(p);
+    return p;
+  });
+  m.createAVPlayer = () => gate('player', () => {
+    const pl = { handlers: {}, plays: 0, pauses: 0, vols: [], acts: [], released: false, releases: 0, loop: false, _fd: null };
+    pl.on = (ev, fn) => { pl.handlers[ev] = fn; };
+    Object.defineProperty(pl, 'fdSrc', { set(v) { pl._fd = v; queueMicrotask(() => pl.handlers.stateChange && pl.handlers.stateChange('initialized')); }, get() { return pl._fd; } });
+    pl.prepare = async () => { queueMicrotask(() => pl.handlers.stateChange && pl.handlers.stateChange('prepared')); };
+    pl.play = async () => { pl.plays++; pl.acts.push('play'); };
+    pl.pause = async () => { pl.pauses++; pl.acts.push('pause'); };
+    pl.stop = async () => { pl.acts.push('stop'); };
+    pl.setVolume = (v) => { pl.vols.push(v); pl.acts.push(`vol:${v}`); };
+    pl.release = async () => { pl.released = true; pl.releases++; };
+    m.players.push(pl);
+    return pl;
+  });
+  return m;
+};
 // ---------------------------------------------------------------- ⑭ Table harness: REAL Table methods in node
 // requestLeave / openLeaveConfirm / onLeaveCancel / onLeaveConfirmed / commitLeaveRecord / onPauseState / bindPause /
 // goHome / unlockLobbyThenRoute / teardownAfterRoute / releaseLeaveLock are extracted from Table.ets and run against the REAL
@@ -740,11 +859,12 @@ const TABLE_SIGS = ['  private requestLeave(): void {', '  private openLeaveConf
   '  private unbindPause(): void {', '  private onPauseState(state: PauseState, shiftMs: number): void {', '  private requestUserPause(): void {',
   '  private resumeFromPauseLayer(): void {', '  private goHome(): void {', '  private teardownAfterRoute(): void {',
   '  private async unlockLobbyThenRoute(): Promise<void> {', '  private releaseLeaveLock(): void {', '  aboutToDisappear(): void {',
-  '  private finishLeaveIfRouted(): void {', '  private finishLeaveOnce(why: string): boolean {'];
+  '  private finishLeaveIfRouted(): void {', '  private finishLeaveOnce(why: string): boolean {', '  private cancelPlaySheet(): void {',
+  '  private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {', '  private async closePeek(): Promise<void> {'];
 const missingSigs = TABLE_SIGS.filter((sg) => body(table, sg).length === 0);
 ok(missingSigs.length === 0, `Table harness: all ${TABLE_SIGS.length} methods found (${missingSigs.join(' | ') || 'ok'})`);
 const TABLE_TYPES = ['AlertDialogParamWithButtons', 'MatchSnapshot | null', 'RecordCommit', 'PauseListener', 'PauseState', 'common.UIAbilityContext',
-  'boolean', 'number', 'string'];
+  'PlayStyle', 'window.Window', 'boolean', 'number', 'string'];
 const tableMethodsJs = stripEts(TABLE_SIGS.map((sg) => body(table, sg) + '\n  }\n').join('\n'), TABLE_TYPES, ['common.UIAbilityContext']);
 const harnessJs = `class TableHarness {
   constructor() {
@@ -753,9 +873,14 @@ const harnessJs = `class TableHarness {
     this.challengeTickId = -1; this.challengeDeadlineMs = 0; this.pauseListener = null; this.revealTimer = -1; this.choiceActTimer = -1;
     this.revealForChallengeId = ''; this.choiceActForChallengeId = ''; this.leaveRouteIssued = false; this.leaveFinished = false; this.pollId = -1; this.hintTimer = -1;
     this.timers = new PausableScheduler(); this.dialogs = []; this.calls = [];
+    this.showPlay = false; this.showPeek = false; this.selectedIds = []; this.confirmBusy = false; this.challengeEntryOn = false;
+    this.challengeCommitBusy = false; this.emptySafeEntryOn = false; this.playEnabled = true; this.confirmBarOn = false; this.roundWinOn = false;
+    this.selfCards = []; this.namedSeatId = -1; this.hiddenCardIds = []; this.playFlyCount = 0; this.playFlySeat = 0; this.playFlyPlayId = '';
   }
+  flashHint(k) { this.calls.push('hint' + k); } copyCards(x) { return [...x]; } copyIds(x) { return [...x]; } noteSfx() {}
+  kickPlayFly() { this.calls.push('fly'); } onPlayRollback() { this.calls.push('rollback'); } refreshPlayMeta() {}
   getUIContext() { return { showAlertDialog: (o) => { this.dialogs.push({ at: Date.now(), busy: AppRuntime.director.busy, opts: o }); } }; }
-  pull() {}
+  pull() { this.calls.push('pull'); }
   lockTableWindow() { this.calls.push('lockTableWindow'); return Promise.resolve(); }
   resetPlayFlyUi() { this.calls.push('teardown'); }
   resetRevealUi() {} retractChoiceAct() {} clearChoiceAwait() {} closeChallengeEntry() {}
@@ -826,21 +951,24 @@ if (RSh && PSched && MR) {
       throw { code: 100002, message: 'sync throw' };
     },
     back: () => { routerLog.back++; },
-    getLength: () => String(stackLen)
+    getLength: () => String(stackLen),
+    getParams: () => undefined,
+    getState: () => ({ index: stackLen, name: 'Table', path: 'pages/' })
   };
   const routeHang = { rej: null, res: null };
-  const routerJs = stripEts(lbRouter, ['Promise<void> | null', 'Promise<void>', 'RouteOnce', 'BusinessError', 'Error', 'number', 'boolean', 'string'], ['BusinessError']);
+  const routerJs = stripEts(lbRouter, ['Promise<void> | null', 'Promise<void>', 'RouteOnce', 'BusinessError', 'Error', 'LeaveTrip | null', 'LeaveTrip',
+    'LeaveRouteParams', 'Object | undefined', 'router.RouterState', 'number', 'boolean', 'string'], ['BusinessError', 'LeaveRouteParams']);
   let audio = null;
-  const makeWorld = async () => {
+  const makeWorld = async (rtr = fakeRouter) => {
     const wclk = makeClock(50000);
     const director = new FakeDirector(wclk);
     curPrefStore = makePrefStore();
     const RSx = await loadRecordStore();
     await RSx.init({});
-    const LbR = (await importFresh(routerJs, { router: fakeRouter, PageUrls: { LOBBY: 'pages/Lobby', TABLE: 'pages/Table', REPORT: 'pages/Report' },
+    const LbR = (await importFresh(routerJs, { router: rtr, PageUrls: { LOBBY: 'pages/Lobby', TABLE: 'pages/Table', REPORT: 'pages/Report' },
       Logger: { info: () => {}, warn: () => {}, error: (t, m) => routerLog.errors.push(m) }, ...clockStubs(wclk) })).LbRouter;
     const Sch = (await importFresh(stripEts(sched, ['TimerEntry[]', 'TimerEntry | null', 'TimerEntry', 'number', 'boolean']), clockStubs(wclk))).PausableScheduler;
-    audio = { paused: 0, resumed: 0, cleared: 0, leaveRelease: 0, spRelease: 0, daRelease: 0, log: [] };
+    audio = { paused: 0, resumed: 0, cleared: 0, leaveRelease: 0, spRelease: 0, daRelease: 0, spPause: 0, launch: 0, log: [] };
     const engine = {
       toLobbyCalls: 0,
       snap: { matchId: 'm-777', startedAt: 49000, endedAt: 0, roundIndex: 2, winnerSeatId: -1, phase: PhaseE.TURN, eventLog: [],
@@ -848,19 +976,27 @@ if (RSh && PSched && MR) {
           { seatId: 2, role: SRole.AI, aiPersona: 'AI_KAREN', lives: 1, status: SStat.ALIVE }],
         recap: [0, 1, 2].map((i) => ({ seatId: i, nickname: `s${i}`, playCount: 2, fakeHandCount: 0, challengeCount: 0, challengeHits: 0, doubtedCount: 0, caughtCount: 0, aliveAtExit: 0 })) },
       current() { return this.snap; }, toLobby() { this.toLobbyCalls++; this.snap.phase = PhaseE.LOBBY; },
-      isDemoMatch: () => false, pausedTotalAt: () => 0
+      isDemoMatch: () => false, pausedTotalAt: () => 0,
+      cancelPlayCalls: 0, submitPlayCalls: 0, cancelPlay() { this.cancelPlayCalls++; return true; },
+      submitPlay() { this.submitPlayCalls++; return true; }
     };
+    engine.snap.config = { min_play_cards: 1, max_play_cards: 3 };
+    engine.snap.lastPlay = null;
     const mod = await importFresh(harnessJs, {
       AppRuntime: { director, engine }, PauseState: PSt, PauseReasons: PRs, PENDING_CAP_MS: capMs, Phase: PhaseE, SeatRole: SRole, SeatStatus: SStat,
       TableAudio: { pauseForGame: () => { audio.paused++; audio.log.push('pause'); }, resumeForGame: () => { audio.resumed++; audio.log.push('resume'); },
-        clearGamePause: () => { audio.cleared++; audio.log.push('clearPause'); }, leaveThenRelease: () => { audio.leaveRelease++; audio.log.push('leaveRelease'); } },
+        clearGamePause: () => { audio.cleared++; audio.log.push('clearPause'); }, leaveThenRelease: () => { audio.leaveRelease++; audio.log.push('leaveRelease'); },
+        playPlayLaunch: () => { audio.launch++; } },
       Logger: { info: () => {}, warn: () => {}, error: () => {} }, LbRouter: LbR, RecordStore: RSx, WindowOrientation: { lockPortrait: async () => {} },
       getContext: () => ({}), DialogAlignment: { Center: 'Center' }, $r: (k) => k, TAG: 'Table', PausableScheduler: Sch, ...clockStubs(wclk),
-      clearInterval: () => {}, DealAudio: { release: () => { audio.daRelease++; } }, SoundPlayer: { release: () => { audio.spRelease++; } }
+      clearInterval: () => {}, DealAudio: { release: () => { audio.daRelease++; } },
+      SoundPlayer: { release: () => { audio.spRelease++; }, pauseForGame: () => { audio.spPause++; } },
+      window: { getLastWindow: async () => ({}) }, PeekPrivacyAdapter: { setEnabled: async (w, on) => { audio.log.push(`privacy:${on}`); } },
+      SfxIds: new Proxy({}, { get: (_, k) => String(k) }), TableCompass: { BOTTOM: 'BOTTOM' }
     });
     const t = new mod.TableHarness();
     t.bindPause();
-    return { t, director, engine, clk: wclk, RSx };
+    return { t, director, engine, clk: wclk, RSx, LbR };
   };
   let w = null;
   try {
@@ -1044,35 +1180,173 @@ if (RSh && PSched && MR) {
       ok(n1.director.stopped === 0 && n1.engine.toLobbyCalls === 0 && n2.director.stopped === 0 && n2.engine.toLobbyCalls === 0 && n2.engine.snap.phase === PhaseE.RECAP,
         'aboutToDisappear unchanged for normal page exits (no leave route; RECAP → Report after a timed-out leave)');
     }
-    // (a) timeout unlock → player confirms again → the first (late) route lands: ONE navigation, ONE stop, ONE 中退; second success inert.
-    for (const order of ['route-then-disappear', 'disappear-then-route']) {
-      const { t, director, engine, clk: c, RSx } = await makeWorld();
-      routeMode = 'lateResolve'; stackLen = 2; routerLog.replace = 0; routerLog.urls = []; routerLog.back = 0;
-      t.requestLeave();
-      t.dialogs[0].opts.secondaryButton.action();
-      await drainMicrotasks();
+    // ⑮ 补丁轮 2 · 离局令牌（负责人 A / 第 5 段）：两趟 replace 都真落地。router 模型维护页栈，每次落地都新建一个大厅实例：
+    // 新大厅 aboutToAppear 与被换掉那页的 aboutToDisappear 两种先后都跑（ArkUI 文档两种说法都有，不赌顺序）。
+    // 真 LbRouter + 真 Table 方法 + 真 Lobby 方法（aboutToAppear / begin / hydrate / startReturnEnter / renderOnly / aboutToDisappear）
+    // + 真 LobbyAudio（假 media，数 BGM 播放器 play()）+ 真 RecordStore。只数实际效果（引擎 resetToLobby / LobbyAudio 建池 / BGM play()），不数回调。
+    const lobbyText = src(E + 'pages/Lobby.ets');
+    const LOBBY_SIGS = ['  aboutToAppear(): void {', '  aboutToDisappear(): void {', '  private async renderOnly(): Promise<void> {',
+      '  private async lockPortraitSoft(): Promise<void> {', '  private async begin(): Promise<void> {', '  private startColdBoot(): void {',
+      '  private startReturnEnter(): void {', '  private arm(delayMs: number, fn: () => void): void {', '  private clearTimers(): void {',
+      '  private async hydrate(): Promise<void> {', '  private async hydrateView(): Promise<void> {'];
+    const missingLobby = LOBBY_SIGS.filter((sg) => body(lobbyText, sg).length === 0);
+    ok(missingLobby.length === 0, `Lobby harness: all ${LOBBY_SIGS.length} lifecycle methods found (${missingLobby.join(' | ') || 'ok'})`);
+    const lobbyJs = stripEts(LOBBY_SIGS.map((sg) => body(lobbyText, sg) + '\n  }\n').join('\n'),
+      ['common.UIAbilityContext', 'BootMarks', 'AnimateParam', 'LastTable', 'number', 'boolean', 'string'], ['common.UIAbilityContext']);
+    const lobbyHarnessJs = `class LobbyHarness {
+  constructor(name) {
+    Object.assign(this, { name, nickname: '', playerCount: 0, silent: false, bootReady: false, splashOpacity: 0, lobbyBgOpacity: 1, loadOpacity: 0,
+      loadValue: 0, idleOpacity: 0, announceOpacity: 0, greetOpacity: 0, topbarOpacity: 0, topbarY: 12, topbarScale: 0.96, cardOpacity: 0, cardY: 12,
+      cardScale: 0.96, ctaOpacity: 0, ctaY: 12, ctaEnterScale: 0.96, peekOpacity: 0, peekY: 12, peekScale: 0.96, timerIds: [], loopsAlive: false,
+      idleLoopAlive: false, layerMs: 0, lobbyInit: true, lobbyKey: 0, appeared: false });
+  }
+  revealDealerIdle() {} crossToAnnounce() {} showGreet() {} crossBackIdle() {} playStagger() {}
+  enableCta() { this.bootReady = true; } startIdleLoop() {} pulseBreath() {} pulseCandle() {} pulseDust() {} pulseCtaGlow() {} pulseTopbar() {}
+${lobbyJs}
+}
+export { LobbyHarness };`;
+    const LB = (await importFresh(stripEts(src(E + 'features/lobby/LobbyBoot.ets'), ['BootMarks', 'number', 'boolean']), {})).LobbyBoot;
+    const LA_TYPES = ['media.AVPlayer | null', 'media.SoundPool | null', 'common.UIAbilityContext | null', 'resourceManager.RawFileDescriptor',
+      'media.AVPlayer', 'media.SoundPool', 'media.PlayParameters', 'media.AVFileDescriptor', 'common.UIAbilityContext', 'audio.AudioRendererInfo',
+      'Promise<void>', 'Promise<number>', 'BusinessError', 'number', 'void', 'string', 'boolean'];
+    const laJs = stripEts(src(E + 'features/lobby/LobbyAudio.ets'), LA_TYPES, []);
+    const rawCtx = { resourceManager: { getRawFd: async () => ({ fd: 1, offset: 0, length: 10 }), closeRawFd: async () => {} } };
+    const settle = async () => { for (let k = 0; k < 6; k++) { await drainMicrotasks(60); await tickIo(); } };
+    const makeRouterModel = () => {
+      const m = { pages: [], trips: [], params: undefined, replaceCalls: 0, urls: [] };
+      m.router = {
+        replaceUrl: (opt) => { m.replaceCalls++; m.urls.push(opt.url); return new Promise((res, rej) => { m.trips.push({ opt, res, rej }); }); },
+        pushUrl: () => Promise.resolve(),
+        back: () => {},
+        getLength: () => String(m.pages.length),
+        getParams: () => m.params,
+        getState: () => ({ index: m.pages.length, name: m.pages[m.pages.length - 1].name, path: 'pages/' })
+      };
+      return m;
+    };
+    /** Table world on a router model + Lobby module sharing the same LbRouter / director / clock; real LobbyAudio on fake media. */
+    const makeLeaveWorld = async (cold) => {
+      const rm = makeRouterModel();
+      const w = await makeWorld(rm.router);
+      const fm = makeFakeMedia();
+      const LA = (await importFresh(laJs, {
+        media: fm, audio: { StreamUsage: { STREAM_USAGE_MUSIC: 1 }, AudioRendererRate: { RENDER_RATE_NORMAL: 0 } },
+        SfxIds: new Proxy({}, { get: (_, k) => String(k) }), Logger: { info: () => {}, warn: () => {}, error: () => {} }, LobbyBoot: LB,
+        MatchLoad: { VOL_MATCH_OPEN: 0.46 }, AudioSettings: { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
+        ...clockStubs(w.clk)
+      })).LobbyAudio;
+      const lw = { resets: 0, lobbyStops: 0, tableAudioRelease: 0, lobbies: [], cold: !!cold };
+      const LM = (await importFresh(lobbyHarnessJs, {
+        LbRouter: w.LbR, Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'Lobby', WindowOrientation: { lockPortrait: async () => {} },
+        getContext: () => rawCtx, LobbyAudio: LA, TableAudio: { leaveThenRelease: () => { lw.tableAudioRelease++; } },
+        LobbySession: { takeColdStart: () => { const c = lw.cold; lw.cold = false; return c; } }, LobbyBoot: LB,
+        animateTo: (o, f) => f(), Curve: new Proxy({}, { get: (_, k) => String(k) }), ConfigRepository: { isReady: () => false },
+        LocalStore: { loadNickname: async () => 'nick', loadLastTable: async () => ({ playerCount: 4, lives: 3, silent: false }) },
+        SmartFillAdapter: { systemSuggestion: () => '' },
+        AppRuntime: { bootDirector: () => {}, director: { stop: () => { lw.lobbyStops++; w.director.stop(); } }, engine: { resetToLobby: () => { lw.resets++; } } },
+        ...clockStubs(w.clk)
+      })).LobbyHarness;
+      const newLobby = (name) => { const L = new LM(name); lw.lobbies.push(L); return L; };
+      /** Router lands trip i: a NEW lobby instance replaces the top page (lifecycle order per `order`), then the promise resolves. */
+      const land = async (i, order) => {
+        const trip = rm.trips[i];
+        if (trip === undefined) { lw.missingTrips = (lw.missingTrips || 0) + 1; return; } // no such replaceUrl was issued → assertions report it
+        const old = rm.pages[rm.pages.length - 1];
+        const L = newLobby(`L${i}`);
+        rm.params = trip.opt.params;
+        if (order === 'newFirst') { L.aboutToAppear(); old.inst.aboutToDisappear(); } else { old.inst.aboutToDisappear(); L.aboutToAppear(); }
+        rm.pages[rm.pages.length - 1] = { name: 'Lobby', inst: L };
+        trip.res();
+        await settle();
+        w.clk.advance(2000);
+        await settle();
+      };
+      return { ...w, rm, fm, LA, lw, newLobby, land };
+    };
+    const bgmOf = (fm) => fm.players[0];
+    const confirmLeave = async (t, n) => { t.requestLeave(); t.dialogs[n].opts.secondaryButton.action(); await drainMicrotasks(); };
+    for (const lateOld of [true, false]) {
+      for (const order of ['newFirst', 'oldFirst']) {
+        const lw0 = await makeLeaveWorld(false);
+        const { t, director, engine, clk: c, RSx, rm, fm, lw, LbR } = lw0;
+        LbR.toTable(); // Lobby.tryEnterTable → new leave session
+        rm.pages = [{ name: 'Lobby', inst: { aboutToDisappear: () => {} } }, { name: 'Table', inst: t }];
+        await confirmLeave(t, 0);
+        c.advance(3000);
+        await drainMicrotasks();
+        c.advance(10000); // no auto re-send while the player has not confirmed again
+        await drainMicrotasks();
+        const replaceBeforeRetry = rm.replaceCalls;
+        await confirmLeave(t, 1); // player confirms again → in-flight trip ≥ 3000 ms is voided → new replaceUrl
+        const tickets = rm.trips.map((x) => x.opt.params && x.opt.params.lbLeaveTicket);
+        if (lateOld) { await lw0.land(1, order); c.advance(1500); await lw0.land(0, order); } else { await lw0.land(0, order); await lw0.land(1, order); }
+        c.advance(3000);
+        await settle();
+        const bgm = bgmOf(fm);
+        const inits = lw.lobbies.filter((L) => L.lobbyInit).length;
+        const tableStops = director.stopped - lw.lobbyStops;
+        const label = lateOld ? '(a) old hangs, new lands, old lands late' : '(b) both land: old first, then new';
+        ok(replaceBeforeRetry === 1 && rm.replaceCalls === 2 && JSON.stringify(tickets) === '[1,2]' && lw.lobbies.length === 2 &&
+          lw.lobbies.every((L) => L.lobbyKey > 0) && rm.pages.length === 2 && rm.pages[1].name === 'Lobby' && rm.urls.every((u) => u === 'pages/Lobby') &&
+          inits === 1 && lw.resets === 1 && lw.lobbyStops === 1 && fm.pools.length === 1 && bgm !== undefined && bgm.plays === 1 && !bgm.released &&
+          bgm.vols.length > 0 && bgm.vols[bgm.vols.length - 1] > 0 && tableStops === 1 && engine.toLobbyCalls === 1 && audio.leaveRelease === 1 &&
+          RSx.recent().length === 1 && RSx.summaryNow().quits === 1,
+          `leave-token ${label} [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: replaceUrl=${rm.replaceCalls} ` +
+          `(before re-confirm ${replaceBeforeRetry}) tickets=${JSON.stringify(tickets)}; lobby instances=${lw.lobbies.length} (both aboutToAppear), ` +
+          `lobby init=${inits} (engine reset=${lw.resets}, LobbyAudio pools=${fm.pools.length}), BGM play()=${bgm ? bgm.plays : -1} released=${bgm ? bgm.released : '-'}; ` +
+          `leave finish director.stop=${tableStops} (+ lobby init stop ${lw.lobbyStops}), engine LOBBY=${engine.toLobbyCalls}, 中退=${RSx.recent().length}; ` +
+          `stack=[${rm.pages.map((p) => p.name).join(',')}] (no Report)`);
+      }
+    }
+    // (ii) re-send only if Table is still on top: the old trip already swapped the page (lifecycle not delivered yet) → no 2nd replace, finish.
+    {
+      const lw0 = await makeLeaveWorld(false);
+      const { t, director, engine, clk: c, RSx, rm, LbR } = lw0;
+      LbR.toTable();
+      rm.pages = [{ name: 'Lobby', inst: { aboutToDisappear: () => {} } }, { name: 'Table', inst: t }];
+      await confirmLeave(t, 0);
       c.advance(3000);
       await drainMicrotasks();
-      t.requestLeave(); // unlocked → leave again
-      t.dialogs[1].opts.secondaryButton.action();
+      rm.pages[1] = { name: 'Lobby', inst: { aboutToDisappear: () => {} } };
+      await confirmLeave(t, 1);
       await drainMicrotasks();
-      const replaceAfterRetry = routerLog.replace;
-      if (order === 'route-then-disappear') {
-        routeHang.res();
-        await drainMicrotasks();
-        t.aboutToDisappear();
-      } else {
-        t.aboutToDisappear();
-        routeHang.res();
-        await drainMicrotasks();
-      }
-      await tickIo();
-      ok(replaceAfterRetry === 1 && routerLog.replace === 1 && routerLog.urls.every((u) => u === 'pages/Lobby') && routerLog.back === 0 &&
-        director.stopped === 1 && engine.toLobbyCalls === 1 && RSx.recent().length === 1 && RSx.summaryNow().quits === 1 &&
-        t.dialogs.length === 2 && audio.leaveRelease === 1,
-        `route-retry-late-success (${order}): replace calls=${routerLog.replace} (no 2nd route, no Report), director.stop=${director.stopped}, ` +
-        `engine.toLobby=${engine.toLobbyCalls}, 中退 records=${RSx.recent().length}, dialogs=${t.dialogs.length}, audio leave-release=${audio.leaveRelease}`);
-      routeMode = 'ok';
+      ok(rm.replaceCalls === 1 && director.stopped === 1 && engine.toLobbyCalls === 1 && RSx.recent().length === 1,
+        `leave-retry-top-not-table: top page already Lobby → no second replaceUrl (calls=${rm.replaceCalls}), finishLeaveOnce ran (director.stop=${director.stopped}, engine LOBBY=${engine.toLobbyCalls}), 中退=${RSx.recent().length}`);
+    }
+    // Controls (no false positives): cold start (no ticket), RECAP → Report → toLobby (no ticket), one normal leave; the lobby that later exits releases audio.
+    {
+      const cs = await makeLeaveWorld(true);
+      cs.rm.pages = [];
+      const L0 = cs.newLobby('cold');
+      cs.rm.params = undefined;
+      L0.aboutToAppear();
+      await settle();
+      cs.clk.advance(12000);
+      await settle();
+      const b0 = bgmOf(cs.fm);
+      const rep = await makeLeaveWorld(false);
+      rep.LbR.toTable();
+      rep.rm.params = undefined; // Report → LbRouter.toLobby() carries no ticket
+      const Lr = rep.newLobby('fromReport');
+      Lr.aboutToAppear();
+      await settle();
+      rep.clk.advance(3000);
+      await settle();
+      const one = await makeLeaveWorld(false);
+      one.LbR.toTable();
+      one.rm.pages = [{ name: 'Lobby', inst: { aboutToDisappear: () => {} } }, { name: 'Table', inst: one.t }];
+      await confirmLeave(one.t, 0);
+      await one.land(0, 'newFirst');
+      const b1 = bgmOf(one.fm);
+      const playsBeforeExit = b1 ? b1.plays : -1;
+      one.lw.lobbies[0].aboutToDisappear(); // app exit later
+      one.clk.advance(3000);
+      await settle();
+      ok(L0.lobbyInit && cs.lw.resets === 1 && b0 !== undefined && b0.plays === 1 && Lr.lobbyInit && rep.lw.resets === 1 && (bgmOf(rep.fm) || { plays: -1 }).plays === 1 &&
+        one.lw.lobbies[0].lobbyInit && one.lw.resets === 1 && playsBeforeExit === 1 && b1.released,
+        `leave-token controls: cold start (no ticket) init=${L0.lobbyInit} reset=${cs.lw.resets} BGM play()=${b0 ? b0.plays : -1}; ` +
+        `Report → toLobby (no ticket) init=${Lr.lobbyInit} BGM play()=${(bgmOf(rep.fm) || { plays: -1 }).plays}; single leave init=${one.lw.lobbies[0].lobbyInit} BGM play()=${playsBeforeExit}, ` +
+        `that lobby exiting later releases audio=${b1 && b1.released}`);
     }
     // (b) a normal finish → RECAP → Report: no leave flag → new path skipped; record bytes and rank untouched; no extra 中退.
     {
@@ -1114,6 +1388,43 @@ if (RSh && PSched && MR) {
         `audio-exit-paused: SoundPlayer/DealAudio released, TableAudio.leaveThenRelease once, no resumeForGame after the pause (log after pause: ${after.join('>')})`);
       routeMode = 'ok';
     }
+    // ⑮ 补丁轮 2 第 2 段：暂停期间不能出牌（真 Table.onPauseState / cancelPlaySheet / closePeek / beginHumanPlay）。
+    // (a) 暂停那一刻出牌面板开着 → 关面板 + 清空选牌 + 关偷看；恢复后不自动重开。
+    {
+      const { t, director, engine } = await makeWorld();
+      t.showPlay = true; t.showPeek = true; t.selectedIds = ['c1', 'c2'];
+      director.requestPause(PRs.BACKGROUND);
+      await drainMicrotasks();
+      const atPause = { play: t.showPlay, peek: t.showPeek, sel: t.selectedIds.length };
+      t.resumeFromPauseLayer();
+      await drainMicrotasks();
+      ok(!atPause.play && !atPause.peek && atPause.sel === 0 && engine.cancelPlayCalls === 1 && audio.log.includes('privacy:false') &&
+        t.showPlay === false && t.showPeek === false && t.selectedIds.length === 0 && director.state === PSt.RUNNING && audio.spPause === 1,
+        `pause-closes-play-sheet (sheet open): at pause showPlay=${atPause.play} showPeek=${atPause.peek} selected=${atPause.sel} (engine.cancelPlay=${engine.cancelPlayCalls}); ` +
+        `after resume showPlay=${t.showPlay} showPeek=${t.showPeek} selected=${t.selectedIds.length} (not reopened); SoundPlayer.pauseForGame=${audio.spPause}`);
+    }
+    // (b) PAU-12b：面板没开、手牌直选 + 确认条 → 暂停 → 恢复：选牌保留（21 §3.3 第 14 项，21:396）、确认条照常显示。
+    {
+      const { t, director, engine } = await makeWorld();
+      t.selectedIds = ['c1']; t.confirmBarOn = true;
+      director.requestPause(PRs.BACKGROUND);
+      t.resumeFromPauseLayer();
+      await drainMicrotasks();
+      ok(JSON.stringify(t.selectedIds) === '["c1"]' && t.confirmBarOn === true && t.showPlay === false && engine.cancelPlayCalls === 0,
+        `pause-keeps-hand-select (PAU-12b, sheet closed): after resume selected=${JSON.stringify(t.selectedIds)} confirmBar=${t.confirmBarOn} cancelPlay=${engine.cancelPlayCalls}`);
+    }
+    // (c) Table 门：已暂停 → beginHumanPlay 打不到 engine.submitPlay（不飞牌、不放音、不锁 confirmBusy）；恢复后同一调用照常提交。
+    {
+      const { t, director, engine } = await makeWorld();
+      t.selectedIds = ['c1'];
+      director.requestPause(PRs.BACKGROUND);
+      t.beginHumanPlay('SOFT', -1);
+      const paused = { submit: engine.submitPlayCalls, fly: t.calls.includes('fly'), launch: audio.launch, busy: t.confirmBusy };
+      t.resumeFromPauseLayer();
+      t.beginHumanPlay('SOFT', -1);
+      ok(paused.submit === 0 && !paused.fly && paused.launch === 0 && !paused.busy && engine.submitPlayCalls === 1,
+        `pause-gate Table.beginHumanPlay: while PAUSED engine.submitPlay calls=${paused.submit}, fly=${paused.fly}, launch SFX=${paused.launch}; control after resume submitPlay calls=${engine.submitPlayCalls}`);
+    }
     // replace rejects but back() works → success path.
     {
       const { t, engine } = await makeWorld();
@@ -1133,6 +1444,117 @@ if (RSh && PSched && MR) {
   }
 }
 
+// ---------------------------------------------------------------- ⑮ 补丁轮 2：真 MatchEngine 方法（submitPlay 暂停门 / pause·resumeClock）+ 真 MatchDirector 暂停机
+// 方法体原样取自 MatchEngine.ets / MatchDirector.ets（只去类型），挂在最小宿主类上跑；AI / 规则其余部分不加载（不改引擎）。
+const ENGINE_SIGS = ['  submitPlay(cardIds: string[], style: PlayStyle, speech: string, namedSeatId: number): boolean {', '  pauseClock(wallMs: number): void {',
+  '  resumeClock(wallMs: number, shiftMs: number): number {', '  earliestDeadline(): number {', '  clockPausedAtMs(): number {', '  isClockPaused(): boolean {'];
+const DIR_SIGS = ['  requestPause(reason: string): PauseState {', '  resumeFromPause(): number {', '  pauseStateNow(): PauseState {', '  isPaused(): boolean {',
+  '  isPausePending(): boolean {', '  pauseReasonNow(): string {', '  setSequenceBusyProbe(probe: SequenceBusyProbe | null): void {',
+  '  setPendingDeadlineProbe(probe: PendingDeadlineProbe | null): void {', '  addPauseListener(fn: PauseListener): void {', '  private enterPaused(): void {',
+  '  private sequenceBusy(snap: MatchSnapshot): boolean {', '  private isLivePhase(phase: Phase): boolean {', '  private notifyPause(shiftMs: number): void {', '  tick(): void {'];
+const missEng = ENGINE_SIGS.filter((sg) => body(engine, sg).length === 0);
+const missDir = DIR_SIGS.filter((sg) => body(dir, sg).length === 0);
+ok(missEng.length === 0 && missDir.length === 0, `engine/director harness: ${ENGINE_SIGS.length} MatchEngine + ${DIR_SIGS.length} MatchDirector methods found (${[...missEng, ...missDir].join(' | ') || 'ok'})`);
+const engineHarnessJs = `class EngineHarness {
+  constructor() {
+    Object.assign(this, { clockPausedAt: 0, nowMs: 0, pausedTotalMs: 0, turnEndsAtMs: 0, ritualEndsAtMs: 0, beatEndsAtMs: 0, penaltyEndsAtMs: 0,
+      phase: Phase.TURN, cfg: { min_play_cards: 1, max_play_cards: 3, max_slam_per_game: 1, max_hesitate_per_game: 1 }, turnWindow: '',
+      currentSeatId: 0, slamUsed: 0, hesitateUsed: 0, touched: [] });
+  }
+  currentIsGhost() { this.touched.push('currentIsGhost'); return false; }
+  handOf() { this.touched.push('handOf'); return [{ id: 'c1' }, { id: 'c2' }]; }
+  takeFromHand(s, id) { this.touched.push('take'); return { id }; }
+  returnCards() {}
+  commitPicked() { this.touched.push('commit'); }
+  current() { return { phase: this.phase }; }
+  pulse() {} humanMustWait() { return true; } isDemoMatch() { return false; } pausedTotalAt() { return 0; }
+${stripEts(ENGINE_SIGS.map((sg) => body(engine, sg) + '\n  }\n').join('\n'), ['CardModel[]', 'string[]', 'PlayStyle', 'number[]', 'number', 'boolean', 'string'])}
+}
+export { EngineHarness };`;
+const dirHarnessJs = `class DirectorHarness {
+  constructor(engine) {
+    Object.assign(this, { engine, live: null, pauseState: PauseState.RUNNING, pauseReason: '', pauseListeners: [], seqBusyProbe: null, deadlineProbe: null,
+      resumeHoldUntilMs: 0, pendingSinceMs: 0, thinkUntilMs: 0, playBusy: false, log: [] });
+  }
+  pushLive() {} armIfNeeded() {} runAi() { this.log.push('runAi'); }
+${stripEts(DIR_SIGS.map((sg) => body(dir, sg) + '\n  }\n').join('\n'),
+  ['MatchSnapshot | null', 'MatchSnapshot', 'PendingDeadlineProbe | null', 'SequenceBusyProbe | null', 'PauseListener[]', 'PauseListener', 'PauseState',
+    'RecordCommit', 'Phase', 'number[]', 'number', 'boolean', 'string'])}
+}
+export { DirectorHarness };`;
+if (RSh) {
+  const PhaseE2 = enumObj('Phase');
+  const loadEngDir = async (clk) => {
+    const EH = (await importFresh(engineHarnessJs, { Phase: PhaseE2, TurnWindow: enumObj('TurnWindow'), PlayStyle: enumObj('PlayStyle'),
+      Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'MatchEngine' })).EngineHarness;
+    const DH = (await importFresh(dirHarnessJs, { PauseState: PSt, PauseReasons: PRs, Phase: PhaseE2, ResumeShift: RSh, RESUME_GRACE_MS: graceMs,
+      PENDING_CAP_MS: capMs, RecordStore: { commitOnce: () => false }, Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'MatchDirector',
+      ...clockStubs(clk) })).DirectorHarness;
+    const eng = new EH();
+    const d = new DH(eng);
+    const states = [];
+    d.addPauseListener((st, sh) => states.push([st, sh]));
+    return { eng, d, states };
+  };
+  // 第 2 段 engine 门：暂停中 submitPlay 直接 false，规则路径一步都不走（不读手牌 / 不判 ghost / 不提交）。
+  {
+    const clk = makeClock(10000);
+    const { eng } = await loadEngDir(clk);
+    eng.pauseClock(10000);
+    const r = eng.submitPlay(['c1'], 'SOFT', '', -1);
+    const touchedPaused = eng.touched.length;
+    eng.resumeClock(10500, 0);
+    const r2 = eng.submitPlay(['c1'], 'SOFT', '', -1);
+    ok(r === false && touchedPaused === 0 && r2 === true && eng.touched.includes('commit'),
+      `pause-gate MatchEngine.submitPlay (real method): paused → ${r}, rule path touched=${touchedPaused}; control after resumeClock → ${r2} (committed)`);
+  }
+  // 闸缺口：真 MatchDirector —— 序列中请求暂停进 PENDING，序列放完 tick 进 PAUSED（引擎时钟此刻才冻）。
+  {
+    const clk = makeClock(20000);
+    const { eng, d, states } = await loadEngDir(clk);
+    let busy = true;
+    d.setSequenceBusyProbe(() => busy);
+    const st = d.requestPause(PRs.USER);
+    const frozenEarly = eng.clockPausedAt;
+    for (let i = 0; i < 3; i++) { clk.advance(200); d.tick(); }
+    const midState = d.pauseStateNow();
+    busy = false;
+    clk.advance(200);
+    d.tick();
+    ok(st === PSt.PENDING && frozenEarly === 0 && midState === PSt.PENDING && d.isPaused() && eng.clockPausedAt === clk.now &&
+      states.map((x) => x[0]).join('>') === `${PSt.PENDING}>${PSt.PAUSED}`,
+      `real MatchDirector: pause during a sequence → ${st} (engine clock not frozen), still ${midState} while busy, sequence ends → PAUSED at tick (engine paused at ${eng.clockPausedAt - 20000} ms); listeners ${states.map((x) => x[0]).join('>')}`);
+  }
+  // 闸缺口：真 MatchDirector —— 序列永不结束，满 PENDING_CAP_MS 强停。
+  {
+    const clk = makeClock(30000);
+    const { d } = await loadEngDir(clk);
+    d.setSequenceBusyProbe(() => true);
+    d.requestPause(PRs.USER);
+    clk.advance(capMs - 1);
+    d.tick();
+    const before = d.pauseStateNow();
+    clk.advance(1);
+    d.tick();
+    ok(before === PSt.PENDING && d.isPaused(), `real MatchDirector PENDING_CAP_MS: still ${before} at +${capMs - 1} ms, forced PAUSED at +${capMs} ms`);
+  }
+  // 闸缺口：真 resumeFromPause + 真 MatchEngine.resumeClock —— 4 个 deadline 同一平移、最早一项距恢复 = RESUME_GRACE_MS、未武装的不动。
+  {
+    const clk = makeClock(40000);
+    const { eng, d, states } = await loadEngDir(clk);
+    eng.turnEndsAtMs = 41000; eng.beatEndsAtMs = 40300; eng.ritualEndsAtMs = 0; eng.penaltyEndsAtMs = 45000;
+    d.requestPause(PRs.USER);
+    clk.advance(4000);
+    const shift = d.resumeFromPause();
+    const now = clk.now;
+    ok(shift === 4300 && eng.turnEndsAtMs === 41000 + shift && eng.beatEndsAtMs === 40300 + shift && eng.penaltyEndsAtMs === 45000 + shift &&
+      eng.ritualEndsAtMs === 0 && eng.beatEndsAtMs - now === graceMs && eng.pausedTotalMs === 4000 && eng.clockPausedAt === 0 &&
+      states[states.length - 1][1] === shift && d.resumeHoldUntilMs === now + graceMs,
+      `real resumeFromPause + MatchEngine.resumeClock: paused 4000 ms, shift=${shift} applied to turn/beat/penalty (ritual unarmed stays 0); ` +
+      `earliest due ${eng.beatEndsAtMs - now} ms after resume; pausedTotal=${eng.pausedTotalMs}; listener shift=${states[states.length - 1][1]}; AI hold ${d.resumeHoldUntilMs - now} ms`);
+  }
+}
+
 // ---------------------------------------------------------------- ⑭ audio exit on the REAL TableAudio (fake SoundPool / AVPlayer / clock)
 // Leaving: pendings cleared, BGM + SFX pool released; a loadComplete arriving after leaving replays nothing;
 // paused before leaving → BGM never resumed / faded in.
@@ -1140,48 +1562,13 @@ const TA_TYPES = ['media.AVPlayer | null', 'media.SoundPool | null', 'common.UIA
   'media.AVPlayer', 'media.SoundPool', 'media.PlayParameters', 'media.AVFileDescriptor', 'common.UIAbilityContext', 'audio.AudioRendererInfo',
   'Promise<void>', 'Promise<number>', 'BusinessError', 'PlayStyle', 'number', 'void', 'string', 'boolean'];
 const taJs = stripEts(src(E + 'features/table/TableAudio.ets'), TA_TYPES, []);
-const makeFakeMedia = () => {
-  // hold.pool / hold.player = true → the next create* stays pending until m.resolveHeld() (async prepare hanging).
-  const m = { pools: [], players: [], hold: { pool: false, player: false }, held: [] };
-  const gate = (kind, make) => {
-    if (!m.hold[kind]) return Promise.resolve(make());
-    m.hold[kind] = false;
-    return new Promise((res) => { m.held.push(() => res(make())); });
-  };
-  m.resolveHeld = () => { const h = m.held.splice(0); for (const f of h) f(); };
-  m.untilHeld = async () => { for (let i = 0; i < 2000 && m.held.length === 0; i++) await Promise.resolve(); return m.held.length; };
-  m.live = () => m.pools.filter((x) => !x.released).length + m.players.filter((x) => !x.released).length;
-  m.createSoundPool = () => gate('pool', () => {
-    const p = { handlers: {}, nextId: 1, loaded: [], plays: [], released: false, releases: 0 };
-    p.on = (ev, fn) => { p.handlers[ev] = fn; };
-    p.load = async () => { const id = p.nextId++; p.loaded.push(id); return id; };
-    p.play = async (id, prm) => { p.plays.push({ id, vol: prm.leftVolume }); return 1; };
-    p.release = async () => { p.released = true; p.releases++; };
-    p.emitAll = () => { for (const id of p.loaded) if (p.handlers.loadComplete) p.handlers.loadComplete(id); };
-    m.pools.push(p);
-    return p;
-  });
-  m.createAVPlayer = () => gate('player', () => {
-    const pl = { handlers: {}, plays: 0, pauses: 0, vols: [], released: false, releases: 0, loop: false, _fd: null };
-    pl.on = (ev, fn) => { pl.handlers[ev] = fn; };
-    Object.defineProperty(pl, 'fdSrc', { set(v) { pl._fd = v; queueMicrotask(() => pl.handlers.stateChange && pl.handlers.stateChange('initialized')); }, get() { return pl._fd; } });
-    pl.prepare = async () => { queueMicrotask(() => pl.handlers.stateChange && pl.handlers.stateChange('prepared')); };
-    pl.play = async () => { pl.plays++; };
-    pl.pause = async () => { pl.pauses++; };
-    pl.setVolume = (v) => { pl.vols.push(v); };
-    pl.release = async () => { pl.released = true; pl.releases++; };
-    m.players.push(pl);
-    return pl;
-  });
-  return m;
-};
-const loadTableAudio = async () => {
+const loadTableAudio = async (AS = null) => {
   const tclk = makeClock(1000);
   const fm = makeFakeMedia();
   const TA = (await importFresh(taJs, {
     media: fm, audio: { StreamUsage: { STREAM_USAGE_MUSIC: 1 }, AudioRendererRate: { RENDER_RATE_NORMAL: 0 } },
     SfxIds: new Proxy({}, { get: (_, k) => String(k) }), PlayStyle: enumObj('PlayStyle') || {},
-    AudioSettings: { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
+    AudioSettings: AS || { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
     Logger: { info: () => {}, warn: () => {}, error: () => {} }, ...clockStubs(tclk)
   })).TableAudio;
   const ctx = { resourceManager: { getRawFd: async () => ({ fd: 1, offset: 0, length: 10 }), closeRawFd: async () => {} } };
@@ -1236,6 +1623,111 @@ try {
     const later = pl.vols.slice(vols0);
     ok(plays0 >= 1 && pl.plays === plays0 && later.every((v) => v === 0) && pl.released,
       `audio-exit-paused-no-resume: paused BGM not resumed / faded in on leave (play() calls ${plays0}→${pl.plays}, volumes after pause ${JSON.stringify(later.slice(0, 4))}…), released`);
+  }
+  // ⑮ 补丁轮 2 闸修正：150ms 暂停淡出真跑——数淡出步数（ramp 40ms/步），最后一步才 pause()，中间不硬切。
+  {
+    const { TA, fm, tclk } = await loadTableAudio();
+    await TA.prepare();
+    await drainMicrotasks();
+    TA.startBgm(TA.BGM_FADE_IN_MS);
+    tclk.advance(2000);
+    const pl = fm.players[0];
+    const mark = pl.acts.length;
+    const t0 = tclk.now;
+    TA.pauseForGame();
+    const at100 = (tclk.advance(100), pl.acts.slice(mark).filter((a) => a === 'pause').length);
+    tclk.advance(200);
+    const acts = pl.acts.slice(mark);
+    const vols = acts.filter((a) => a.startsWith('vol:')).map((a) => Number(a.slice(4)));
+    const steps = vols.length - 1;
+    const mono = vols.every((v, i) => i === 0 || v <= vols[i - 1] + 1e-9);
+    ok(TA.PAUSE_FADE_OUT_MS === 150 && steps === Math.round(150 / 40) && mono && vols[0] > 0 && vols[vols.length - 1] === 0 && at100 === 0 &&
+      acts[acts.length - 1] === 'pause' && acts.filter((a) => a === 'pause').length === 1 && !acts.includes('stop') && tclk.now - t0 >= 150,
+      `pause fade-out 150 ms (real TableAudio): ${steps} ramp steps after the first set (${vols.map((v) => v.toFixed(3)).join('→')}), no pause before 100 ms, ` +
+      `single pause() as the last action (${acts.slice(-2).join(',')}), no stop / hard cut`);
+  }
+  // ⑮ 补丁轮 2 第 8 段：暂停后 0 / 10 / 140 ms 就恢复（+ 400 ms 淡完再恢复作对照）→ 最终 BGM 在响（最后一个播放器动作不是 pause），音量回到 VOL_BGM × 增益。
+  {
+    const rows = [];
+    let allOk = true;
+    for (const d of [0, 10, 140, 400]) {
+      const { TA, fm, tclk } = await loadTableAudio();
+      await TA.prepare();
+      await drainMicrotasks();
+      TA.startBgm(TA.BGM_FADE_IN_MS);
+      tclk.advance(2000);
+      const pl = fm.players[0];
+      TA.pauseForGame();
+      tclk.advance(d);
+      TA.resumeForGame();
+      tclk.advance(1500);
+      await drainMicrotasks();
+      const playerActs = pl.acts.filter((a) => a === 'play' || a === 'pause' || a === 'stop');
+      const lastAct = playerActs[playerActs.length - 1];
+      const lastVol = pl.vols[pl.vols.length - 1];
+      const good = lastAct === 'play' && Math.abs(lastVol - TA.VOL_BGM) < 1e-9 && TA.bgmFadeId === -1;
+      allOk = allOk && good;
+      rows.push(`${d}ms:last=${lastAct},vol=${lastVol}`);
+    }
+    ok(allOk, `quick resume keeps BGM (real TableAudio): ${rows.join(' | ')} (VOL_BGM × gain 1 = 0.2; fade-out cancelled on resume)`);
+  }
+  // ⑮ 补丁轮 2 第 6 / 9 段：真 AudioSettings（lb.settings 假存档）+ 真 TableAudio + 真 SoundPlayer.drainPending / pauseForGame。
+  // 静音、SFX=0 两种情况下实际传给播放器的音量：BGM（静音时）与所有补播都是 0；对照组（不静音）确实出声。
+  {
+    const spText = src(E + 'features/table/SoundPlayer.ets');
+    const volOf = (k) => Number((new RegExp(`static readonly ${k}: number = ([\\d.]+);`).exec(spText) || [0, NaN])[1]);
+    const spJs = stripEts(['  static pauseForGame(): void {', '  private static drainPending(isFlip: boolean): void {'].map((sg) => body(spText, sg) + '\n  }\n').join('\n'),
+      ['number', 'boolean']);
+    const loadSp = async (AS, paused) => (await importFresh(`class SoundPlayer {
+  static logDeferredReplay() {}
+  static slotRendererReady() { return false; }
+  static fireRenderer(g) { SoundPlayer.fired.push(g); }
+  static firePlay(id, g) { SoundPlayer.fired.push(g); }
+${spJs}
+}
+SoundPlayer.pendingFlip = 0; SoundPlayer.pendingExt = 0; SoundPlayer.flipId = 1; SoundPlayer.extId = 2; SoundPlayer.fired = [];
+SoundPlayer.VOL_FLIP = ${volOf('VOL_FLIP')}; SoundPlayer.VOL_EXTINGUISH = ${volOf('VOL_EXTINGUISH')};
+export { SoundPlayer };`, { TableAudio: { isGamePaused: () => paused.on }, AudioSettings: AS, SfxIds: new Proxy({}, { get: (_, k) => String(k) }) })).SoundPlayer;
+    const run = async (init) => {
+      const { AS } = await asCase(init);
+      const { TA, fm, tclk } = await loadTableAudio(AS);
+      TA.playClaimSet(); // pool not ready → deferred shot
+      await TA.prepare();
+      await drainMicrotasks();
+      fm.pools[0].emitAll(); // loadComplete → deferred replay
+      TA.startBgm(TA.BGM_FADE_IN_MS);
+      tclk.advance(2000);
+      const bgmVols = fm.players[0].vols.slice();
+      const paused = { on: false };
+      const SP = await loadSp(AS, paused);
+      SP.pendingFlip = 2; SP.pendingExt = 1;
+      SP.drainPending(true); SP.drainPending(false);
+      return { bgmVols, shots: fm.pools[0].plays.map((x) => x.vol), sp: SP.fired.slice() };
+    };
+    const mute = await run({ vol_bgm: 100, vol_sfx: 100, mute_all: true });
+    const sfx0 = await run({ vol_bgm: 100, vol_sfx: 0, mute_all: false });
+    const on = await run({ vol_bgm: 100, vol_sfx: 100, mute_all: false });
+    const allZero = (a) => a.every((v) => v === 0);
+    ok(allZero(mute.bgmVols) && mute.bgmVols.length > 0 && allZero(mute.shots) && allZero(mute.sp),
+      `mute_all=true (real AudioSettings → TableAudio / SoundPlayer): BGM volumes sent ${JSON.stringify([...new Set(mute.bgmVols)])}, ` +
+      `deferred shot volumes ${JSON.stringify(mute.shots)}, deferred flip/extinguish volumes ${JSON.stringify(mute.sp)} — all 0 (nothing audible)`);
+    ok(allZero(sfx0.shots) && allZero(sfx0.sp) && Math.max(...sfx0.bgmVols) > 0,
+      `vol_sfx=0: deferred shot volumes ${JSON.stringify(sfx0.shots)}, deferred flip/extinguish ${JSON.stringify(sfx0.sp)} — all 0; BGM track independent (max ${Math.max(...sfx0.bgmVols)})`);
+    ok(on.shots.length > 0 && on.shots.every((v) => v > 0) && on.sp.length === 3 && on.sp.every((v) => v > 0) && Math.max(...on.bgmVols) > 0,
+      `gain control (not muted, 100/100): deferred shot ${JSON.stringify(on.shots)}, deferred flip/extinguish ${JSON.stringify(on.sp)}, BGM max ${Math.max(...on.bgmVols)} — the replay paths really fire`);
+    // 第 4 段：pending 翻牌 / 熄烛在暂停时清掉 → 恢复后资源才就绪也不补响；对照：不暂停照常补响。
+    const { AS } = await asCase({ vol_bgm: 100, vol_sfx: 100, mute_all: false });
+    const pz = { on: false };
+    const SPp = await loadSp(AS, pz);
+    SPp.pendingFlip = 2; SPp.pendingExt = 1; // queued before the pause (resources not ready)
+    pz.on = true; SPp.pauseForGame();
+    pz.on = false; // resumed, then the resources become ready
+    SPp.drainPending(true); SPp.drainPending(false);
+    const SPc = await loadSp(AS, { on: false });
+    SPc.pendingFlip = 2; SPc.pendingExt = 1;
+    SPc.drainPending(true); SPc.drainPending(false);
+    ok(SPp.fired.length === 0 && SPp.pendingFlip === 0 && SPp.pendingExt === 0 && SPc.fired.length === 3,
+      `SoundPlayer.pauseForGame clears pendingFlip/pendingExt: after pause → resume → ready, stale flip/extinguish replayed=${SPp.fired.length}; control without pause replayed=${SPc.fired.length}`);
   }
   // ---- 负责人第 3 条遗留：async prepare 在 release 之后才返回 → 新建播放器 / 池立刻 release，不登记、不播放。
   // Control: the hold mechanism itself — a held createAVPlayer that resolves WITHOUT a release registers normally.
@@ -1339,6 +1831,7 @@ try {
   }
   ok(daOk, 'real DealAudio.ets loaded in node (types stripped, fake media)');
 }
+RUN(false);
 // SoundPlayer / LobbyAudio: same generation rule (structural — release bumps gen; every awaited create checks it before registering).
 {
   const sp = src(E + 'features/table/SoundPlayer.ets');
@@ -1402,7 +1895,36 @@ ok(plz !== null && Number(plz[1]) > Math.max(flyMax, ...zNums) && /\.zIndex\(PAU
   `PAUSE_LAYER_Z=${plz && plz[1]} > every other zIndex (fly max ${flyMax} = ${flyBase && flyBase[1]} + ${md.max_players}×${md.hand_size_default}; literals ${zNums.join('/')})`);
 ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
   'pause layer only mounted while pauseLayerOn (no layout / hit-test change when not paused)');
-ok(/REVEAL_HOLD_MS\(3000\)/.test(table) && !/REVEAL_HOLD_MS\(5000\)/.test(table) &&
+// ⑮ 补丁轮 2 第 1 段（UI 22 S22-32 / 22:106）：zIndex 只在同一父容器里比，所以按父容器查挂载位置——暂停层必须是根 Stack 的
+// 最后一个直接子节点，排在桌面 Stack（含桌槌 choiceActLayer / 回大厅键）、PeekMaskOverlay、出牌面板、飞牌之后；全屏盖安全区、遮罩吃点击。
+{
+  const bld = body(table, '  build() {');
+  const lines = bld.split('\n');
+  const rootEnd = lines.findIndex((ln, i) => i > 0 && /^ {4}\}/.test(ln));
+  const kids = [];
+  lines.forEach((ln, i) => { if (i < rootEnd && /^ {6}[^ .})\]]/.test(ln)) kids.push([i, ln.trim()]); });
+  const at = (re) => { const h = kids.find(([, tx]) => re.test(tx)); return h ? h[0] : -1; };
+  const desk = at(/^Stack\(\{ alignContent: Alignment\.TopStart \}\) \{$/);
+  const peek = at(/^PeekMaskOverlay\(/);
+  const sheet = at(/^if \(this\.showPlay\) \{$/);
+  const fly = at(/^if \(this\.flyOn\) \{$/);
+  const pause = at(/^if \(this\.pauseLayerOn\) \{$/);
+  const last = kids.length > 0 ? kids[kids.length - 1][0] : -1;
+  let deskEnd = -1;
+  for (let i = desk + 1; desk >= 0 && i < lines.length; i++) { if (/^ {6}\}/.test(lines[i])) { deskEnd = i; break; } }
+  const deskBody = desk >= 0 && deskEnd > desk ? lines.slice(desk, deskEnd + 1).join('\n') : '';
+  ok(desk >= 0 && deskEnd > desk && peek > deskEnd && sheet > peek && fly > sheet && pause > fly && pause === last &&
+    !deskBody.includes('this.pauseLayer()') && deskBody.includes('this.choiceActLayer()') && deskBody.includes('this.homeExitChrome()') &&
+    count(tableCode, /this\.pauseLayer\(\)/) === 1,
+    `pause layer mount (by parent): last child of the root Stack (root children lines desk ${desk}-${deskEnd} [mallet + home inside], ` +
+    `PeekMaskOverlay ${peek}, play sheet ${sheet}, fly card ${fly}, pause layer ${pause}; last root child ${last}); not inside the desk Stack`);
+  const plb = body(table, '  pauseLayer() {');
+  ok(/\.expandSafeArea\(\[SafeAreaType\.SYSTEM, SafeAreaType\.CUTOUT\],\s*\[SafeAreaEdge\.TOP, SafeAreaEdge\.BOTTOM, SafeAreaEdge\.START, SafeAreaEdge\.END\]\)/.test(plb) &&
+    /\.hitTestBehavior\(HitTestMode\.Default\)/.test(plb) && /\.opacity\(0\.72\)\s*\.onClick\(/.test(plb) &&
+    /\.ignoreLayoutSafeArea\(\[LayoutSafeAreaType\.SYSTEM\], \[LayoutSafeAreaEdge\.ALL\]\)/.test(lines.slice(rootEnd).join('\n')),
+    'pause layer full screen incl. safe areas (expandSafeArea 4 edges, root Stack ignoreLayoutSafeArea ALL); HitTestMode.Default + dim backdrop onClick swallow taps (nothing underneath clickable)');
+}
+ok(/REVEAL_HOLD_MS\(3000\)/.test(rawSrc(E + 'pages/Table.ets')) && !/REVEAL_HOLD_MS\(5000\)/.test(rawSrc(E + 'pages/Table.ets')) &&
   /static readonly REVEAL_HOLD_MS: number = 3000;/.test(src(E + 'features/table/PlayFlyFx.ets')), 'REVEAL_HOLD_MS comment matches code (3000)');
 
 // ---------------------------------------------------------------- ① audio settings
@@ -1434,7 +1956,7 @@ ok(settings.includes("static readonly KEY_BGM: string = 'vol_bgm';") && settings
 ok(/DEFAULT_BGM: number = 100;/.test(settings) && /DEFAULT_SFX: number = 100;/.test(settings) && /LEVEL_STEP: number = 5;/.test(settings) &&
   /DEFAULT_MUTED: boolean = false;/.test(settings) && settings.includes('AudioSettings.bgm / AudioSettings.LEVEL_MAX'),
   'volume 0..100 step 5, defaults 100 / 100 / false; gain = level / 100');
-ok(!/静默/.test(idsSrc.split('\n').slice(190, 215).join('\n')) && !/静默/.test(settings), '「静默」→「静音」 in Ids (settings block) / AudioSettings comments');
+ok(!/静默/.test(rawSrc(E + 'common/Ids.ets').split('\n').slice(190, 215).join('\n')) && !/静默/.test(rawSrc(E + 'persist/AudioSettings.ets')), '「静默」→「静音」 in Ids (settings block) / AudioSettings comments');
 ok(/static readonly SILENT: string = 'lb_tog_silent';/.test(idsSrc), "ControlIds.SILENT = 'lb_tog_silent' unchanged (only the comments changed 静默→静音)");
 {
   const recCode = code(records);
@@ -1448,9 +1970,8 @@ const ta = src(E + 'features/table/TableAudio.ets');
 const sp2 = src(E + 'features/table/SoundPlayer.ets');
 const da = src(E + 'features/table/DealAudio.ets');
 const pfg = code(body(ta, '  static pauseForGame(): void {'));
-ok(/static readonly PAUSE_FADE_OUT_MS: number = 150;/.test(ta) && pfg.includes('TableAudio.fadeBgm(TableAudio.bgmVol, 0, TableAudio.PAUSE_FADE_OUT_MS)') &&
-  pfg.includes('TableAudio.clearPendingShots()') && pfg.includes('TableAudio.pendingBgm = false'),
-  'pauseForGame: BGM fades to 0 over 150 ms (fadeBgm pauses at 0), pending shots cleared');
+ok(pfg.includes('TableAudio.clearPendingShots()') && pfg.includes('TableAudio.pendingBgm = false'),
+  'pauseForGame clears pending shots + pendingBgm (the 150 ms fade itself is the real-run "pause fade-out 150 ms")');
 ok(/if \(toVol <= 0\) \{\s*player\.pause\(\)/.test(code(body(ta, '  private static fadeBgm(fromVol: number, toVol: number, fadeMs: number): void {'))),
   'fadeBgm to 0 ends in player.pause() (position kept, no stop / seek)');
 ok(/static readonly RESUME_FADE_IN_MS: number = 300;/.test(ta) && code(body(ta, '  static resumeForGame(): void {')).includes('TableAudio.startBgm(TableAudio.RESUME_FADE_IN_MS)'),
@@ -1458,15 +1979,14 @@ ok(/static readonly RESUME_FADE_IN_MS: number = 300;/.test(ta) && code(body(ta, 
 const cps = code(body(ta, '  private static clearPendingShots(): void {'));
 const pendFlags = [...new Set([...code(ta).matchAll(/private static (pending(?!Bgm)\w+): boolean = false;/g)].map((m) => m[1]))];
 ok(pendFlags.length > 0 && pendFlags.every((f) => cps.includes(`TableAudio.${f} = false`)), `clearPendingShots resets all ${pendFlags.length} deferred-shot flags`);
-ok(/if \(TableAudio\.gamePaused\) \{[\s\S]{0,120}return;/.test(code(body(ta, '  private static playShot(soundId: number, volume: number): void {'))) &&
-  /if \(TableAudio\.gamePaused\) \{/.test(code(ta).slice(code(ta).indexOf('onLoaded'))) , 'TableAudio: playShot + onLoaded replay silent while paused');
+ok(/if \(TableAudio\.gamePaused\) \{\s*return;/.test(code(body(ta, '  private static playShot(soundId: number, volume: number): void {'))) &&
+  /^[^{]*\{\s*if \(TableAudio\.gamePaused\) \{\s*return;\s*\}/.test(code(body(ta, '  private static onLoaded(soundId: number): void {'))),
+  'TableAudio: playShot + onLoaded replay silent while paused (onLoaded gate anchored as its first statement)');
 ok(/if \(TableAudio\.isGamePaused\(\)\) \{[\s\S]{0,200}return;/.test(code(sp2)) && sp2.includes("import { TableAudio } from './TableAudio';"),
   'SoundPlayer.playNamed: no sound and no deferral while paused');
 const dp = code(body(sp2, '  private static drainPending(isFlip: boolean): void {'));
-ok(dp.includes('const paused: boolean = TableAudio.isGamePaused();') && dp.includes('AudioSettings.sfx01(SoundPlayer.VOL_FLIP)') &&
-  dp.includes('AudioSettings.sfx01(SoundPlayer.VOL_EXTINGUISH)') && count(dp, /if \(paused \|\| \w+Gain <= 0\) \{\s*return;/) === 2 &&
-  !/fireRenderer\(SoundPlayer\.VOL_|firePlay\([^)]*SoundPlayer\.VOL_/.test(dp),
-  'SoundPlayer.drainPending: deferred flip / extinguish dropped while paused, replayed with SFX gain (no raw VOL_*)');
+ok(dp.includes('const paused: boolean = TableAudio.isGamePaused();') && count(dp, /if \(paused \|\| \w+Gain <= 0\) \{\s*return;/) === 2,
+  'SoundPlayer.drainPending: deferred flip / extinguish dropped while paused (gain values are the real-run mute / vol_sfx=0 / control rows)');
 const ddc = code(body(da, '  static playDealCard(): void {'));
 ok(/^[^{]*\{\s*if \(TableAudio\.isGamePaused\(\)\) \{\s*return;/.test(ddc) && /if \(TableAudio\.isGamePaused\(\)\) \{\s*return;\s*\}\s*for/.test(code(da)),
   'DealAudio: playDealCard + loadComplete replay silent while paused');
@@ -1503,4 +2023,5 @@ const hits = findInCode([
 ], [...ANY_ESOBJECT, /:\s*unknown\b/]);
 ok(hits.length === 0, hits.length === 0 ? 'PR-B files: no any/unknown/ESObject in code' : `any/unknown/ESObject:\n  ${formatHits(hits)}`);
 
+console.log(`TALLY real-run ${tally.run}, structural ${tally.struct}, total ${tally.run + tally.struct}`);
 console.log(process.exitCode === 1 ? 'prb_client_check FAILED' : 'prb_client_check OK');

@@ -332,6 +332,15 @@ export class SoundPlayer {
       `SfxDiag T2 kind=${kind} playN=${playN} t=${t2} dT2-T0=${d20} dT2-T1=${d21}`);
   }
 
+  /**
+   * 补丁轮 2 第 4 条（同 TableAudio.pauseForGame 清 pending）：进局内暂停即丢掉还没补响的翻牌 / 熄烛，
+   * 恢复后资源才就绪也不补响过时的声音。
+   */
+  static pauseForGame(): void {
+    SoundPlayer.pendingFlip = 0;
+    SoundPlayer.pendingExt = 0;
+  }
+
   static release(): void {
     SoundPlayer.gen = SoundPlayer.gen + 1;
     // 在途 prepare 已作废：下一次 prepare 重新开始，不去等旧的那一趟。

@@ -97,11 +97,13 @@ export class RecordStore {
   static async init(context: common.UIAbilityContext): Promise<void> {
     try {
       const store: preferences.Preferences = await preferences.getPreferences(context, PersistNs.RECORDS);
-      RecordStore.store = store;
       const rawRecent: preferences.ValueType = await store.get(RecordStore.KEY_RECENT, '');
       const rawSummary: preferences.ValueType = await store.get(RecordStore.KEY_SUMMARY, '');
       const rawLast: preferences.ValueType = await store.get(RecordStore.KEY_LAST_MATCH, '');
       RecordStore.loadFrom(rawRecent, rawSummary, rawLast);
+      // 补丁轮 2 第 3 条：三个 get 全部读成功、内存已载入后才挂 store——某个 get 抛错时 store 保持 null，
+      // 之后的 commitOnce 不会拿「只有 1 条」的内存列表覆盖原档。
+      RecordStore.store = store;
       Logger.info(TAG, `loaded recent=${RecordStore.recentList.length} total=${RecordStore.summaryRef().total}`);
     } catch (err) {
       Logger.warn(TAG, 'preferences load fail-soft — empty records');
@@ -427,6 +429,7 @@ export class RecordStore {
       return null;
     }
     // 自洽：掺假 ≤ 出牌、开中 ≤ 质疑、被识破 ≤ 被质疑；中退恒 LOSE；WIN = 第 1 且非中退。
+    // 自相矛盾（例：WIN 但名次≠1，21:320）= 坏明细，只丢这一条。
     if (fakeHands > plays || doubtHits > doubts || caught > doubted) {
       return null;
     }
@@ -502,6 +505,8 @@ export class RecordStore {
     if (v !== 1 || total < 0 || wins < 0 || quits < 0 || doubts < 0 || doubtHits < 0) {
       return null;
     }
+    // 不可能状态（21:322）：wins+quits>total，或任一计数小于按有效明细重算值 → 坏汇总，交给调用方重算。
+    // 汇总大于重算值是正常的（明细最多 20 条），不算坏。
     if (wins > total || quits > total || wins + quits > total || doubtHits > doubts) {
       return null;
     }
@@ -540,7 +545,8 @@ export class RecordStore {
 
   private static async persist(): Promise<void> {
     const store: preferences.Preferences | null = RecordStore.store;
-    if (store === null) {
+    if (store === null || !RecordStore.loaded) {
+      // 未完整读入原档（init 失败 / 读到一半抛错）→ 不写盘，原存档字节不动（补丁轮 2 第 3 条）。
       return;
     }
     try {
