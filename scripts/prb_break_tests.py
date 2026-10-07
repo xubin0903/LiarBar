@@ -257,7 +257,7 @@ M = [
  ('B91 pageGone check in teardownAfterRoute removed', T, GONE_TEAR, "", 'leave-pageGone sites'),
  ('B92 aboutToDisappear never sets pageGone', T, GONE_SET, "", 'leave-pageGone ['),
  # 2. two matches in one run + toTable HiLog
- ('B93 toTable does not open a new leave session', LR, "    LbRouter.beginLeaveSession();\n    LbRouter.push(PageUrls.TABLE);", "    LbRouter.push(PageUrls.TABLE);", 'leave-two-matches'),
+ ('B93 toTable does not open a new leave session', LR, "    LbRouter.beginLeaveSession();\n    return LbRouter.push(PageUrls.TABLE);", "    return LbRouter.push(PageUrls.TABLE);", 'leave-two-matches'),
  ('B94 toTable HiLog for an in-flight leave replace removed', LR,
   "    if (LbRouter.tripsInFlight > 0) {\n", "    if (false) {\n", 'leave-pageGone ['),
  # 3. save-file gaps
@@ -380,6 +380,47 @@ M = [
  "playerCount: snap.seats.length,", "playerCount: 4,", "再来一局 keeps this match's nickname / playerCount / silent"),
 ('B142 report duration ignores pauses (pausedMs 0 into ReportModel)', RP,
  "      pausedMs: pausedMs,\n", "      pausedMs: 0,\n", 'report duration excludes pause'),
+# 页栈小修（负责人）：新大厅 clear / 进桌 push 失败回滚 / replace(TABLE) 失败先锁竖屏再回落回大厅
+('B143 new lobby never clears the page stack', LB,
+ "      LbRouter.clearBelowLobby();\n", "", 'pagestack two matches in a row'),
+('B144 clear moved before the lobby registers as audio owner', LB,
+ [("      LbRouter.clearBelowLobby();\n", ""),
+  ("    this.lobbyKey = LbRouter.lobbyAppeared(this.lobbyInit);\n",
+   "    LbRouter.clearBelowLobby();\n    this.lobbyKey = LbRouter.lobbyAppeared(this.lobbyInit);\n")], None, 'pagestack two matches in a row'),
+('B145 push-failure rollback keeps the director running', LB,
+ "    Logger.warn(TAG, 'table push failed → roll back to the lobby');\n    AppRuntime.director.stop();\n",
+ "    Logger.warn(TAG, 'table push failed → roll back to the lobby');\n", 'pagestack push-failure rollback (tryEnterTable)'),
+('B146 push-failure rollback without portrait lock', LB,
+ "    AppRuntime.engine.resetToLobby();\n    await this.lockPortraitSoft();\n    this.matchLoading = false;",
+ "    AppRuntime.engine.resetToLobby();\n    this.matchLoading = false;", 'pagestack push-failure rollback (tryEnterTable)'),
+('B147 push-failure rollback reveals the lobby before portrait lock', LB,
+ "    await this.lockPortraitSoft();\n    this.matchLoading = false;\n    this.matchBusy = false;\n    this.matchLoadAxisDone = false;\n"
+ "    this.matchLoadPersistDone = false;\n  }",
+ "    this.matchLoading = false;\n    this.matchBusy = false;\n    this.matchLoadAxisDone = false;\n"
+ "    this.matchLoadPersistDone = false;\n    await this.lockPortraitSoft();\n  }", 'pagestack push-failure rollback (tryEnterTable)'),
+('B148 push-failure rollback fades the lobby audio', LB,
+ "    Logger.warn(TAG, 'table push failed → roll back to the lobby');\n",
+ "    Logger.warn(TAG, 'table push failed → roll back to the lobby');\n    LobbyAudio.fadeOutForHide();\n", 'pagestack push-failure rollback (tryEnterTable)'),
+('B149 replace(TABLE) failure stays on the report (no lobby fallback)', LR,
+ "      } else if (url === PageUrls.TABLE) {\n"
+ "        // 页栈小修（负责人裁定 a）：再来一局 replace 到新桌失败 → 先锁竖屏、再回落回大厅（新大厅初始化停导演、引擎回 LOBBY）。\n"
+ "        LbRouter.portraitThenLobby();\n      }\n", "      }\n", 'pagestack replace(TABLE) failure → lobby'),
+('B150 replace(TABLE) fallback without portrait lock', LR,
+ "    await LbRouter.lockPortraitSoft();\n    LbRouter.toLobby();\n", "    LbRouter.toLobby();\n", 'pagestack replace(TABLE) failure → lobby'),
+('B151 replace(TABLE) fallback locks portrait after routing to the lobby', LR,
+ "    await LbRouter.lockPortraitSoft();\n    LbRouter.toLobby();\n", "    LbRouter.toLobby();\n    await LbRouter.lockPortraitSoft();\n",
+ 'pagestack replace(TABLE) failure → lobby'),
+# UI 预审：锁竖屏失败也要照常回大厅 / 露出大厅
+('B152 replace(TABLE) fallback portrait lock not fail-soft (no catch)', LR,
+ "    try {\n      const ctx: common.UIAbilityContext = getContext() as common.UIAbilityContext;\n      await WindowOrientation.lockPortrait(ctx);\n"
+ "    } catch (err) {\n      Logger.warn('LbRouter', 'portrait request fail-soft');\n    }\n",
+ "    const ctx: common.UIAbilityContext = getContext() as common.UIAbilityContext;\n    await WindowOrientation.lockPortrait(ctx);\n",
+ 'pagestack replace(TABLE) failure with lockPortrait rejecting'),
+('B153 lobby portrait lock not fail-soft (push-failure rollback stops before reveal)', LB,
+ "    try {\n      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;\n      await WindowOrientation.lockPortrait(ctx);\n"
+ "    } catch (err) {\n      Logger.warn(TAG, 'portrait request fail-soft');\n    }\n",
+ "    const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;\n    await WindowOrientation.lockPortrait(ctx);\n",
+ 'pagestack push-failure rollback with lockPortrait rejecting'),
 ]
 
 

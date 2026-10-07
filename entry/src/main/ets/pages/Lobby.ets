@@ -449,6 +449,8 @@ struct Lobby {
       this.startColdBoot();
     } else {
       this.startReturnEnter();
+      // 页栈小修（负责人）：非冷启动的新大厅初始化完成 → 栈深 > 1 就 router.clear()（本大厅已在 aboutToAppear 登记为音频持有者）。
+      LbRouter.clearBelowLobby();
     }
   }
 
@@ -1048,7 +1050,10 @@ struct Lobby {
   private async lockThenPeekTable(): Promise<void> {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     await WindowOrientation.lockLandscape(ctx);
-    LbRouter.toTable();
+    const pushed: boolean = await LbRouter.toTable();
+    if (!pushed) {
+      await this.rollbackTablePush();
+    }
   }
 
   private async persistQuickStart(): Promise<void> {
@@ -1085,6 +1090,25 @@ struct Lobby {
     }
     AppRuntime.director.start();
     Logger.info(TAG, 'L-4 axis done → T01 START_MATCH → lb_scr_table');
-    LbRouter.toTable();
+    LbRouter.toTable().then((pushed: boolean): void => {
+      if (!pushed) {
+        this.rollbackTablePush();
+      }
+    });
+  }
+
+  /**
+   * 页栈小修（负责人）：进桌 pushUrl 失败 → 留在大厅。停导演 → 引擎回 LOBBY → 先锁竖屏 → 再露出大厅（撤 L1 遮罩、放开按钮），
+   * 顺序照 22:210（先竖屏再见大厅，不横着闪）。不碰 LobbyAudio（push 没成功 = 大厅没被盖住，不 fade / 不 release）。
+   */
+  private async rollbackTablePush(): Promise<void> {
+    Logger.warn(TAG, 'table push failed → roll back to the lobby');
+    AppRuntime.director.stop();
+    AppRuntime.engine.resetToLobby();
+    await this.lockPortraitSoft();
+    this.matchLoading = false;
+    this.matchBusy = false;
+    this.matchLoadAxisDone = false;
+    this.matchLoadPersistDone = false;
   }
 }

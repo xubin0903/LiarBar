@@ -238,9 +238,20 @@ ok(/^[^{]*\{\s*if \(!LbRouter\.claimLeaveFinish\(\)\) \{\s*return false;\s*\}/.t
   !/resumeForGame|startBgm/.test(flo) && count(tableCode, /AppRuntime\.director\.stop\(\)/) === 1 && count(tableCode, /AppRuntime\.engine\.toLobby\(\)/) === 1 &&
   count(tableCode, /this\.finishLeaveOnce\(/) === 2,
   'finishLeaveOnce: once-only via LbRouter.claimLeaveFinish() (leave-session token, not a Table field) → director.stop + engine LOBBY + audio leaveThenRelease (no BGM resume); the only stop/toLobby in Table');
-ok(/static toTable\(\): void \{\s*if \(LbRouter\.tripsInFlight > 0\) \{\s*Logger\.warn\('LbRouter',[^;]*\);\s*\}\s*LbRouter\.beginLeaveSession\(\);/.test(lbRouter) &&
+ok(/static toTable\(\): Promise<boolean> \{\s*if \(LbRouter\.tripsInFlight > 0\) \{\s*Logger\.warn\('LbRouter',[^;]*\);\s*\}\s*LbRouter\.beginLeaveSession\(\);/.test(lbRouter) &&
   count(code(lbRouter), /LbRouter\.tripsInFlight = /) === 2,
   'toTable: one HiLog warn when a leave replace is still in flight (tripsInFlight: +1 on issue, −1 when the router settles), then a new leave session');
+{ // 页栈小修（负责人第 4 条）：不用 RouterMode.Single、不新增 router.back（仍是改前那 3 处：toLobbyOrBack 退路 / replace(LOBBY) 退路 / back()）；
+  // router.clear() 只在 LbRouter.clearBelowLobby 一处，Lobby 只在 begin() 的非冷启动分支调它一次。
+  const lobbyCode = code(src(E + 'pages/Lobby.ets'));
+  const lrCode = code(lbRouter);
+  const beginBody = body(src(E + 'pages/Lobby.ets'), '  private async begin(): Promise<void> {');
+  ok(!/RouterMode/.test(lrCode + lobbyCode) && count(lrCode, /router\.back\(\)/) === 3 && !/router\.back\(/.test(lobbyCode) && count(lrCode, /router\.clear\(\)/) === 1 &&
+    !/router\.clear\(/.test(lobbyCode) && count(lobbyCode, /LbRouter\.clearBelowLobby\(\)/) === 1 &&
+    /\} else \{\s*this\.startReturnEnter\(\);[\s\S]*?LbRouter\.clearBelowLobby\(\);\s*\}/.test(beginBody),
+    `pagestack: no RouterMode, router.back() in LbRouter stays ${count(lrCode, /router\.back\(\)/)} (pre-existing), none in Lobby; router.clear() ×${count(lrCode, /router\.clear\(\)/)} ` +
+    `only in LbRouter.clearBelowLobby, called once from Lobby.begin() non-cold branch`);
+}
 const tlb = body(lbRouter, '  static toLobbyOrBack(timeoutMs: number = LbRouter.LEAVE_ROUTE_TIMEOUT_MS): Promise<boolean> {');
 ok(/if \(trip !== null && now - trip\.issuedAtMs >= timeoutMs\) \{/.test(tlb) && count(lbRouter, /router\.replaceUrl\(\{ url: PageUrls\.LOBBY, params: params \}\)/) === 1 &&
   /params\.lbLeaveTicket = LbRouter\.leaveSeq;/.test(tlb),
@@ -1023,7 +1034,8 @@ if (RSh && PSched && MR) {
   };
   const routeHang = { rej: null, res: null };
   const routerJs = stripEts(lbRouter, ['Promise<void> | null', 'Promise<void>', 'RouteOnce', 'BusinessError', 'Error', 'LeaveTrip | null', 'LeaveTrip',
-    'LeaveRouteParams', 'Object | undefined', 'router.RouterState', 'number', 'boolean', 'string'], ['BusinessError', 'LeaveRouteParams']);
+    'LeaveRouteParams', 'Object | undefined', 'router.RouterState', 'common.UIAbilityContext', 'number', 'boolean', 'string'],
+    ['BusinessError', 'LeaveRouteParams', 'common.UIAbilityContext']);
   let audio = null;
   const makeWorld = async (rtr = fakeRouter) => {
     const wclk = makeClock(50000);
@@ -1031,8 +1043,12 @@ if (RSh && PSched && MR) {
     curPrefStore = makePrefStore();
     const RSx = await loadRecordStore();
     await RSx.init({});
+    // 页栈小修：LbRouter 自己的竖屏锁（replace(TABLE) 失败回落）走 orient.lockPortrait（makeLeaveWorld 接到 lw.log），默认立即成功。
+    const orient = { lockPortrait: null };
     const LbR = (await importFresh(routerJs, { router: rtr, PageUrls: { LOBBY: 'pages/Lobby', TABLE: 'pages/Table', REPORT: 'pages/Report' },
-      Logger: { info: () => {}, warn: (t, m) => routerLog.warns.push(m), error: (t, m) => routerLog.errors.push(m) }, ...clockStubs(wclk) })).LbRouter;
+      Logger: { info: () => {}, warn: (t, m) => routerLog.warns.push(m), error: (t, m) => routerLog.errors.push(m) },
+      WindowOrientation: { lockPortrait: (c) => (orient.lockPortrait ? orient.lockPortrait(c) : Promise.resolve()) }, getContext: () => ({}),
+      ...clockStubs(wclk) })).LbRouter;
     const Sch = (await importFresh(stripEts(sched, ['TimerEntry[]', 'TimerEntry | null', 'TimerEntry', 'number', 'boolean']), clockStubs(wclk))).PausableScheduler;
     audio = { paused: 0, resumed: 0, cleared: 0, leaveRelease: 0, spRelease: 0, daRelease: 0, spPause: 0, launch: 0, log: [] };
     const engine = {
@@ -1062,7 +1078,7 @@ if (RSh && PSched && MR) {
     });
     const t = new mod.TableHarness();
     t.bindPause();
-    return { t, director, engine, clk: wclk, RSx, LbR };
+    return { t, director, engine, clk: wclk, RSx, LbR, orient };
   };
   let w = null;
   try {
@@ -1254,17 +1270,19 @@ if (RSh && PSched && MR) {
     const LOBBY_SIGS = ['  aboutToAppear(): void {', '  aboutToDisappear(): void {', '  private async renderOnly(): Promise<void> {',
       '  private async lockPortraitSoft(): Promise<void> {', '  private async begin(): Promise<void> {', '  private startColdBoot(): void {',
       '  private startReturnEnter(): void {', '  private arm(delayMs: number, fn: () => void): void {', '  private clearTimers(): void {',
-      '  private async hydrate(): Promise<void> {', '  private async hydrateView(): Promise<void> {', '  onPageHide(): void {', '  onPageShow(): void {'];
+      '  private async hydrate(): Promise<void> {', '  private async hydrateView(): Promise<void> {', '  onPageHide(): void {', '  onPageShow(): void {',
+      '  private tryEnterTable(): void {', '  private async rollbackTablePush(): Promise<void> {', '  private async lockThenPeekTable(): Promise<void> {'];
     const missingLobby = LOBBY_SIGS.filter((sg) => body(lobbyText, sg).length === 0);
     ok(missingLobby.length === 0, `Lobby harness: all ${LOBBY_SIGS.length} lifecycle methods found (${missingLobby.join(' | ') || 'ok'})`);
     const lobbyJs = stripEts(LOBBY_SIGS.map((sg) => body(lobbyText, sg) + '\n  }\n').join('\n'),
-      ['common.UIAbilityContext', 'BootMarks', 'AnimateParam', 'LastTable', 'number', 'boolean', 'string'], ['common.UIAbilityContext']);
+      ['common.UIAbilityContext', 'BootMarks', 'AnimateParam', 'LastTable', 'StartMatchOpts', 'number', 'boolean', 'string'], ['common.UIAbilityContext']);
     const lobbyHarnessJs = `class LobbyHarness {
   constructor(name) {
     Object.assign(this, { name, nickname: '', playerCount: 0, silent: false, bootReady: false, splashOpacity: 0, lobbyBgOpacity: 1, loadOpacity: 0,
       loadValue: 0, idleOpacity: 0, announceOpacity: 0, greetOpacity: 0, topbarOpacity: 0, topbarY: 12, topbarScale: 0.96, cardOpacity: 0, cardY: 12,
       cardScale: 0.96, ctaOpacity: 0, ctaY: 12, ctaEnterScale: 0.96, peekOpacity: 0, peekY: 12, peekScale: 0.96, timerIds: [], loopsAlive: false,
-      idleLoopAlive: false, layerMs: 0, lobbyInit: true, lobbyKey: 0, appeared: false });
+      idleLoopAlive: false, layerMs: 0, lobbyInit: true, lobbyKey: 0, appeared: false, matchLoading: false, matchBusy: false, matchLoadAxisDone: false,
+      matchLoadPersistDone: false });
   }
   revealDealerIdle() {} crossToAnnounce() {} showGreet() {} crossBackIdle() {} playStagger() {}
   enableCta() { this.bootReady = true; } startIdleLoop() {} pulseBreath() {} pulseCandle() {} pulseDust() {} pulseCtaGlow() {} pulseTopbar() {}
@@ -1279,11 +1297,20 @@ export { LobbyHarness };`;
     const rawCtx = { resourceManager: { getRawFd: async () => ({ fd: 1, offset: 0, length: 10 }), closeRawFd: async () => {} } };
     const settle = async () => { for (let k = 0; k < 6; k++) { await drainMicrotasks(60); await tickIo(); } };
     const makeRouterModel = () => {
-      const m = { pages: [], trips: [], params: undefined, replaceCalls: 0, urls: [] };
+      const m = { pages: [], trips: [], params: undefined, replaceCalls: 0, urls: [], pushCalls: 0, pushFail: false, clears: 0, backs: 0, depthAtClear: [], clearTops: [], onRoute: null };
       m.router = {
-        replaceUrl: (opt) => { m.replaceCalls++; m.urls.push(opt.url); return new Promise((res, rej) => { m.trips.push({ opt, res, rej }); }); },
-        pushUrl: () => Promise.resolve(),
-        back: () => {},
+        replaceUrl: (opt) => { m.replaceCalls++; m.urls.push(opt.url); if (m.onRoute) m.onRoute(`replaceUrl:${opt.url}`); return new Promise((res, rej) => { m.trips.push({ opt, res, rej }); }); },
+        pushUrl: () => { m.pushCalls++; return m.pushFail ? Promise.reject(new Error('push failed (sim)')) : Promise.resolve(); },
+        // 页栈小修：router.clear() = 只留栈顶，下面每一页 aboutToDisappear（从栈底往上）。
+        clear: () => {
+          m.clears++;
+          m.depthAtClear.push(m.pages.length);
+          m.clearTops.push(m.pages.length > 0 ? m.pages[m.pages.length - 1].inst : null); // 谁在栈顶时 clear（= 调 clear 的大厅）
+          const gone = m.pages.slice(0, -1);
+          m.pages = m.pages.slice(-1);
+          for (const p of gone) { if (p.inst && p.inst.aboutToDisappear) p.inst.aboutToDisappear(); }
+        },
+        back: () => { m.backs++; },
         getLength: () => String(m.pages.length),
         getParams: () => m.params,
         getState: () => ({ index: m.pages.length, name: m.pages[m.pages.length - 1].name, path: 'pages/' })
@@ -1302,15 +1329,31 @@ export { LobbyHarness };`;
         MatchLoad: { VOL_MATCH_OPEN: 0.46 }, AudioSettings: AS || { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
         ...clockStubs(w.clk)
       })).LobbyAudio;
-      const lw = { resets: 0, lobbyStops: 0, tableAudioRelease: 0, lobbies: [], cold: !!cold };
+      const lw = { resets: 0, lobbyStops: 0, tableAudioRelease: 0, lobbies: [], cold: !!cold, log: [], portraitGate: null,
+        la: { leave: 0, release: 0, watch: false, calls: [] } };
+      // 页栈小修：LobbyAudio.leaveThenRelease / release 计数（lw.la）；lw.la.watch 打开时，大厅页对 LobbyAudio 的每次方法调用都记进 lw.la.calls。
+      const laLeave0 = LA.leaveThenRelease;
+      const laRelease0 = LA.release;
+      LA.leaveThenRelease = function leaveThenRelease() { lw.la.leave++; return laLeave0.call(this); };
+      LA.release = function release() { lw.la.release++; return laRelease0.call(this); };
+      const laSeenByLobby = new Proxy(LA, { get: (tg, k) => { const v = tg[k]; if (lw.la.watch && typeof v === 'function') lw.la.calls.push(String(k)); return v; } });
+      // 页栈小修：lockPortrait 可挂起（lw.portraitGate 返回一个由测试放行的 promise）→ 验「先锁竖屏再露出大厅」；lw.log 记导演 / 引擎 / 转屏顺序。
+      const winOrient = {
+        lockPortrait: () => { lw.log.push('portrait:req'); return (lw.portraitGate ? lw.portraitGate() : Promise.resolve()).then(() => { lw.log.push('portrait:done'); }); },
+        lockLandscape: async () => { lw.log.push('landscape'); }
+      };
+      w.orient.lockPortrait = winOrient.lockPortrait;
+      rm.onRoute = (x) => { lw.log.push(x); };
       const LM = (await importFresh(lobbyHarnessJs, {
-        LbRouter: w.LbR, Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'Lobby', WindowOrientation: { lockPortrait: async () => {} },
-        getContext: () => rawCtx, LobbyAudio: LA, TableAudio: { leaveThenRelease: () => { lw.tableAudioRelease++; } },
+        LbRouter: w.LbR, Logger: { info: () => {}, warn: () => {}, error: () => {} }, TAG: 'Lobby', WindowOrientation: winOrient,
+        getContext: () => rawCtx, LobbyAudio: laSeenByLobby, TableAudio: { leaveThenRelease: () => { lw.tableAudioRelease++; } },
         LobbySession: { takeColdStart: () => { const c = lw.cold; lw.cold = false; return c; } }, LobbyBoot: LB,
         animateTo: (o, f) => f(), Curve: new Proxy({}, { get: (_, k) => String(k) }), ConfigRepository: { isReady: () => false },
         LocalStore: { loadNickname: async () => 'nick', loadLastTable: async () => ({ playerCount: 4, lives: 3, silent: false }) },
         SmartFillAdapter: { systemSuggestion: () => '' },
-        AppRuntime: { bootDirector: () => {}, director: { stop: () => { lw.lobbyStops++; w.director.stop(); } }, engine: { resetToLobby: () => { lw.resets++; } } },
+        AppRuntime: { bootDirector: () => {},
+          director: { stop: () => { lw.lobbyStops++; lw.log.push('director.stop'); w.director.stop(); }, start: () => { lw.log.push('director.start'); } },
+          engine: { resetToLobby: () => { lw.resets++; lw.log.push('engine.resetToLobby'); }, startMatch: (o) => { lw.log.push(`engine.startMatch:${o.playerCount}`); return true; } } },
         ...clockStubs(w.clk)
       })).LobbyHarness;
       const newLobby = (name) => { const L = new LM(name); lw.lobbies.push(L); return L; };
@@ -1336,6 +1379,8 @@ export { LobbyHarness };`;
       return { ...w, rm, fm, LA, lw, newLobby, land };
     };
     const bgmOf = (fm) => fm.players[0];
+    const poolsPlayers = (fm) => ({ pools: fm.pools.length, players: fm.players.length,
+      livePools: fm.pools.filter((p) => !p.released).length, livePlayers: fm.players.filter((p) => !p.released).length });
     const confirmLeave = async (t, n) => { t.requestLeave(); t.dialogs[n].opts.secondaryButton.action(); await drainMicrotasks(); };
     const isPlaying = (p) => !p.released && p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'play';
     // 进桌后大厅 BGM 淡出票：acts 从 from 起（大厅页 onPageHide 之后）有没有再 play()、送过的音量是不是全 0、最后停在 pause。
@@ -1344,6 +1389,7 @@ export { LobbyHarness };`;
       return { noPlay: !tail.includes('play'), vols0: tail.filter((a) => a.startsWith('vol:')).every((a) => a === 'vol:0'),
         lastPause: p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'pause', lastVol: p.vols[p.vols.length - 1] };
     };
+    const dupClear = []; // 裁定 3：只渲染的重复大厅不 clear —— 4 个变体各记一行，循环后一条真跑断言
     for (const lateOld of [true, false]) {
       for (const order of ['newFirst', 'oldFirst']) {
         const lw0 = await makeLeaveWorld(false);
@@ -1358,25 +1404,37 @@ export { LobbyHarness };`;
         const replaceBeforeRetry = rm.replaceCalls;
         await confirmLeave(t, 1); // player confirms again → in-flight trip ≥ 3000 ms is voided → new replaceUrl
         const tickets = rm.trips.map((x) => x.opt.params && x.opt.params.lbLeaveTicket);
-        if (lateOld) { await lw0.land(1, order); c.advance(1500); await lw0.land(0, order); } else { await lw0.land(0, order); await lw0.land(1, order); }
+        let k1 = null;
+        if (lateOld) { await lw0.land(1, order); k1 = poolsPlayers(fm); c.advance(1500); await lw0.land(0, order); } else { await lw0.land(0, order); k1 = poolsPlayers(fm); await lw0.land(1, order); }
         c.advance(3000);
         await settle();
+        const kEnd = poolsPlayers(fm);
         const bgm = bgmOf(fm);
+        const initL = lw.lobbies.find((L) => L.lobbyInit);
+        const dupL = lw.lobbies.find((L) => !L.lobbyInit);
+        dupClear.push({ v: `${lateOld ? 'a' : 'b'}/${order}`, init: rm.clearTops.filter((x) => x === initL).length, dup: rm.clearTops.filter((x) => x === dupL).length,
+          total: rm.clears, hasDup: dupL !== undefined, hasInit: initL !== undefined });
         const inits = lw.lobbies.filter((L) => L.lobbyInit).length;
         const tableStops = director.stopped - lw.lobbyStops;
         const label = lateOld ? '(a) old hangs, new lands, old lands late' : '(b) both land: old first, then new';
         ok(replaceBeforeRetry === 1 && rm.replaceCalls === 2 && JSON.stringify(tickets) === '[1,2]' && lw.lobbies.length === 2 &&
-          lw.lobbies.every((L) => L.lobbyKey > 0) && rm.pages.length === 2 && rm.pages[1].name === 'Lobby' && rm.urls.every((u) => u === 'pages/Lobby') &&
+          lw.lobbies.every((L) => L.lobbyKey > 0) && rm.pages.length === 1 && rm.pages[0].name === 'Lobby' && rm.clears === 1 && rm.urls.every((u) => u === 'pages/Lobby') &&
           inits === 1 && lw.resets === 1 && lw.lobbyStops === 1 && fm.pools.length === 1 && bgm !== undefined && bgm.plays === 1 && !bgm.released &&
           bgm.vols.length > 0 && bgm.vols[bgm.vols.length - 1] > 0 && tableStops === 1 && engine.toLobbyCalls === 1 && audio.leaveRelease === 1 &&
-          RSx.recent().length === 1 && RSx.summaryNow().quits === 1,
+          RSx.recent().length === 1 && RSx.summaryNow().quits === 1 &&
+          kEnd.pools === 1 && kEnd.players === 2 && kEnd.livePools === 1 && kEnd.livePlayers === 2 && k1.pools === kEnd.pools && k1.players === kEnd.players &&
+          lw.la.leave === 0 && lw.la.release === 0,
           `leave-token ${label} [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: replaceUrl=${rm.replaceCalls} ` +
           `(before re-confirm ${replaceBeforeRetry}) tickets=${JSON.stringify(tickets)}; lobby instances=${lw.lobbies.length} (both aboutToAppear), ` +
           `lobby init=${inits} (engine reset=${lw.resets}, LobbyAudio pools=${fm.pools.length}), BGM play()=${bgm ? bgm.plays : -1} released=${bgm ? bgm.released : '-'}; ` +
           `leave finish director.stop=${tableStops} (+ lobby init stop ${lw.lobbyStops}), engine LOBBY=${engine.toLobbyCalls}, 中退=${RSx.recent().length}; ` +
-          `stack=[${rm.pages.map((p) => p.name).join(',')}] (no Report)`);
+          `stack=[${rm.pages.map((p) => p.name).join(',')}] (no Report; init lobby router.clear()=${rm.clears} — 页栈小修); LobbyAudio pools/AVPlayers after 1st landing ` +
+          `${k1.pools}/${k1.players} → end ${kEnd.pools}/${kEnd.players} (live ${kEnd.livePools}/${kEnd.livePlayers}), leaveThenRelease=${lw.la.leave} release=${lw.la.release}`);
       }
     }
+    ok(dupClear.length === 4 && dupClear.every((d) => d.hasInit && d.hasDup && d.init === 1 && d.dup === 0 && d.total === 1),
+      `pagestack render-only duplicate lobby never clears (leave-token a/b × both lifecycle orders): ` +
+      dupClear.map((d) => `${d.v} init-lobby clear=${d.init} duplicate clear=${d.dup} (total ${d.total})`).join('; '));
     // (ii) re-send only if Table is still on top: the old trip already swapped the page (lifecycle not delivered yet) → no 2nd replace, finish.
     {
       const lw0 = await makeLeaveWorld(false);
@@ -1739,7 +1797,8 @@ export { LobbyHarness };`;
         `pools=${k.pools} AVPlayers=${k.players} plays=${JSON.stringify(k.plays)} unreferenced-but-playing=${k.orphans}; BGM play()=${bgm ? bgm.plays : -1} playing=${bgm ? isPlaying(bgm) : false} ` +
         `(pools created before A resumed: ${preparedBeforeA})`);
     }
-    // (2) push 进桌、大厅留在栈上（LbRouter.toTable → pushUrl；旧大厅不销毁、Lobby:120 的 leaveThenRelease 不跑），离局回来的新大厅 begin() 再调 prepare()（同代）。
+    // (2) push 进桌、大厅留在栈上（LbRouter.toTable → pushUrl；局内旧大厅不销毁），离局回来的新大厅 begin() 再调 prepare()（同代）。
+    //     页栈小修：新大厅初始化完成后 router.clear() 才把旧大厅清掉——它已不是音频持有者，Lobby:120 的 leaveThenRelease 不跑（池 / 播放器数不变即证）。
     //     局内大厅 BGM 是否在响是另一张票（#296 之后），这里不断言它，只数池 / 播放器 / 孤儿。
     for (const order of ['newFirst', 'oldFirst']) {
       const ps = await makeLeaveWorld(true);
@@ -1773,13 +1832,15 @@ export { LobbyHarness };`;
       const k = audioCensus(fm, LA);
       const L1 = lw.lobbies[1];
       const bgm = LA.bgmPlayer;
-      ok(pushes === 1 && l0Gone === 0 && rm.pages[0].inst === L0 && L1 !== undefined && L1.lobbyInit === true && k0.pools === 1 && k0.players === 2 &&
+      ok(pushes === 1 && l0Gone === 1 && rm.clears === 1 && rm.pages.length === 1 && L1 !== undefined && rm.pages[0].inst === L1 && L1.lobbyInit === true && k0.pools === 1 && k0.players === 2 &&
         k.pools === 1 && k.players === 2 && k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0 &&
-        plays0 === 1 && bgm !== null && bgm === bgm0 && bgm.plays === 2 && isPlaying(bgm),
-        `lobby-audio push-stay-return prepare guard [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: pushUrl=${pushes}, lobby under the table destroyed=${l0Gone}; ` +
+        plays0 === 1 && bgm !== null && bgm === bgm0 && bgm.plays === 2 && isPlaying(bgm) && k.pools === k0.pools && k.players === k0.players &&
+        lw.la.leave === 0 && lw.la.release === 0,
+        `lobby-audio push-stay-return prepare guard [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: pushUrl=${pushes}, lobby under the table destroyed=${l0Gone} ` +
+        `(by the new lobby's router.clear()=${rm.clears}, stack depth ${rm.pages.length}); ` +
         `before the match pools=${k0.pools} AVPlayers=${k0.players}; after returning (new lobby init=${L1 ? L1.lobbyInit : '-'}, prepare() again) pools=${k.pools} AVPlayers=${k.players} ` +
         `(live ${k.livePools}/${k.livePlayers}), unreferenced-but-playing=${k.orphans}; BGM play() cold=${plays0} → after return ${bgm ? bgm.plays : -1} ` +
-        `(same player=${bgm === bgm0}) playing=${bgm ? isPlaying(bgm) : false}`);
+        `(same player=${bgm === bgm0}) playing=${bgm ? isPlaying(bgm) : false}; LobbyAudio leaveThenRelease=${lw.la.leave} release=${lw.la.release}`);
     }
     // (3) 防过度拦截：守卫只挡同代重复。大厅被移走 → 真 release（gen + 1）→ 回到大厅（新初始化大厅）→ prepare() 必须重建：
     //     活着的池 1、播放器 2、BGM 在放（play 总数 +1）。
@@ -1990,6 +2051,215 @@ export { LobbyHarness };`;
         `lobby-audio prepare retry after createAVPlayer failure: cold BGM bed threw (${fm.failed.player}×) → BGM player=${before.bgm === null ? 'none' : 'yes'}, amb built, players=${before.players}; ` +
         `next return → createAVPlayer called ${fm.calls.player}× total, BGM bed rebuilt=${bgm !== null}, amb kept=${LA.ambPlayer === before.amb}, players=${fm.players.length}, ` +
         `BGM playing=${bgm ? isPlaying(bgm) : false} play()=${bgm ? bgm.plays : -1} volume ${bgm ? bgm.vols[bgm.vols.length - 1] : NaN}, pools=${fm.pools.length}`);
+    }
+    // ⑲ 页栈小修（负责人，#307 合入后开）：真 Lobby（aboutToAppear / begin / tryEnterTable / rollbackTablePush / lockThenPeekTable）+ 真 LbRouter
+    //     + 真 LobbyAudio（假 media）。router 模型维护页栈：push / replace 落地由测试推进；router.clear() 只留栈顶、下面每页 aboutToDisappear（从栈底往上）。
+    // (1) 连打两局（push 进桌 → 离局 replace 回新大厅 ×2）：每个新初始化大厅 clear 一次 → 栈深始终 1；被清掉的旧大厅已不是音频持有者 →
+    //     LobbyAudio 不 leaveThenRelease / 不 release、gen 不变、同一个 BGM 播放器在放。
+    for (const order of ['newFirst', 'oldFirst']) {
+      const sw = await makeLeaveWorld(true);
+      const { t, clk: c, rm, fm, LbR, LA, lw } = sw;
+      await coldLobby(sw, 'L0-cold');
+      const bgm = LA.bgmPlayer;
+      const gen0 = LA.gen;
+      const spy = { leaveRelease: 0, release: 0 };
+      const lrel0 = LA.leaveThenRelease;
+      const rel0 = LA.release;
+      LA.leaveThenRelease = function leaveThenRelease() { spy.leaveRelease++; return lrel0.call(this); };
+      LA.release = function release() { spy.release++; return rel0.call(this); };
+      const depths = [];
+      let tbl = t;
+      for (let k = 0; k < 2; k++) {
+        const Lk = rm.pages[rm.pages.length - 1].inst;
+        LbR.toTable(); // Lobby.tryEnterTable → pushUrl, lobby stays under the table
+        rm.pages.push({ name: 'Table', inst: tbl });
+        Lk.onPageHide();
+        c.advance(30000);
+        await settle();
+        await confirmLeave(tbl, 0);
+        await sw.land(k, order); // Table → new init lobby (aboutToAppear registers the audio owner → begin() → clear)
+        c.advance(1000);
+        await settle();
+        depths.push(rm.pages.length);
+        if (k === 0) tbl = nextTable(sw, t);
+      }
+      const top = rm.pages[rm.pages.length - 1];
+      ok(JSON.stringify(depths) === '[1,1]' && rm.clears === 2 && JSON.stringify(rm.depthAtClear) === '[2,2]' && lw.lobbies.length === 3 &&
+        lw.lobbies.every((L) => L.lobbyInit) && top.inst === lw.lobbies[2] && rm.backs === 0 && LA.gen === gen0 && spy.leaveRelease === 0 && spy.release === 0 &&
+        bgm !== null && LA.bgmPlayer === bgm && !bgm.released && isPlaying(bgm) && fm.pools.length === 1 && fm.players.length === 2,
+        `pagestack two matches in a row [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: stack depth after each return ` +
+        `${JSON.stringify(depths)} (router.clear()=${rm.clears}, depth at clear ${JSON.stringify(rm.depthAtClear)}, back()=${rm.backs}), lobbies=${lw.lobbies.length} all init=` +
+        `${lw.lobbies.every((L) => L.lobbyInit)}; LobbyAudio gen ${gen0} → ${LA.gen}, leaveThenRelease=${spy.leaveRelease} release=${spy.release}, ` +
+        `same BGM player=${LA.bgmPlayer === bgm} playing=${bgm ? isPlaying(bgm) : false}; pools=${fm.pools.length} AVPlayers=${fm.players.length}`);
+    }
+    // (2) 进桌 pushUrl 失败（L1 遮罩 + 横屏中）：回滚 = 停导演 → 引擎回 LOBBY → 锁竖屏 → 竖屏落定后才撤遮罩（matchLoading=false，22:210 先竖屏再见大厅）。
+    //     lockPortrait 由测试挂住：挂住期间遮罩必须还在。LobbyAudio 不动：不 fade / 不 leaveThenRelease / 不 release、gen 不变、没有被 hide 暂停、BGM 一直在放。
+    pushFail: {
+      const pf = await makeLeaveWorld(true);
+      const { clk: c, rm, LbR, LA, lw } = pf;
+      const L0 = await coldLobby(pf, 'L0');
+      const bgm = LA.bgmPlayer;
+      if (bgm === null) { fail('pagestack push-failure rollback: cold lobby built no BGM player'); break pushFail; }
+      const gen0 = LA.gen;
+      const acts0 = bgm.acts.length;
+      const spy = { fade: 0, leaveRelease: 0, release: 0 };
+      const fade0 = LA.fadeOutForHide;
+      const lrel0 = LA.leaveThenRelease;
+      const rel0 = LA.release;
+      LA.fadeOutForHide = function fadeOutForHide() { spy.fade++; return fade0.call(this); };
+      LA.leaveThenRelease = function leaveThenRelease() { spy.leaveRelease++; return lrel0.call(this); };
+      LA.release = function release() { spy.release++; return rel0.call(this); };
+      let loading = true;
+      Object.defineProperty(L0, 'matchLoading', { configurable: true, get: () => loading, set: (v) => { loading = v; if (!v) lw.log.push('reveal'); } });
+      Object.assign(L0, { matchBusy: true, matchLoadAxisDone: true, matchLoadPersistDone: true });
+      let openPortrait = null;
+      lw.portraitGate = () => new Promise((res) => { openPortrait = res; });
+      lw.log.length = 0;
+      const stops0 = lw.lobbyStops;
+      const resets0 = lw.resets;
+      rm.pushFail = true;
+      lw.la.calls.length = 0;
+      lw.la.watch = true; // 从这里起大厅页对 LobbyAudio 的任何方法调用都记下来
+      L0.tryEnterTable(); // startMatch → director.start → LbRouter.toTable() → pushUrl rejects
+      await settle();
+      const held = { loading, busy: L0.matchBusy, log: lw.log.join(' → ') };
+      if (openPortrait) openPortrait();
+      await settle();
+      c.advance(1000);
+      await settle();
+      const tail = bgm.acts.slice(acts0).filter((a) => !a.startsWith('vol:'));
+      const seq = lw.log.join(' → ');
+      ok(rm.pushCalls === 1 && held.loading === true && held.busy === true &&
+        held.log === 'engine.startMatch:4 → director.start → director.stop → engine.resetToLobby → portrait:req' &&
+        seq === 'engine.startMatch:4 → director.start → director.stop → engine.resetToLobby → portrait:req → portrait:done → reveal' &&
+        lw.lobbyStops === stops0 + 1 && lw.resets === resets0 + 1 && loading === false && L0.matchBusy === false && L0.matchLoadAxisDone === false &&
+        L0.matchLoadPersistDone === false && rm.pages.length === 1 && rm.pages[0].inst === L0 && rm.replaceCalls === 0 && rm.backs === 0 &&
+        spy.fade === 0 && spy.leaveRelease === 0 && spy.release === 0 && lw.la.calls.length === 0 && LA.gen === gen0 && !LA.isPausedByHide() && tail.length === 0 &&
+        LA.bgmPlayer === bgm && isPlaying(bgm) && Math.abs(bgm.vols[bgm.vols.length - 1] - LA.VOL_BGM_STEADY) < 1e-12,
+        `pagestack push-failure rollback (tryEnterTable): pushUrl=${rm.pushCalls} rejected; while lockPortrait is pending overlay shown=${held.loading} busy=${held.busy} ` +
+        `[${held.log}]; full order [${seq}]; director.stop +${lw.lobbyStops - stops0} engine LOBBY +${lw.resets - resets0}; flags reset=` +
+        `${!loading && !L0.matchBusy && !L0.matchLoadAxisDone && !L0.matchLoadPersistDone}; stack depth ${rm.pages.length}, replace=${rm.replaceCalls} back=${rm.backs}; ` +
+        `LobbyAudio fadeOutForHide=${spy.fade} leaveThenRelease=${spy.leaveRelease} release=${spy.release} calls from the lobby [${lw.la.calls.join(',') || 'none'}] ` +
+        `gen ${gen0} → ${LA.gen} pausedByHide=${LA.isPausedByHide()}, ` +
+        `BGM acts since push [${tail.join(',') || 'none'}] playing=${isPlaying(bgm)} volume ${bgm.vols[bgm.vols.length - 1]}`);
+      // 偷看桌（peek）同一回滚：先横屏 → push 失败 → 停导演 → 引擎回 LOBBY → 锁竖屏 → 露出大厅；LobbyAudio 仍不动。
+      lw.portraitGate = null;
+      lw.log.length = 0;
+      lw.la.calls.length = 0;
+      const peek0 = { stops: lw.lobbyStops, resets: lw.resets, dirStopped: pf.director.stopped, acts: bgm.acts.length };
+      await L0.lockThenPeekTable();
+      await settle();
+      c.advance(1000);
+      await settle();
+      const seqPeek = lw.log.join(' → ');
+      const tailPeek = bgm.acts.slice(peek0.acts).filter((a) => !a.startsWith('vol:'));
+      ok(rm.pushCalls === 2 && seqPeek === 'landscape → director.stop → engine.resetToLobby → portrait:req → portrait:done → reveal' &&
+        lw.lobbyStops === peek0.stops + 1 && pf.director.stopped === peek0.dirStopped + 1 && lw.resets === peek0.resets + 1 &&
+        spy.fade === 0 && spy.leaveRelease === 0 && spy.release === 0 && lw.la.calls.length === 0 && LA.gen === gen0 && !LA.isPausedByHide() &&
+        tailPeek.length === 0 && isPlaying(bgm) && rm.pages.length === 1,
+        `pagestack push-failure rollback (peek table): order [${seqPeek}]; director.stop +${lw.lobbyStops - peek0.stops} (director stopped +${pf.director.stopped - peek0.dirStopped}), ` +
+        `engine LOBBY +${lw.resets - peek0.resets}, portrait locked=${lw.log.includes('portrait:done')}; LobbyAudio calls from the lobby [${lw.la.calls.join(',') || 'none'}] ` +
+        `fadeOutForHide=${spy.fade} leaveThenRelease=${spy.leaveRelease} release=${spy.release} gen ${gen0} → ${LA.gen} pausedByHide=${LA.isPausedByHide()}, ` +
+        `BGM acts [${tailPeek.join(',') || 'none'}] playing=${isPlaying(bgm)}; stack depth ${rm.pages.length}`);
+    }
+    // (3) 再来一局 replace 到 TABLE 失败（栈 [冷启动大厅, 结算]）：LbRouter 回落回大厅 → 第二趟 replaceUrl(LOBBY)（不 back()）→ 新初始化大厅停导演 / 引擎回 LOBBY，
+    //     并 clear 掉栈底旧大厅（栈深 1），音频不释放、BGM 恢复在放。
+    {
+      const rf = await makeLeaveWorld(true);
+      const { clk: c, rm, LbR, LA, lw } = rf;
+      const L0 = await coldLobby(rf, 'L0');
+      const bgm = LA.bgmPlayer;
+      rm.pages.push({ name: 'Report', inst: { aboutToDisappear: () => {} } });
+      L0.onPageHide();
+      c.advance(1000);
+      await settle();
+      const gen0 = LA.gen;
+      const stops0 = lw.lobbyStops;
+      const resets0 = lw.resets;
+      let openPortrait = null;
+      lw.portraitGate = () => new Promise((res) => { openPortrait = res; });
+      lw.log.length = 0;
+      LbR.replaceTable(); // Report.restartMatch → replaceUrl(TABLE)
+      const urls0 = rm.urls.slice();
+      if (rm.trips[0]) rm.trips[0].rej(new Error('replace failed (sim)'));
+      await settle();
+      const held = { log: lw.log.join(' → '), urls: rm.urls.length }; // 竖屏锁挂住：回落路由还不能发
+      if (openPortrait) openPortrait();
+      lw.portraitGate = null;
+      await settle();
+      const seqFallback = lw.log.join(' → ');
+      const urls1 = rm.urls.slice();
+      await rf.land(1, 'newFirst'); // the fallback replaceUrl(LOBBY) lands: Report → new init lobby
+      c.advance(1000);
+      await settle();
+      const L1 = lw.lobbies[1];
+      ok(JSON.stringify(urls0) === '["pages/Table"]' && JSON.stringify(urls1) === '["pages/Table","pages/Lobby"]' && rm.backs === 0 && L1 !== undefined &&
+        held.log === 'replaceUrl:pages/Table → portrait:req' && held.urls === 1 &&
+        seqFallback === 'replaceUrl:pages/Table → portrait:req → portrait:done → replaceUrl:pages/Lobby' &&
+        L1.lobbyInit === true && lw.lobbyStops === stops0 + 1 && lw.resets === resets0 + 1 && rm.clears === 1 && rm.pages.length === 1 && rm.pages[0].inst === L1 &&
+        LA.gen === gen0 && bgm !== null && LA.bgmPlayer === bgm && isPlaying(bgm),
+        `pagestack replace(TABLE) failure → lobby: replaceUrl ${JSON.stringify(urls0)} rejected → ${JSON.stringify(urls1)} (back()=${rm.backs}); while the portrait lock is ` +
+        `pending [${held.log}] (replaceUrl calls ${held.urls}); order [${seqFallback}]; fallback lobby init=` +
+        `${L1 ? L1.lobbyInit : '-'} director.stop +${lw.lobbyStops - stops0} engine LOBBY +${lw.resets - resets0}; router.clear()=${rm.clears} stack depth ${rm.pages.length}; ` +
+        `LobbyAudio gen ${gen0} → ${LA.gen}, BGM playing=${bgm ? isPlaying(bgm) : false}`);
+    }
+    // (3b) UI 预审：锁竖屏 reject 也不能卡住——两条路都照常往下走（不停在横屏结算 / 遮罩上）。lockPortrait 桩一律 reject；
+    //      期间临时挂 unhandledRejection 监听：被漏掉的 reject 记下来判红（不让 node 直接崩掉、看不到是哪条）。
+    const withUnhandled = async (fn) => {
+      const seen = [];
+      const h = (e) => { seen.push(e && e.message ? e.message : String(e)); };
+      process.on('unhandledRejection', h);
+      try { await fn(); await tickIo(); await tickIo(); } finally { process.off('unhandledRejection', h); }
+      return seen;
+    };
+    {
+      const rj = await makeLeaveWorld(true);
+      const { clk: c, rm, LbR, LA, lw } = rj;
+      await coldLobby(rj, 'L0');
+      rm.pages.push({ name: 'Report', inst: { aboutToDisappear: () => {} } });
+      const r = {};
+      const unhandled = await withUnhandled(async () => {
+        lw.portraitGate = () => Promise.reject(new Error('lockPortrait rejected (sim)'));
+        lw.log.length = 0;
+        LbR.replaceTable();
+        if (rm.trips[0]) rm.trips[0].rej(new Error('replace failed (sim)'));
+        await settle();
+        r.seq = lw.log.join(' → ');
+        r.urls = rm.urls.slice();
+        await rj.land(1, 'newFirst'); // fallback lands; the new lobby's own portrait lock (aboutToAppear) also rejects → swallowed
+        c.advance(1000);
+        await settle();
+        lw.portraitGate = null;
+      });
+      const L1 = lw.lobbies[1];
+      ok(r.seq === 'replaceUrl:pages/Table → portrait:req → replaceUrl:pages/Lobby' && JSON.stringify(r.urls) === '["pages/Table","pages/Lobby"]' &&
+        r.urls.filter((u) => u === 'pages/Lobby').length === 1 && rm.backs === 0 && unhandled.length === 0 && L1 !== undefined && L1.lobbyInit === true &&
+        rm.pages.length === 1 && rm.pages[0].inst === L1 && LA.bgmPlayer !== null && isPlaying(LA.bgmPlayer),
+        `pagestack replace(TABLE) failure with lockPortrait rejecting: order [${r.seq}] → toLobby replaceUrl(LOBBY)×${(r.urls || []).filter((u) => u === 'pages/Lobby').length} ` +
+        `(back()=${rm.backs}), unhandled rejections=${unhandled.length}${unhandled.length ? ` (${unhandled[0]})` : ''}; fallback lobby init=${L1 ? L1.lobbyInit : '-'} ` +
+        `stack depth ${rm.pages.length}, BGM playing=${LA.bgmPlayer ? isPlaying(LA.bgmPlayer) : false}`);
+    }
+    {
+      const rj = await makeLeaveWorld(true);
+      const { rm, LA, lw } = rj;
+      const L0 = await coldLobby(rj, 'L0');
+      let loading = true;
+      Object.defineProperty(L0, 'matchLoading', { configurable: true, get: () => loading, set: (v) => { loading = v; if (!v) lw.log.push('reveal'); } });
+      Object.assign(L0, { matchBusy: true, matchLoadAxisDone: true, matchLoadPersistDone: true });
+      const gen0 = LA.gen;
+      const unhandled = await withUnhandled(async () => {
+        lw.portraitGate = () => Promise.reject(new Error('lockPortrait rejected (sim)'));
+        lw.log.length = 0;
+        rm.pushFail = true;
+        L0.tryEnterTable();
+        await settle();
+        lw.portraitGate = null;
+      });
+      const seq = lw.log.join(' → ');
+      ok(seq === 'engine.startMatch:4 → director.start → director.stop → engine.resetToLobby → portrait:req → reveal' && loading === false &&
+        L0.matchBusy === false && unhandled.length === 0 && LA.gen === gen0 && LA.bgmPlayer !== null && isPlaying(LA.bgmPlayer),
+        `pagestack push-failure rollback with lockPortrait rejecting: order [${seq}], overlay hidden=${!loading} busy=${L0.matchBusy}, ` +
+        `unhandled rejections=${unhandled.length}${unhandled.length ? ` (${unhandled[0]})` : ''}; LobbyAudio gen ${gen0} → ${LA.gen}, BGM playing=${LA.bgmPlayer ? isPlaying(LA.bgmPlayer) : false}`);
     }
     // (4) 守卫在 await 期间的并发（负责人第 2 条补测）：假 createSoundPool / createAVPlayer 挂在假时钟上 300 ms 后才 resolve；
     //     第二次 prepare() 正好在第一次等 createSoundPool 时进来（池还是 null），第三次在等 createAVPlayer 时进来 → 都必须被同代守卫挡住。
