@@ -3176,7 +3176,6 @@ ok(cpk.includes('this.playLog.append(this.roundIndex, actor, picked.length, fake
 ok(/recapPlayLog\(\): PlayLogEntry\[\] \{\s*if \(this\.phase !== Phase\.RECAP && this\.phase !== Phase\.END\) \{\s*return \[\];\s*\}\s*return this\.playLog\.entries\(\);/.test(code(engine)) &&
   !/playLog/.test(code(body(engine, '  private buildSnapshot(): MatchSnapshot {'))),
   'playLog copy only after RECAP / END (never in the mid-match snapshot)');
-ok(/return this\.playLog\.size\(\);/.test(code(body(engine, '  private matchHandNo(): number {'))), 'matchHandNo = playLog length (rollback pops, no gaps)');
 ok(!/highlightLine|dealerLine/.test(code(reportPage)) && !/snap\.lastPlay|snap\.challenge/.test(code(reportPage)) &&
   reportPage.includes('playLog: AppRuntime.engine.recapPlayLog(),') && reportPage.includes('this.view = ReportModel.build(input, this.readTexts());'),
   'Report reads playLog via ReportModel only (no highlightLine / dealerLine fallback, no snap.lastPlay / challenge — S21-25 / S21-46)');
@@ -3301,9 +3300,9 @@ if (PL && RMod) {
     'report text: no 命 / 开枪 / 左轮 / 膛位, no unfilled {placeholder}, winner line never reused in highlight slots (RPT-6 / S21-46)');
 }
 
-// --- engine playLog wiring: REAL MatchEngine methods (commitPicked / rollbackLastPlay / applyJudged / buildRecap / matchHandNo / recapPlayLog)
+// --- engine playLog wiring: REAL MatchEngine methods (commitPicked / rollbackLastPlay / applyJudged / buildRecap / recapPlayLog)
 const PLE_SIGS = ['  private commitPicked(', '  rollbackLastPlay(): boolean {', '  private applyJudged(): void {', '  private buildRecap(): RecapRow[] {',
-  '  private matchHandNo(): number {', '  recapPlayLog(): PlayLogEntry[] {', '  private seatCount(arr: number[], seat: number): number {'];
+  '  recapPlayLog(): PlayLogEntry[] {', '  private seatCount(arr: number[], seat: number): number {'];
 const plMiss = PLE_SIGS.filter((sg) => body(engine, sg).length === 0);
 ok(plMiss.length === 0, `playLog engine harness: ${PLE_SIGS.length} real MatchEngine methods found (${plMiss.join(' | ') || 'ok'})`);
 if (PL && plMiss.length === 0) {
@@ -3351,10 +3350,10 @@ export { PLEngine };`;
     copy[0].seq = 42;
     const r = (i) => recap[i];
     ok(midCopy.length === 0 && copy.length === 3 && en.recapPlayLog()[0].seq === 1 && JSON.stringify(en.recapPlayLog().map((e) => e.seq)) === '[1,2,3]' &&
-      en.matchHandNo() === 3 && r(1).playCount === 1 && r(1).fakeHandCount === 0 && r(1).doubtedCount === 1 && r(1).caughtCount === 0 &&
+      en.playLog.size() === 3 && r(1).playCount === 1 && r(1).fakeHandCount === 0 && r(1).doubtedCount === 1 && r(1).caughtCount === 0 &&
       r(2).challengeCount === 1 && r(2).challengeHits === 0 && r(3).fakeHandCount === 1 && r(3).doubtedCount === 1 && r(3).caughtCount === 1 &&
       r(0).challengeCount === 1 && r(0).challengeHits === 1 && r(0).playCount === 1,
-      `real engine methods: commitPicked append / rollbackLastPlay pop / applyJudged mark → buildRecap from playLog (hands=${en.matchHandNo()}, ` +
+      `real engine methods: commitPicked append / rollbackLastPlay pop / applyJudged mark → buildRecap from playLog (hands=${en.playLog.size()}, ` +
       `seat1 fake after rollback=${r(1).fakeHandCount}, seat3 caught=${r(3).caughtCount}, human hits=${r(0).challengeHits}); mid-match copy empty`);
   }
 }

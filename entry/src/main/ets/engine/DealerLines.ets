@@ -1,6 +1,6 @@
-import { MatchSnapshot, SeatModel } from './MatchTypes';
+import { MatchSnapshot } from './MatchTypes';
 import { nicknameOf } from './SeatUtil';
-import { ChallengeResult, Phase, SeatRole, TurnWindow } from './Phase';
+import { Phase, SeatRole, TurnWindow } from './Phase';
 
 function fill(tpl: string, snap: MatchSnapshot): string {
   let challenger: string = '';
@@ -116,38 +116,11 @@ function templateFor(key: string): string {
   if (key === 'lb_str_dlr_recap') {
     return '{胜者} 留下。';
   }
-  if (key === 'lb_str_dlr_hl_slam_caught') {
-    return '{被质疑者} 第 {n} 手甩出后被拆穿。';
-  }
-  if (key === 'lb_str_dlr_hl_fail') {
-    return '{质疑者} 开错了，自己掉命。';
-  }
-  if (key === 'lb_str_dlr_hl_fallback') {
-    return '本局最险的一次质疑在第 {n} 手。';
-  }
   return '';
 }
 
 export function lineForKey(key: string, snap: MatchSnapshot): string {
   return fill(templateFor(key), snap);
-}
-
-/**
- * PR-A 结算高光：不读 snap.challenge/lastPlay（RECAP 时已被 collectRedeal 清空），
- * 由引擎在清空前快照的座位与手序直接填模板。{n} = 第几手（手数），不是张数。
- */
-export function highlightLineFor(
-  key: string,
-  seats: SeatModel[],
-  challengerSeatId: number,
-  accusedSeatId: number,
-  handNo: number
-): string {
-  let out: string = templateFor(key);
-  out = out.replace('{质疑者}', nicknameOf(seats, challengerSeatId));
-  out = out.replace('{被质疑者}', nicknameOf(seats, accusedSeatId));
-  out = out.replace('{n}', handNo > 0 ? `${handNo}` : '');
-  return out;
 }
 
 export function pickTurnDealerKey(snap: MatchSnapshot): string {
@@ -213,32 +186,4 @@ export function liveClaimShort(snap: MatchSnapshot): string {
     return '';
   }
   return `出 ${snap.currentClaim.rank}`;
-}
-
-export function highlightFromLog(snap: MatchSnapshot): string {
-  let slamCaught: boolean = false;
-  let failHit: boolean = false;
-  let playN: number = 0;
-  for (let i = 0; i < snap.eventLog.length; i++) {
-    const ev = snap.eventLog[i];
-    if (ev.kind === 'PLAY' && ev.detail.indexOf('SLAM') >= 0) {
-      playN = playN + 1;
-    } else if (ev.kind === 'PLAY') {
-      playN = playN + 1;
-    }
-    if (ev.kind === 'JUDGE' && ev.detail.indexOf(ChallengeResult.SUCCESS) >= 0 &&
-      i > 0 && snap.eventLog[i - 1].kind === 'CHALLENGE') {
-      slamCaught = slamCaught || (i >= 2 && snap.eventLog[i - 2].detail.indexOf('SLAM') >= 0);
-    }
-    if (ev.kind === 'JUDGE' && ev.detail.indexOf(ChallengeResult.FAIL) >= 0) {
-      failHit = true;
-    }
-  }
-  if (slamCaught) {
-    return lineForKey('lb_str_dlr_hl_slam_caught', snap);
-  }
-  if (failHit) {
-    return lineForKey('lb_str_dlr_hl_fail', snap);
-  }
-  return lineForKey('lb_str_dlr_hl_fallback', snap);
 }

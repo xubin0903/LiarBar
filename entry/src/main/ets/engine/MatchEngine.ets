@@ -18,14 +18,13 @@ import {
   AiRevealRec
 } from '../ai/AiTypes';
 import { isChallengeSuccess, isLegal } from './Judge';
-import { highlightLineFor, lineForKey, pickTurnDealerKey } from './DealerLines';
+import { lineForKey, pickTurnDealerKey } from './DealerLines';
 import { dealRound, DealResult, isFakeRank, repairDemoHands } from './DeckDeal';
 import {
   CardModel,
   ChallengeModel,
   ClaimModel,
   FaceBet,
-  HighlightPick,
   MatchEvent,
   MatchSnapshot,
   PlayLogEntry,
@@ -109,11 +108,6 @@ export class MatchEngine {
   private challenge: ChallengeModel | null = null;
   private dealerKey: string = '';
   private dealerLine: string = '';
-  private highlightLine: string = '';
-  /** PR-A: highlight snapshots captured before collectRedeal clears challenge/lastPlay. */
-  private hlSlamCaught: HighlightPick | null = null;
-  private hlFail: HighlightPick | null = null;
-  private hlLast: HighlightPick | null = null;
   private demoOn: boolean = false;
   private forceClaimUsed: boolean = false;
   private forcePlayUsed: boolean = false;
@@ -344,10 +338,6 @@ export class MatchEngine {
     this.slamUsed = 0;
     this.hesitateUsed = 0;
     this.lastClaimRank = '';
-    this.highlightLine = '';
-    this.hlSlamCaught = null;
-    this.hlFail = null;
-    this.hlLast = null;
     this.viewerSeatId = 0;
     this.skipDepth = 0;
     this.clearEmptyGate();
@@ -738,9 +728,6 @@ export class MatchEngine {
 
   /** CollectRedeal: after PenaltyExtinguish1 or RoundSafeWait settle → redeal (不绑枪). */
   collectRedeal(): boolean {
-    // PR-A: snapshot judged challenge + lastPlay BEFORE they are cleared below,
-    // so recap highlight never reads null challenge/lastPlay (结算高光句半空).
-    this.captureHighlightBeforeClear();
     this.clearEmptyGate();
     this.roundSafeWaitSeats = [];
     this.roundWinPending = false;
@@ -1486,55 +1473,7 @@ export class MatchEngine {
       }
     }
     this.dealerKey = 'lb_str_dlr_recap';
-    this.highlightLine = this.buildHighlight();
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
-  }
-
-  /** PR-A: called at the top of collectRedeal, before lastPlay/challenge = null. */
-  private captureHighlightBeforeClear(): void {
-    const ch: ChallengeModel | null = this.challenge;
-    const lp: PlayModel | null = this.lastPlay;
-    if (ch === null || lp === null || ch.result.length === 0 || ch.targetPlayId !== lp.playId) {
-      return;
-    }
-    const success: boolean = ch.result === ChallengeResult.SUCCESS;
-    const pick: HighlightPick = {
-      challengerSeatId: ch.challengerSeatId,
-      accusedSeatId: lp.actorSeatId,
-      handNo: this.matchHandNo(),
-      style: lp.style,
-      success: success
-    };
-    this.hlLast = pick;
-    if (success && lp.style === PlayStyle.SLAM) {
-      this.hlSlamCaught = pick;
-    }
-    if (!success) {
-      this.hlFail = pick;
-    }
-  }
-
-  /** 本局已落定的手数 = playLog 长度（commitPicked 追加，rollbackLastPlay 弹末条）。 */
-  private matchHandNo(): number {
-    return this.playLog.size();
-  }
-
-  /** Priority unchanged: SLAM 被拆穿 > 开错 > 兜底（取本局最后一次判定的质疑）。 */
-  private buildHighlight(): string {
-    if (this.hlSlamCaught !== null) {
-      return this.lineForPick('lb_str_dlr_hl_slam_caught', this.hlSlamCaught);
-    }
-    if (this.hlFail !== null) {
-      return this.lineForPick('lb_str_dlr_hl_fail', this.hlFail);
-    }
-    if (this.hlLast !== null) {
-      return this.lineForPick('lb_str_dlr_hl_fallback', this.hlLast);
-    }
-    return '';
-  }
-
-  private lineForPick(key: string, pick: HighlightPick): string {
-    return highlightLineFor(key, this.seats, pick.challengerSeatId, pick.accusedSeatId, pick.handNo);
   }
 
   private refreshTurnBanner(): void {
@@ -1877,7 +1816,6 @@ export class MatchEngine {
       revealOpen: this.revealOpen,
       dealerKey: this.dealerKey,
       dealerLine: this.dealerLine,
-      highlightLine: this.highlightLine,
       selfHand: this.phase === Phase.DEAL ? [] : this.copyCards(this.handOf(this.viewerSeatId)),
       lastPlayRanks: showRanks ? this.copyRanks(this.lastPlayRanks) : [],
       seats: pubSeats,

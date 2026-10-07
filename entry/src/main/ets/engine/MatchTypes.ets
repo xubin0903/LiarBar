@@ -136,7 +136,6 @@ export interface MatchSnapshot {
   revealOpen: boolean;
   dealerKey: string;
   dealerLine: string;
-  highlightLine: string;
   selfHand: CardModel[];
   lastPlayRanks: string[];
   seats: SeatModel[];
@@ -168,16 +167,5 @@ export interface PlayLogEntry {
   loserSeatId: number;
 }
 
-/**
- * PR-A 结算高光快照：collectRedeal 清空 challenge/lastPlay 之前抓取。
- * handNo = 本局第几手（全局手序，回撤已扣），不是张数。
- */
-export interface HighlightPick {
-  challengerSeatId: number;
-  accusedSeatId: number;
-  handNo: number;
-  style: string;
-  success: boolean;
-}
 
 export { BetPick, ChallengeResult, EventKind, LifeReason, PlayStyle };
