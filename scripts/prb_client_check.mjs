@@ -23,6 +23,8 @@
  *  ⑯ 补丁轮 3（负责人 2026-10-07 夜）真跑：pageGone（老趟落地、新趟卡住，销毁后不锁横屏 / 不重绑 avoidArea / 不恢复导演）/ 连打两局离局 /
  *     toTable 在途离局 HiLog / 存档三缺口 / lb.settings 读一半抛错 / 增益 0.5 主路径（SoundPlayer / TableAudio / LobbyAudio / 快恢复）/
  *     只渲染大厅 LobbyAudio.playIfIdle（慢到重起、快到不重播）
+ *  ⑰ 进桌后大厅 BGM 淡出票（负责人 2026-10-08）真跑：大厅页 onPageHide 400ms 淡出后 pause / onPageShow → playIfIdle 恢复（同一组播放器）/
+ *     连打两局 BGM play() = 回大厅次数 / 同代 prepare 失败可重试（建池、建床）/ await 期间并发 prepare 守卫 / 3 秒内二次离局
  * 破坏测试：python3 scripts/prb_break_tests.py（不是闸，不进闸清单）。
  * No git, no diff against origin/develop (负责人规则). Box has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
@@ -866,8 +868,14 @@ if (RSh && PSched) {
 
 const makeFakeMedia = () => {
   // hold.pool / hold.player = true → the next create* stays pending until m.resolveHeld() (async prepare hanging).
-  const m = { pools: [], players: [], hold: { pool: false, player: false }, held: [] };
+  // fail.pool / fail.player = n → the next n create* reject (prepare failure); delay.pool / delay.player = ms → create* resolves that much
+  // later on the world's fake clock (m.clock, set by makeLeaveWorld) — an await window for a concurrent prepare().
+  const m = { pools: [], players: [], hold: { pool: false, player: false }, held: [], fail: { pool: 0, player: 0 }, delay: { pool: 0, player: 0 },
+    clock: null, calls: { pool: 0, player: 0 }, failed: { pool: 0, player: 0 } };
   const gate = (kind, make) => {
+    m.calls[kind]++;
+    if (m.fail[kind] > 0) { m.fail[kind]--; m.failed[kind]++; return Promise.reject(new Error(`fake create ${kind} failed`)); }
+    if (m.delay[kind] > 0 && m.clock) { const ms = m.delay[kind]; return new Promise((res) => { m.clock.setTimeout(() => res(make()), ms); }); }
     if (!m.hold[kind]) return Promise.resolve(make());
     m.hold[kind] = false;
     return new Promise((res) => { m.held.push(() => res(make())); });
@@ -1243,7 +1251,7 @@ if (RSh && PSched && MR) {
     const LOBBY_SIGS = ['  aboutToAppear(): void {', '  aboutToDisappear(): void {', '  private async renderOnly(): Promise<void> {',
       '  private async lockPortraitSoft(): Promise<void> {', '  private async begin(): Promise<void> {', '  private startColdBoot(): void {',
       '  private startReturnEnter(): void {', '  private arm(delayMs: number, fn: () => void): void {', '  private clearTimers(): void {',
-      '  private async hydrate(): Promise<void> {', '  private async hydrateView(): Promise<void> {'];
+      '  private async hydrate(): Promise<void> {', '  private async hydrateView(): Promise<void> {', '  onPageHide(): void {', '  onPageShow(): void {'];
     const missingLobby = LOBBY_SIGS.filter((sg) => body(lobbyText, sg).length === 0);
     ok(missingLobby.length === 0, `Lobby harness: all ${LOBBY_SIGS.length} lifecycle methods found (${missingLobby.join(' | ') || 'ok'})`);
     const lobbyJs = stripEts(LOBBY_SIGS.map((sg) => body(lobbyText, sg) + '\n  }\n').join('\n'),
@@ -1284,6 +1292,7 @@ export { LobbyHarness };`;
       const rm = makeRouterModel();
       const w = await makeWorld(rm.router);
       const fm = makeFakeMedia();
+      fm.clock = w.clk;
       const LA = (await importFresh(laJs, {
         media: fm, audio: { StreamUsage: { STREAM_USAGE_MUSIC: 1 }, AudioRendererRate: { RENDER_RATE_NORMAL: 0 } },
         SfxIds: new Proxy({}, { get: (_, k) => String(k) }), Logger: { info: () => {}, warn: () => {}, error: () => {} }, LobbyBoot: LB,
@@ -1313,8 +1322,8 @@ export { LobbyHarness };`;
           // 追补：router 的 replace 先回成功（Table 先 settle → teardownAfterRoute 收尾），被换掉的旧页 aboutToDisappear 之后才到，新大厅再出现。
           trip.res();
           await settle();
-          old.inst.aboutToDisappear(); L.aboutToAppear();
-        } else if (order === 'newFirst') { L.aboutToAppear(); old.inst.aboutToDisappear(); } else { old.inst.aboutToDisappear(); L.aboutToAppear(); }
+          old.inst.aboutToDisappear(); L.aboutToAppear(); L.onPageShow();
+        } else if (order === 'newFirst') { L.aboutToAppear(); L.onPageShow(); old.inst.aboutToDisappear(); } else { old.inst.aboutToDisappear(); L.aboutToAppear(); L.onPageShow(); }
         rm.pages[rm.pages.length - 1] = { name: 'Lobby', inst: L };
         if (order !== 'routeFirst') trip.res();
         await settle();
@@ -1325,6 +1334,13 @@ export { LobbyHarness };`;
     };
     const bgmOf = (fm) => fm.players[0];
     const confirmLeave = async (t, n) => { t.requestLeave(); t.dialogs[n].opts.secondaryButton.action(); await drainMicrotasks(); };
+    const isPlaying = (p) => !p.released && p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'play';
+    // 进桌后大厅 BGM 淡出票：acts 从 from 起（大厅页 onPageHide 之后）有没有再 play()、送过的音量是不是全 0、最后停在 pause。
+    const silentSince = (p, from) => {
+      const tail = p.acts.slice(from);
+      return { noPlay: !tail.includes('play'), vols0: tail.filter((a) => a.startsWith('vol:')).every((a) => a === 'vol:0'),
+        lastPause: p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'pause', lastVol: p.vols[p.vols.length - 1] };
+    };
     for (const lateOld of [true, false]) {
       for (const order of ['newFirst', 'oldFirst']) {
         const lw0 = await makeLeaveWorld(false);
@@ -1467,14 +1483,20 @@ export { LobbyHarness };`;
     // ⑯ 补丁轮 3 第 2 条：同一次运行连打两局、每局都离局 → 第二局也 director.stop 1 次、引擎回 LOBBY、桌音释放、中退 1 条（共 2 条、matchId 不同）。
     {
       const lw2 = await makeLeaveWorld(false);
-      const { t, director, engine, clk: c, RSx, rm, lw, LbR } = lw2;
+      const { t, director, engine, clk: c, RSx, rm, fm, lw, LbR, LA } = lw2;
       LbR.toTable();
       rm.pages = [tableStub(), { name: 'Table', inst: t }];
       await confirmLeave(t, 0);
       await lw2.land(0, 'newFirst');
       const m1 = { stops: director.stopped - lw.lobbyStops, lobby: engine.toLobbyCalls, rel: audio.leaveRelease, recs: RSx.recent().length, phase: engine.snap.phase };
+      const lbgm = LA.bgmPlayer; // lobby BGM of the first real lobby (return #1)
+      const lp1 = { plays: lbgm ? lbgm.plays : -1, playing: lbgm !== null && isPlaying(lbgm) };
       const w0 = routerLog.warns.filter((m) => m.startsWith('toTable:')).length;
       LbR.toTable(); // match 2 (Lobby.tryEnterTable), no leave replace in flight → no HiLog
+      lw.lobbies[0].onPageHide(); // pushUrl covers the lobby (it stays on the stack) → 400 ms fade, then pause
+      c.advance(LA.HIDE_FADE_MS);
+      await settle();
+      const hideMark = lbgm ? lbgm.acts.length : 0; // from here on (fade done) the lobby must stay silent for the whole match
       const warnIdle = routerLog.warns.filter((m) => m.startsWith('toTable:')).length - w0;
       const t2 = new t.constructor();
       t2.bindPause();
@@ -1482,17 +1504,25 @@ export { LobbyHarness };`;
       director.state = PSt.RUNNING; director.reason = '';
       rm.pages.push({ name: 'Table', inst: t2 });
       c.advance(60000);
+      await settle();
+      const mid2 = lbgm ? silentSince(lbgm, hideMark) : { noPlay: false, vols0: false, lastPause: false, lastVol: NaN };
       await confirmLeave(t2, 0);
       await lw2.land(1, 'oldFirst');
       const ids = RSx.recent().map((r) => r.matchId);
       const tableStops = director.stopped - lw.lobbyStops;
-      ok(m1.stops === 1 && m1.lobby === 1 && m1.rel === 1 && m1.recs === 1 && m1.phase === PhaseE.LOBBY &&
+      const returns = lw.lobbies.length; // every return to the lobby = one leave landing = one lobby instance
+      ok(lbgm !== null && lp1.plays === 1 && lp1.playing && mid2.noPlay && mid2.vols0 && mid2.lastPause && mid2.lastVol === 0 &&
+        LA.bgmPlayer === lbgm && lbgm.plays === returns && returns === 2 && isPlaying(lbgm) && fm.pools.length === 1 && fm.players.length === 2 &&
+        m1.stops === 1 && m1.lobby === 1 && m1.rel === 1 && m1.recs === 1 && m1.phase === PhaseE.LOBBY &&
         tableStops === 2 && engine.toLobbyCalls === 2 && engine.snap.phase === PhaseE.LOBBY && audio.leaveRelease === 2 &&
         RSx.recent().length === 2 && new Set(ids).size === 2 && ids.includes('m-777') && ids.includes('m-778') && RSx.recent().every((r) => r.quit === true) &&
         RSx.summaryNow().quits === 2 && rm.replaceCalls === 2 && lw.lobbies.length === 2 && lw.lobbies.every((L) => L.lobbyInit) && warnIdle === 0,
         `leave-two-matches: match 1 director.stop=${m1.stops} LOBBY=${m1.lobby} table audio released=${m1.rel} 中退=${m1.recs}; ` +
         `match 2 director.stop total=${tableStops} engine LOBBY total=${engine.toLobbyCalls} (${engine.snap.phase}) table audio released total=${audio.leaveRelease}; ` +
-        `records=${RSx.recent().length} [${ids.join(',')}] quits=${RSx.summaryNow().quits}; both lobbies init=${lw.lobbies.map((L) => L.lobbyInit).join('/')}; toTable HiLog when idle=${warnIdle}`);
+        `records=${RSx.recent().length} [${ids.join(',')}] quits=${RSx.summaryNow().quits}; both lobbies init=${lw.lobbies.map((L) => L.lobbyInit).join('/')}; toTable HiLog when idle=${warnIdle}; ` +
+        `lobby audio: return #1 BGM play()=${lp1.plays} playing=${lp1.playing}; match 2 (lobby on the stack) play()=${mid2.noPlay ? 0 : '≥1'} volumes all 0=${mid2.vols0} ` +
+        `paused=${mid2.lastPause} last volume=${mid2.lastVol}; after return #2 same player=${LA.bgmPlayer === lbgm} BGM play()=${lbgm ? lbgm.plays : -1} = returns ${returns}, ` +
+        `playing=${lbgm ? isPlaying(lbgm) : false}, pools=${fm.pools.length} AVPlayers=${fm.players.length}`);
     }
     // 补丁轮 3/3 追补（负责人批，进 #296）：LbRouter.tripsInFlight 落地 / 失败都回 0。三个独立新世界、三个断言名；
     // 每条都只看真 LbRouter：结束时 toTable 的 HiLog「toTable: N leave replace(s) still in flight」新增 0 行，计数读数 = 0（中途读数也逐值对上，从不为负）。
@@ -1538,12 +1568,13 @@ export { LobbyHarness };`;
       const { t, clk: c, rm, LbR } = lwx;
       LbR.toTable();
       rm.pages = [{ name: 'Table', inst: t }];
+      const issuedAt = c.now; // relative clock (no hard-coded world start)
       await confirmLeave(t, 0);
       const n1 = LbR.tripsInFlight;
       c.advance(500);
       rm.trips[0].rej({ code: 100001, message: 'replace failed' });
       await settle();
-      const viaReject = t.leaving === false && t.homeRouting === false && c.now - 50000 < 3000; // released by the reject → back ✗ path, before any timeout
+      const viaReject = t.leaving === false && t.homeRouting === false && c.now - issuedAt < LbR.LEAVE_ROUTE_TIMEOUT_MS; // released by the reject → back ✗ path, before any timeout
       const nAfterReject = LbR.tripsInFlight;
       c.advance(5000);
       await settle();
@@ -1572,6 +1603,46 @@ export { LobbyHarness };`;
       ok(rm.replaceCalls === 2 && JSON.stringify(pre.tickets) === '[1,2]' && pre.n2 === 2 && nAfterOld === 1 && nEnd === 0 && dw === 0,
         `leave-tripsInFlight old and new both land → 0: in flight after re-confirm=${pre.n2}, after voided #1 lands (#2 pending)=${nAfterOld}, ` +
         `after #2 lands=${nEnd}; toTable HiLog +${dw}`);
+    }
+    // 进桌后大厅 BGM 淡出票第 3 条（负责人）：离局成功后马上开新局，3 秒内（< LEAVE_ROUTE_TIMEOUT_MS）再离局一次 → 必须重新发 replace、落回大厅、
+    // 第二局收尾 1 次。真 LbRouter.clearTrip 落地时清掉 leaveTrip；若不清（只减计数），第二次离局会被当成「上一趟还在途」直接按成功收尾，人停在 Table。
+    {
+      const l2 = await makeLeaveWorld(false);
+      const { t, director, engine, clk: c, RSx, rm, lw, LbR } = l2;
+      LbR.toTable();
+      rm.pages = [tableStub(), { name: 'Table', inst: t }];
+      const t0 = c.now;
+      await confirmLeave(t, 0);
+      const L1 = l2.newLobby('L1'); // trip #1 lands at once (no land(): it advances 2000 ms)
+      rm.params = rm.trips[0].opt.params;
+      L1.aboutToAppear(); L1.onPageShow(); t.aboutToDisappear();
+      rm.pages[rm.pages.length - 1] = { name: 'Lobby', inst: L1 };
+      rm.trips[0].res();
+      await settle();
+      const m1 = { stops: director.stopped - lw.lobbyStops, lobby: engine.toLobbyCalls, top: rm.pages[rm.pages.length - 1].name, inFlight: LbR.tripsInFlight };
+      c.advance(500);
+      LbR.toTable(); // match 2 right away
+      const t2 = new t.constructor();
+      t2.bindPause();
+      Object.assign(engine.snap, { matchId: 'm-778', phase: PhaseE.TURN, startedAt: c.now });
+      director.state = PSt.RUNNING; director.reason = '';
+      rm.pages.push({ name: 'Table', inst: t2 });
+      c.advance(1000);
+      const dt = c.now - t0;
+      await confirmLeave(t2, 0);
+      const replace2 = rm.replaceCalls;
+      const ticket2 = rm.trips[1] ? rm.trips[1].opt.params.lbLeaveTicket : -1;
+      await l2.land(1, 'newFirst');
+      c.advance(3000);
+      await settle();
+      const top = rm.pages[rm.pages.length - 1];
+      const tableStops = director.stopped - lw.lobbyStops;
+      ok(dt < LbR.LEAVE_ROUTE_TIMEOUT_MS && m1.stops === 1 && m1.lobby === 1 && m1.top === 'Lobby' && m1.inFlight === 0 && replace2 === 2 && ticket2 === 2 &&
+        !lw.missingTrips && top.name === 'Lobby' && top.inst !== L1 && t2.pageGone === true && tableStops === 2 && engine.toLobbyCalls === 2 &&
+        engine.snap.phase === PhaseE.LOBBY && RSx.recent().length === 2 && lw.lobbies.length === 2 && lw.lobbies.every((L) => L.lobbyInit),
+        `leave-twice-within-3s (leave #1 lands, new match, leave #2 at +${dt} ms < ${LbR.LEAVE_ROUTE_TIMEOUT_MS}): match 1 finish=${m1.stops} top=${m1.top} in flight=${m1.inFlight}; ` +
+        `leave #2 replaceUrl total=${replace2} (ticket #${ticket2}), lands on ${top.name} (new instance=${top.inst !== L1}), match 2 finish=${tableStops - m1.stops} ` +
+        `(director.stop total=${tableStops}, engine LOBBY total=${engine.toLobbyCalls} → ${engine.snap.phase}), 中退=${RSx.recent().length}`);
     }
     // 防重复收尾三层之一「阶段判断」单独真跑（真 Table.finishLeaveIfRouted / teardownAfterRoute / finishLeaveOnce + 真 LbRouter）：
     // pageGone = false、离局会话令牌是新的（toTable 开了新会话，令牌可领），只有阶段挡：引擎已在 LOBBY / RECAP / END → 不再收尾；
@@ -1621,7 +1692,6 @@ export { LobbyHarness };`;
         `director.stop=${tableStops} engine LOBBY=${engine.toLobbyCalls} table audio release=${audio.leaveRelease} 中退=${RSx.recent().length} (quits=${RSx.summaryNow().quits})`);
     }
     // 追补（美术阻塞项）：LobbyAudio.prepare() 同代守卫——全部在真 LobbyAudio（假 media）上真跑，数实际建出的 SoundPool / AVPlayer。
-    const isPlaying = (p) => !p.released && p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'play';
     const audioCensus = (fm, LA) => ({
       pools: fm.pools.length, players: fm.players.length,
       livePools: fm.pools.filter((p) => !p.released).length, livePlayers: fm.players.filter((p) => !p.released).length,
@@ -1686,19 +1756,27 @@ export { LobbyHarness };`;
       c.advance(12000);
       await settle();
       const k0 = audioCensus(fm, LA);
+      const bgm0 = LA.bgmPlayer;
+      const plays0 = bgm0 ? bgm0.plays : -1;
       LbR.toTable(); // pushUrl: L0 stays alive under the Table
       rm.pages.push({ name: 'Table', inst: t });
+      L0.onPageHide(); // covered by the Table → lobby beds fade out + pause
+      c.advance(30000); // the match
+      await settle();
       await confirmLeave(t, 0);
-      await ps.land(0, order); // Table → new init lobby L1 → begin() → prepare() again, same gen
+      await ps.land(0, order); // Table → new init lobby L1 → begin() → prepare() again, same gen; L1.onPageShow → playIfIdle resumes
       c.advance(3000);
       await settle();
       const k = audioCensus(fm, LA);
       const L1 = lw.lobbies[1];
+      const bgm = LA.bgmPlayer;
       ok(pushes === 1 && l0Gone === 0 && rm.pages[0].inst === L0 && L1 !== undefined && L1.lobbyInit === true && k0.pools === 1 && k0.players === 2 &&
-        k.pools === 1 && k.players === 2 && k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0,
+        k.pools === 1 && k.players === 2 && k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0 &&
+        plays0 === 1 && bgm !== null && bgm === bgm0 && bgm.plays === 2 && isPlaying(bgm),
         `lobby-audio push-stay-return prepare guard [${order === 'newFirst' ? 'new appear → old disappear' : 'old disappear → new appear'}]: pushUrl=${pushes}, lobby under the table destroyed=${l0Gone}; ` +
         `before the match pools=${k0.pools} AVPlayers=${k0.players}; after returning (new lobby init=${L1 ? L1.lobbyInit : '-'}, prepare() again) pools=${k.pools} AVPlayers=${k.players} ` +
-        `(live ${k.livePools}/${k.livePlayers}), unreferenced-but-playing=${k.orphans}`);
+        `(live ${k.livePools}/${k.livePlayers}), unreferenced-but-playing=${k.orphans}; BGM play() cold=${plays0} → after return ${bgm ? bgm.plays : -1} ` +
+        `(same player=${bgm === bgm0}) playing=${bgm ? isPlaying(bgm) : false}`);
     }
     // (3) 防过度拦截：守卫只挡同代重复。大厅被移走 → 真 release（gen + 1）→ 回到大厅（新初始化大厅）→ prepare() 必须重建：
     //     活着的池 1、播放器 2、BGM 在放（play 总数 +1）。
@@ -1716,9 +1794,11 @@ export { LobbyHarness };`;
       const b0 = LA.bgmPlayer;
       const k0 = audioCensus(fm, LA);
       const bgmPlays0 = b0 ? b0.plays : -1;
+      const gen0 = LA.gen;
       L0.aboutToDisappear(); // lobby page removed → leaveThenRelease → release() after the leave fade (gen + 1)
       c.advance(1000);
       await settle();
+      const genRel = LA.gen;
       const kr = audioCensus(fm, LA);
       const released = b0 !== null && b0.released && kr.livePools === 0 && kr.livePlayers === 0 && LA.bgmPlayer === null;
       const L1 = rr.newLobby('back');
@@ -1732,10 +1812,214 @@ export { LobbyHarness };`;
       const bgm = LA.bgmPlayer;
       const bgmPlays1 = (b0 ? b0.plays : 0) + (bgm ? bgm.plays : 0); // BGM play() across the released + the rebuilt player
       ok(k0.pools === 1 && k0.players === 2 && b0 !== null && b0.plays === 1 && released && L1.lobbyInit === true && k.pools === 2 && k.players === 4 &&
-        k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0 && bgm !== null && bgm !== b0 && !bgm.released && bgm.plays === 1 && isPlaying(bgm) && bgmPlays1 === bgmPlays0 + 1,
+        k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0 && bgm !== null && bgm !== b0 && !bgm.released && bgm.plays === 1 && isPlaying(bgm) && bgmPlays1 === bgmPlays0 + 1 &&
+        genRel === gen0 + 1 && LA.gen === gen0 + 1,
         `lobby-audio release-then-return prepare rebuilds (guard blocks same gen only): cold lobby pools=${k0.pools} AVPlayers=${k0.players} BGM play()=${b0 ? b0.plays : -1}; ` +
         `lobby removed → released=${released}; back to a new lobby → live pools=${k.livePools} AVPlayers=${k.livePlayers} (created ${k.pools}/${k.players}), new BGM play()=${bgm ? bgm.plays : -1} ` +
-        `playing=${bgm ? isPlaying(bgm) : false}, BGM play() total ${bgmPlays0} → ${bgmPlays1}`);
+        `playing=${bgm ? isPlaying(bgm) : false}, BGM play() total ${bgmPlays0} → ${bgmPlays1}; gen ${gen0} → after release ${genRel} → after rebuild ${LA.gen} (exactly +1)`);
+    }
+    // ———— 进桌后大厅 BGM 淡出票（负责人，#296 之后）：真 Lobby.onPageHide / onPageShow + 真 LobbyAudio（假 media）。
+    const coldLobby = async (wx, name) => {
+      wx.rm.pages = [];
+      const L = wx.newLobby(name);
+      wx.rm.params = undefined;
+      L.aboutToAppear(); L.onPageShow();
+      wx.rm.pages = [{ name: 'Lobby', inst: L }];
+      await settle();
+      wx.clk.advance(12000);
+      await settle();
+      return L;
+    };
+    const nextTable = (wx, t) => { // a new Table for match n (same harness class), director / engine back to a running match
+      const tn = new t.constructor();
+      tn.bindPause();
+      Object.assign(wx.engine.snap, { phase: PhaseE.TURN, startedAt: wx.clk.now });
+      wx.director.state = PSt.RUNNING; wx.director.reason = '';
+      return tn;
+    };
+    // (1) push 进桌、大厅留在栈上：大厅页 onPageHide → BGM / 环境床 400 ms 淡出后 pause()；整局实际音量 0、不再 play()；离局回大厅（初始化大厅 onPageShow →
+    //     playIfIdle）同一组播放器恢复。连打两局：BGM play() 次数 = 回大厅次数，池始终 1、播放器始终 2（不建新播放器、不重建池）。
+    hideOnPush: {
+      const hs = await makeLeaveWorld(true);
+      const { t, clk: c, rm, fm, LbR, LA, lw } = hs;
+      const L0 = await coldLobby(hs, 'L0-stays');
+      const bgm = LA.bgmPlayer;
+      const amb = LA.ambPlayer;
+      if (bgm === null || amb === null) { fail(`lobby-bgm-hide-on-push: cold lobby built no BGM / amb player (bgm=${bgm !== null} amb=${amb !== null})`); break hideOnPush; }
+      const cold = { bgm: bgm ? bgm.plays : -1, amb: amb ? amb.plays : -1, playing: bgm !== null && amb !== null && isPlaying(bgm) && isPlaying(amb),
+        vol: bgm ? bgm.vols[bgm.vols.length - 1] : NaN };
+      const match = async (L, tbl) => {
+        LbR.toTable(); // pushUrl
+        rm.pages.push({ name: 'Table', inst: tbl });
+        const m0 = { b: bgm.acts.length, a: amb.acts.length };
+        L.onPageHide();
+        c.advance(LA.HIDE_FADE_MS - 40);
+        await settle();
+        const early = { b: bgm.acts.slice(m0.b), a: amb.acts.slice(m0.a) };
+        c.advance(40);
+        await settle();
+        const fadeB = bgm.acts.slice(m0.b);
+        const fadeA = amb.acts.slice(m0.a);
+        const m1 = { b: bgm.acts.length, a: amb.acts.length };
+        c.advance(60000); // the whole match, lobby still on the stack
+        await settle();
+        const sb = silentSince(bgm, m1.b);
+        const sa = silentSince(amb, m1.a);
+        const vB = fadeB.filter((x) => x.startsWith('vol:')).map((x) => Number(x.slice(4)));
+        return {
+          early: !early.b.includes('pause') && !early.a.includes('pause') && early.b.some((x) => x.startsWith('vol:')),
+          fade: vB.length >= 10 && vB.every((v, i) => i === 0 || v <= vB[i - 1]) && vB[vB.length - 1] === 0 &&
+            fadeB[fadeB.length - 1] === 'pause' && fadeA[fadeA.length - 1] === 'pause' && fadeB.filter((x) => x === 'pause').length === 1 &&
+            !fadeB.includes('stop') && !fadeB.includes('play'),
+          steps: vB.length, from: vB[0],
+          silent: sb.noPlay && sb.vols0 && sb.lastPause && sb.lastVol === 0 && sa.noPlay && sa.vols0 && sa.lastPause && sa.lastVol === 0,
+          stays: rm.pages[0].inst === L0 && !bgm.released && !amb.released
+        };
+      };
+      const r1 = await match(L0, t);
+      await confirmLeave(t, 0);
+      await hs.land(0, 'newFirst'); // init lobby L1 (L0 still under it)
+      c.advance(1000);
+      await settle();
+      const back1 = { bgm: bgm.plays, amb: amb.plays, playing: isPlaying(bgm) && isPlaying(amb), vol: bgm.vols[bgm.vols.length - 1], pools: fm.pools.length, players: fm.players.length };
+      ok(cold.bgm === 1 && cold.amb === 1 && cold.playing && Math.abs(cold.vol - LA.VOL_BGM_STEADY) < 1e-12 && r1.early && r1.fade && r1.silent && r1.stays &&
+        lw.lobbies[1].lobbyInit === true && back1.bgm === 2 && back1.amb === 2 && back1.playing && Math.abs(back1.vol - LA.VOL_BGM_STEADY) < 1e-12 &&
+        LA.bgmPlayer === bgm && LA.ambPlayer === amb && back1.pools === 1 && back1.players === 2,
+        `lobby-bgm-hide-on-push (Lobby pushes Table, lobby stays on the stack): cold BGM/amb play()=${cold.bgm}/${cold.amb} at ${cold.vol}; onPageHide → ` +
+        `no pause before ${LA.HIDE_FADE_MS - 40} ms=${r1.early}, ${r1.steps} fade steps ${r1.from} → 0 then one pause() at ${LA.HIDE_FADE_MS} ms (no stop / release)=${r1.fade}; ` +
+        `whole match: no play(), every volume 0, paused=${r1.silent} (lobby kept=${r1.stays}); back to the lobby (init lobby onPageShow → playIfIdle): ` +
+        `same players=${LA.bgmPlayer === bgm && LA.ambPlayer === amb} BGM/amb play()=${back1.bgm}/${back1.amb} playing=${back1.playing} volume ${back1.vol}; ` +
+        `pools=${back1.pools} AVPlayers=${back1.players}`);
+      const L1 = lw.lobbies[1];
+      const t2 = nextTable(hs, t);
+      const r2 = await match(L1, t2);
+      await confirmLeave(t2, 0);
+      await hs.land(1, 'oldFirst');
+      c.advance(1000);
+      await settle();
+      const returns = lw.lobbies.length - 1; // L0 = cold start; every later lobby = one return
+      ok(r2.fade && r2.silent && returns === 2 && bgm.plays - cold.bgm === returns && amb.plays - cold.amb === returns && isPlaying(bgm) && isPlaying(amb) &&
+        fm.pools.length === 1 && fm.players.length === 2 && fm.calls.pool === 1 && fm.calls.player === 2 && LA.bgmPlayer === bgm,
+        `lobby-bgm-hide two matches in a row: match 2 fade+pause=${r2.fade} silent=${r2.silent}; returns to the lobby=${returns}, BGM play() after cold start ` +
+        `+${bgm.plays - cold.bgm} (amb +${amb.plays - cold.amb}) = returns, playing=${isPlaying(bgm)}; SoundPool created ${fm.calls.pool}× (pools ${fm.pools.length}), ` +
+        `AVPlayer created ${fm.calls.player}× (players ${fm.players.length})`);
+    }
+    // (2) onPageShow → playIfIdle 是恢复的唯一入口（back 回本页 / 回前台，没有新大厅 begin()）：Records push 盖住大厅 → 淡出暂停 → back → 同一组播放器 play() 一次；
+    //     400 ms 内又可见（淡出还没到 pause）→ 撤销暂停淡回常驻，不 play()、不 pause()。
+    showAfterBack: {
+      const bs = await makeLeaveWorld(true);
+      const { clk: c, fm, LbR, LA, rm } = bs;
+      const L0 = await coldLobby(bs, 'L0');
+      const bgm = LA.bgmPlayer;
+      if (bgm === null) { fail('lobby-bgm-show-after-back: cold lobby built no BGM player'); break showAfterBack; }
+      const p0 = bgm ? bgm.plays : -1;
+      LbR.toRecords();
+      rm.pages.push({ name: 'Report', inst: { aboutToDisappear: () => {} } });
+      L0.onPageHide();
+      c.advance(5000);
+      await settle();
+      const hid = { paused: bgm.acts.filter((a) => !a.startsWith('vol:')).pop() === 'pause', vol: bgm.vols[bgm.vols.length - 1] };
+      rm.pages.pop();
+      L0.onPageShow(); // router.back() → Lobby page shown again
+      c.advance(1000);
+      await settle();
+      const back = { plays: bgm.plays, playing: isPlaying(bgm), vol: bgm.vols[bgm.vols.length - 1] };
+      const mk = bgm.acts.length;
+      L0.onPageHide();
+      c.advance(200); // shown again inside the 400 ms fade
+      await settle();
+      L0.onPageShow();
+      c.advance(1000);
+      await settle();
+      const quick = bgm.acts.slice(mk).filter((a) => !a.startsWith('vol:'));
+      ok(p0 === 1 && hid.paused && hid.vol === 0 && back.plays === 2 && back.playing && Math.abs(back.vol - LA.VOL_BGM_STEADY) < 1e-12 &&
+        quick.length === 0 && bgm.plays === 2 && isPlaying(bgm) && Math.abs(bgm.vols[bgm.vols.length - 1] - LA.VOL_BGM_STEADY) < 1e-12 &&
+        LA.bgmPlayer === bgm && fm.pools.length === 1 && fm.players.length === 2,
+        `lobby-bgm-show-after-back (Records push → back, no new lobby): hidden → paused=${hid.paused} volume ${hid.vol}; onPageShow → playIfIdle → same player play() ${p0} → ${back.plays}, ` +
+        `playing=${back.playing} volume ${back.vol}; shown again 200 ms into the fade → acts [${quick.join(',') || 'none'}] (no play / pause), play() stays ${bgm.plays}, ` +
+        `volume back to ${bgm.vols[bgm.vols.length - 1]}; pools=${fm.pools.length} AVPlayers=${fm.players.length}`);
+    }
+    // (3) 同代 prepare 失败可重试（负责人第 2 条）：冷启动第一次 createSoundPool 抛错 → 下一次回大厅（离局 → 初始化大厅 onPageShow / begin()）重建成功：池 1、BGM 在响。
+    {
+      const fs = await makeLeaveWorld(true);
+      const { t, clk: c, rm, fm, LbR, LA } = fs;
+      fm.fail.pool = 1;
+      const L0 = await coldLobby(fs, 'L0');
+      const before = { pools: fm.pools.length, pool: LA.pool, players: fm.players.length, bgmPlaying: LA.bgmPlayer !== null && isPlaying(LA.bgmPlayer) };
+      LbR.toTable();
+      rm.pages.push({ name: 'Table', inst: t });
+      L0.onPageHide();
+      c.advance(30000);
+      await settle();
+      await confirmLeave(t, 0);
+      await fs.land(0, 'newFirst');
+      c.advance(1000);
+      await settle();
+      const bgm = LA.bgmPlayer;
+      const livePools = fm.pools.filter((p) => !p.released).length;
+      ok(fm.failed.pool === 1 && before.pools === 0 && before.pool === null && before.players === 2 && before.bgmPlaying && fm.calls.pool === 2 &&
+        fm.pools.length === 1 && livePools === 1 && LA.pool === fm.pools[0] && fm.pools[0].loaded.length === 4 && fm.players.length === 2 &&
+        bgm !== null && isPlaying(bgm) && bgm.plays === 2,
+        `lobby-audio prepare retry after createSoundPool failure: cold createSoundPool threw (${fm.failed.pool}×) → pools=${before.pools}, beds built=${before.players}, ` +
+        `BGM playing=${before.bgmPlaying}; next return to the lobby → createSoundPool called ${fm.calls.pool}× total, live pools=${livePools} (loaded ${fm.pools[0] ? fm.pools[0].loaded.length : 0} sounds), ` +
+        `AVPlayers=${fm.players.length}, BGM playing=${bgm ? isPlaying(bgm) : false} play()=${bgm ? bgm.plays : -1}`);
+    }
+    // (3b) 建床失败那一支：冷启动第一次 createAVPlayer（BGM 床）抛错 → 大厅没有 BGM；下一次回大厅补建 BGM 床（只补缺的那张，环境床不重建）并在响。
+    {
+      const fb = await makeLeaveWorld(true);
+      const { t, clk: c, rm, fm, LbR, LA } = fb;
+      fm.fail.player = 1;
+      const L0 = await coldLobby(fb, 'L0');
+      const before = { bgm: LA.bgmPlayer, amb: LA.ambPlayer, players: fm.players.length, pools: fm.pools.length };
+      LbR.toTable();
+      rm.pages.push({ name: 'Table', inst: t });
+      L0.onPageHide();
+      c.advance(30000);
+      await settle();
+      await confirmLeave(t, 0);
+      await fb.land(0, 'newFirst');
+      c.advance(1000);
+      await settle();
+      const bgm = LA.bgmPlayer;
+      ok(fm.failed.player === 1 && before.bgm === null && before.amb !== null && before.players === 1 && before.pools === 1 && fm.calls.player === 3 &&
+        fm.players.length === 2 && LA.ambPlayer === before.amb && bgm !== null && bgm !== before.amb && isPlaying(bgm) && bgm.plays === 1 &&
+        Math.abs(bgm.vols[bgm.vols.length - 1] - LA.VOL_BGM_STEADY) < 1e-12 && fm.pools.length === 1,
+        `lobby-audio prepare retry after createAVPlayer failure: cold BGM bed threw (${fm.failed.player}×) → BGM player=${before.bgm === null ? 'none' : 'yes'}, amb built, players=${before.players}; ` +
+        `next return → createAVPlayer called ${fm.calls.player}× total, BGM bed rebuilt=${bgm !== null}, amb kept=${LA.ambPlayer === before.amb}, players=${fm.players.length}, ` +
+        `BGM playing=${bgm ? isPlaying(bgm) : false} play()=${bgm ? bgm.plays : -1} volume ${bgm ? bgm.vols[bgm.vols.length - 1] : NaN}, pools=${fm.pools.length}`);
+    }
+    // (4) 守卫在 await 期间的并发（负责人第 2 条补测）：假 createSoundPool / createAVPlayer 挂在假时钟上 300 ms 后才 resolve；
+    //     第二次 prepare() 正好在第一次等 createSoundPool 时进来（池还是 null），第三次在等 createAVPlayer 时进来 → 都必须被同代守卫挡住。
+    {
+      const cw = await makeLeaveWorld(true);
+      const { clk: c, rm, fm, LA } = cw;
+      fm.delay.pool = 300; fm.delay.player = 300;
+      rm.pages = [];
+      const L0 = cw.newLobby('L0');
+      rm.params = undefined;
+      L0.aboutToAppear(); L0.onPageShow();
+      rm.pages = [{ name: 'Lobby', inst: L0 }];
+      await settle(); // begin() → prepare() #1 is waiting on createSoundPool (+300 ms on the clock)
+      const inPool = { calls: fm.calls.pool, pool: LA.pool, guarded: LA.preparedGen === LA.gen };
+      void LA.prepare(); // #2 enters during the createSoundPool await (not awaited: a mutated guard would hang on the fake clock)
+      await settle();
+      const afterSecond = fm.calls.pool;
+      c.advance(300);
+      await settle(); // pool #1 made + loaded → prepareBed waits on createAVPlayer
+      const inBed = { pool: LA.pool !== null, playerCalls: fm.calls.player, players: fm.players.length };
+      void LA.prepare(); // #3 enters during the createAVPlayer await
+      await settle();
+      for (let i = 0; i < 4; i++) { c.advance(300); await settle(); }
+      c.advance(12000);
+      await settle();
+      const k = audioCensus(fm, LA);
+      const bgm = LA.bgmPlayer;
+      ok(inPool.calls === 1 && inPool.pool === null && inPool.guarded && afterSecond === 1 && inBed.pool && inBed.playerCalls === 1 && inBed.players === 0 &&
+        fm.calls.pool === 1 && fm.calls.player === 2 && k.pools === 1 && k.players === 2 && k.livePools === 1 && k.livePlayers === 2 && k.orphans === 0 &&
+        bgm !== null && bgm.plays === 1 && isPlaying(bgm),
+        `lobby-audio prepare guard during the await (create* resolve +300 ms on the fake clock): 2nd prepare() while createSoundPool pending (pool=${inPool.pool === null ? 'null' : 'set'}) → ` +
+        `createSoundPool calls ${afterSecond}; 3rd prepare() while createAVPlayer pending → AVPlayer calls ${fm.calls.player} in the end; pools=${k.pools} AVPlayers=${k.players} ` +
+        `orphans=${k.orphans}; BGM play()=${bgm ? bgm.plays : -1} playing=${bgm ? isPlaying(bgm) : false}`);
     }
     // ⑯ 补丁轮 3 第 5 条（负责人批）：只渲染大厅 LobbyAudio.playIfIdle()。真 LobbyAudio + 真 AudioSettings（vol_bgm=50 → 增益 ≠ 1）+ 假 AVPlayer。
     // 新趟 #2 先落地（初始化大厅 L1，BGM 起），老趟 #1 迟到：L1 消失后过 gap ms 只渲染大厅 L0 才出现（交接窗 LOBBY_HANDOVER_MS = 1000）。
@@ -2438,14 +2722,14 @@ RUN(false);
   const laRelB = code(body(la, '  static release(): void {'));
   const spPrep = code(body(sp, '  private static async doPrepare(): Promise<void> {'));
   const spRend = code(body(sp, '  private static async prepareRenderers(gen: number): Promise<void> {'));
-  const laBed = code(body(la, '  private static async prepareBed(isBgm: boolean, gen: number): Promise<void> {'));
-  const laPrep = code(body(la, '  static async prepare(): Promise<void> {'));
+  const laBed = code(body(la, '  private static async prepareBed(isBgm: boolean, gen: number): Promise<boolean> {'));
+  const laPrep = code(body(la, '  private static async preparePool(gen: number): Promise<boolean> {'));
   ok(/void \{\s*SoundPlayer\.gen = SoundPlayer\.gen \+ 1;\s*SoundPlayer\.inFlight = null;/.test(spRelB) &&
     /await media\.createSoundPool\([^)]*\);\s*if \(SoundPlayer\.gen !== gen\) \{[^}]*pool\.release\(\)/.test(spPrep) &&
     (spRend.match(/await SoundPlayer\.createSlotRenderer\([^)]*\);\s*if \(SoundPlayer\.gen !== gen\) \{\s*SoundPlayer\.releaseOneRenderer\(/g) || []).length === 2,
     'SoundPlayer: release() bumps gen + drops the in-flight prepare; a pool / renderer created after release is released, not registered');
   ok(/void \{\s*LobbyAudio\.gen = LobbyAudio\.gen \+ 1;/.test(laRelB) &&
-    /await media\.createAVPlayer\(\);\s*if \(LobbyAudio\.gen !== gen\) \{\s*LobbyAudio\.dropStalePlayer\(player\);\s*return;/.test(laBed) &&
+    /await media\.createAVPlayer\(\);\s*if \(LobbyAudio\.gen !== gen\) \{\s*LobbyAudio\.dropStalePlayer\(player\);\s*return true;/.test(laBed) &&
     /await media\.createSoundPool\([^)]*\);\s*if \(LobbyAudio\.gen !== gen\) \{[^}]*pool\.release\(\)/.test(laPrep),
     'LobbyAudio: release() bumps gen; an AVPlayer / pool created after release is released, not registered');
 }
