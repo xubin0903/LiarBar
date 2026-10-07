@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { methodBody } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -182,13 +183,30 @@ if (table.includes('maybeOtherPlayFly') &&
   fail('AI fly or playBusy missing');
 }
 
-if (engine.includes('rollbackLastPlay') &&
-    engine.includes('emptyOrder') &&
+// Rewritten for #167 (038523c, HandEmptyGate): the old rule "an emptier's last
+// hand can NOT be challenged" (emptyOrder[i] === lastPlay.actorSeatId → false)
+// is reversed. EmptySafe (≥3 alive) / ForceChallenge (=2 alive) MUST allow
+// challenging the emptier's last hand; only a RoundSafeWait-sealed hand is
+// unchallengeable. Rollback must still undo the emptier record.
+const rollbackBody = methodBody(engine, 'rollbackLastPlay');
+const canChBody = methodBody(engine, 'canChallengeSeat');
+const gateBody = methodBody(engine, 'enterHandEmptyGate');
+if (rollbackBody !== null &&
+    /this\.emptyOrder\[this\.emptyOrder\.length - 1\] === actor/.test(rollbackBody) &&
+    rollbackBody.includes('this.emptyHandSeatId === actor') && rollbackBody.includes('this.clearEmptyGate()') &&
     types.includes('emptyOrder: number[]') &&
-    engine.includes('this.emptyOrder[i] === this.lastPlay.actorSeatId')) {
-  pass('engine emptyOrder + rollbackLastPlay; emptied lastPlay not challengeable');
+    gateBody !== null && gateBody.includes('this.emptyOrder.push(emptier)')) {
+  pass('engine emptyOrder recorded on HandEmptyGate; rollbackLastPlay pops it + clears the empty gate');
 } else {
   fail('engine emptyOrder / rollback');
+}
+if (canChBody !== null &&
+    /if \(this\.emptySafePending \|\| this\.forceChallengeEmpty\) \{\s*return this\.lastPlay\.actorSeatId === this\.emptyHandSeatId;/.test(canChBody) &&
+    /this\.roundSafeWaitSeats\[i\] === this\.lastPlay\.actorSeatId\) \{\s*return false;/.test(canChBody) &&
+    !/emptyOrder/.test(canChBody)) {
+  pass('#167 EmptySafe/ForceChallenge: emptier last hand IS challengeable; only RoundSafeWait-sealed hand is not');
+} else {
+  fail('canChallengeSeat no longer matches #167 (EmptySafe/ForceChallenge must allow challenging the emptier)');
 }
 
 if (table.includes('this.playFlyOn = true') &&

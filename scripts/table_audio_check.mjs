@@ -6,6 +6,7 @@
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ANY_ESOBJECT, findInCode, formatHits } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -219,10 +220,12 @@ if (!table.includes('HAND_RING_GAP_PCT') || layout.includes('HAND_RING_GAP_PCT')
   pass('layout/padB/selfDock files not rewritten for audio');
 }
 
-if (/\bany\b/.test(audio) || /ESObject/.test(audio) || audio.includes('RawFdSlice')) {
-  fail('ESObject/any/RawFdSlice in TableAudio');
+const audioAnyHits = findInCode([{ path: 'entry/src/main/ets/features/table/TableAudio.ets', text: audio }], ANY_ESOBJECT);
+if (audioAnyHits.length > 0 || audio.includes('RawFdSlice')) {
+  fail('ESObject/any/RawFdSlice in TableAudio' +
+    (audioAnyHits.length ? `:\n  ${formatHits(audioAnyHits)}` : ' (RawFdSlice)'));
 } else {
-  pass('no ESObject/any/RawFdSlice in TableAudio');
+  pass('no ESObject/any (code only) / RawFdSlice in TableAudio');
 }
 
 if (audio.includes('RawFileDescriptor') && audio.includes('AVFileDescriptor')) {

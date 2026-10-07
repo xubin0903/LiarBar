@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ANY_ESOBJECT, findInCode, formatHits } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -33,12 +34,28 @@ if (deck.decks['3'] || deck.decks['4']) {
   fail('numeric deck keys must not return');
 }
 
-if (match.demo_seed_enabled === true && match.demo_seed_value === 20260906) {
-  pass('demo_seed 20260906 enabled');
+// #291 (ef232ac): demo_seed is OFF by default; delivery builds must not ship a
+// fixed seed. Acceptance uses the in-memory demo switch (doc 21), never this
+// config flag. The old check demanded `true` and contradicted #291.
+const engineMain = src('entry/src/main/ets/engine/MatchEngine.ets');
+if (match.demo_seed_enabled === false && demo.demo_seed_enabled === false) {
+  pass('demo_seed_enabled default false in match_defaults + demo_seed (#291)');
 } else {
-  fail('demo_seed lock');
+  fail(`demo_seed must default OFF (#291): match_defaults=${match.demo_seed_enabled} demo_seed=${demo.demo_seed_enabled}`);
 }
-if (demo.demo_seed_value === 20260906 && Array.isArray(demo.force_events)) {
+if (Number.isInteger(match.demo_seed_value) && match.demo_seed_value > 0 &&
+  match.demo_seed_value === demo.demo_seed_value) {
+  pass(`demo_seed_value ${match.demo_seed_value} kept as the fixed-seed channel (match_defaults == demo_seed)`);
+} else {
+  fail(`demo_seed_value drift: match_defaults=${match.demo_seed_value} demo_seed=${demo.demo_seed_value}`);
+}
+if (/this\.demoOn = cfg\.demo_seed_enabled;/.test(engineMain) &&
+  /this\.seed = this\.demoOn \? cfg\.demo_seed_value : Date\.now\(\);/.test(engineMain)) {
+  pass('engine: demo off → seed = Date.now() (fixed seed only when demo on)');
+} else {
+  fail('engine seed source no longer gated by demo_seed_enabled');
+}
+if (Array.isArray(demo.force_events)) {
   pass('demo_force_events present');
 } else {
   fail('demo_force_events');
@@ -167,10 +184,12 @@ const etsFiles = [
   'entry/src/main/ets/features/lobby/LobbyPanel.ets'
 ];
 const joined = etsFiles.map((f) => src(f)).join('\n');
-if (/\bany\b/.test(joined) || /ESObject/.test(joined)) {
-  fail('ESObject/any found in engine/UI path');
+// Code-only scan (comments + string text stripped; see lib/ets_scan.mjs).
+const anyHits = findInCode(etsFiles.map((f) => ({ path: f, text: src(f) })), ANY_ESOBJECT);
+if (anyHits.length > 0) {
+  fail(`ESObject/any found in engine/UI path:\n  ${formatHits(anyHits)}`);
 } else {
-  pass('no ESObject/any in scanned ets');
+  pass(`no ESObject/any in scanned ets (code only, ${etsFiles.length} files)`);
 }
 if (joined.includes('decks[') || joined.includes("decks['")) {
   fail('indexed deck bag access');
@@ -227,35 +246,89 @@ function shuffle(items, rng) {
   }
 }
 
-const rng = lcg(20260906);
+// Demo opening-hand repair, restated from DeckDeal.ets repairDemoHands (AI spec §3.2).
+// Since #167 the deck is 20 cards and 4 seats × 5 deals all 20, so the discard
+// pile is EMPTY; repair must swap with other seats' hands (the engine's
+// fallback). The old script only swapped with the discard, which can no
+// longer work. Seed = config demo_seed_value (not a hard-coded literal).
+const deckDeal = src('entry/src/main/ets/engine/DeckDeal.ets');
+const repairSrc = deckDeal.slice(deckDeal.indexOf('export function repairDemoHands'), deckDeal.indexOf('export function dealRound'));
+if ((repairSrc.match(/for \(let s = 0; s < hands\.length; s\+\+\)/g) || []).length === 3 &&
+  repairSrc.includes('countLegal(hands[s], claim) > 1') && repairSrc.includes('countFake(hands[s], claim) > 1')) {
+  pass('DeckDeal.repairDemoHands keeps the other-hands fallback (needed when discard is empty)');
+} else {
+  fail('DeckDeal.repairDemoHands other-hands fallback changed; re-port the simulation below');
+}
+
+const SEATS = 4;
+const rng = lcg(match.demo_seed_value);
 const bag = expandBag(deck.decks.n4);
 shuffle(bag, rng);
-const hands = [[], [], [], []];
+const hands = [];
+for (let s = 0; s < SEATS; s++) hands.push([]);
 let cur = 0;
 for (let h = 0; h < match.hand_size_default; h++) {
-  for (let s = 0; s < 4; s++) {
-    hands[s].push(bag[cur++]);
-  }
-}
-function ensure(hand, pred, donor) {
-  if (hand.some(pred)) return;
-  const di = donor.findIndex(pred);
-  const hi = hand.findIndex((r) => !pred(r));
-  if (di >= 0 && hi >= 0) {
-    const tmp = hand[hi];
-    hand[hi] = donor[di];
-    donor[di] = tmp;
+  for (let s = 0; s < SEATS; s++) {
+    if (cur < bag.length) hands[s].push(bag[cur++]);
   }
 }
 const discard = bag.slice(cur);
-ensure(hands[0], (r) => isLegal(r, 'A'), discard);
-ensure(hands[0], (r) => !isLegal(r, 'A'), discard);
-ensure(hands[2], (r) => !isLegal(r, 'A'), discard);
-if (hands[0].some((r) => isLegal(r, 'A')) && hands[0].some((r) => !isLegal(r, 'A')) &&
-  hands[2].some((r) => !isLegal(r, 'A'))) {
-  pass('demo deal constraints: human legal+fake, shark fake');
+const forceClaim = demo.force_events.find((e) => e.at === 'CLAIM');
+const claim = forceClaim && forceClaim.rank ? forceClaim.rank : 'A';
+const humanSeat = 0;
+const bindKey = Object.keys(personas.mvpSeatBind || {}).find((k) => personas.mvpSeatBind[k] === 'AI_SHARK');
+const sharkSeat = bindKey ? Number(bindKey.replace('seat', '')) : -1;
+const nLegal = (h) => h.filter((r) => isLegal(r, claim)).length;
+const nFake = (h) => h.filter((r) => !isLegal(r, claim)).length;
+const idxOf = (h, wantLegal) => h.findIndex((r) => isLegal(r, claim) === wantLegal);
+const swap = (a, ai, b, bi) => { const t = a[ai]; a[ai] = b[bi]; b[bi] = t; };
+function repairDemoHands() {
+  const H = hands[humanSeat];
+  if (nLegal(H) < 1) {
+    const fd = idxOf(discard, true);
+    const hf = idxOf(H, false);
+    if (fd >= 0 && hf >= 0) swap(H, hf, discard, fd);
+    else for (let s = 0; s < hands.length; s++) {
+      if (s === humanSeat) continue;
+      const ol = idxOf(hands[s], true);
+      if (ol >= 0 && hf >= 0 && nLegal(hands[s]) > 1) { swap(H, hf, hands[s], ol); break; }
+    }
+  }
+  if (nFake(H) < 1) {
+    const fd = idxOf(discard, false);
+    const hl = idxOf(H, true);
+    if (fd >= 0 && hl >= 0 && nLegal(H) > 1) swap(H, hl, discard, fd);
+    else for (let s = 0; s < hands.length; s++) {
+      if (s === humanSeat) continue;
+      const of = idxOf(hands[s], false);
+      if (of >= 0 && hl >= 0 && nLegal(H) > 1) { swap(H, hl, hands[s], of); break; }
+    }
+  }
+  if (sharkSeat >= 0 && sharkSeat < hands.length && nFake(hands[sharkSeat]) < 1) {
+    const S = hands[sharkSeat];
+    const fd = idxOf(discard, false);
+    const sl = idxOf(S, true);
+    if (fd >= 0 && sl >= 0) swap(S, sl, discard, fd);
+    else if (sl >= 0) for (let s = 0; s < hands.length; s++) {
+      if (s === sharkSeat || s === humanSeat) continue;
+      const of = idxOf(hands[s], false);
+      if (of >= 0 && nFake(hands[s]) > 1) { swap(S, sl, hands[s], of); break; }
+    }
+  }
+}
+const before = [...hands.flat(), ...discard].sort().join(',');
+repairDemoHands();
+const after = [...hands.flat(), ...discard].sort().join(',');
+if (bag.length === 20 && discard.length === bag.length - SEATS * match.hand_size_default &&
+  hands.every((h) => h.length === match.hand_size_default) && before === after) {
+  pass(`demo deal: 20-card bag, ${SEATS}×${match.hand_size_default} dealt, discard ${discard.length}; repair only swaps (multiset kept)`);
 } else {
-  fail('demo deal constraints');
+  fail('demo deal arithmetic / repair changed the card multiset');
+}
+if (sharkSeat === 2 && nLegal(hands[humanSeat]) >= 1 && nFake(hands[humanSeat]) >= 1 && nFake(hands[sharkSeat]) >= 1) {
+  pass(`demo deal constraints (seed ${match.demo_seed_value}, claim ${claim}): human legal+fake, shark seat ${sharkSeat} fake`);
+} else {
+  fail(`demo deal constraints (seed ${match.demo_seed_value}, claim ${claim}, shark seat ${sharkSeat}): ${JSON.stringify(hands)}`);
 }
 
 const sharkPlay = [];

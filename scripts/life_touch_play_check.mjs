@@ -6,6 +6,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ANY_ESOBJECT, findInCode, formatHits } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -365,11 +366,19 @@ for (const wav of ['sfx_card_flip.wav', 'sfx_life_extinguish.wav']) {
   }
 }
 
-const scanned = [table, face, life, overlays, engine, player].join('\n');
-if (/\bany\b/.test(scanned) || /ESObject/.test(scanned)) {
-  fail('ESObject/any in 14/15 path');
+// Code-only scan (comments + string text stripped; see lib/ets_scan.mjs).
+const anyHits = findInCode([
+  { path: 'entry/src/main/ets/pages/Table.ets', text: table },
+  { path: 'entry/src/main/ets/features/table/CardFace.ets', text: face },
+  { path: 'entry/src/main/ets/features/table/LifeCandles.ets', text: life },
+  { path: 'entry/src/main/ets/features/table/TableOverlays.ets', text: overlays },
+  { path: 'entry/src/main/ets/engine/MatchEngine.ets', text: engine },
+  { path: 'entry/src/main/ets/features/table/SoundPlayer.ets', text: player }
+], ANY_ESOBJECT);
+if (anyHits.length > 0) {
+  fail(`ESObject/any in 14/15 path:\n  ${formatHits(anyHits)}`);
 } else {
-  pass('no ESObject/any in 14/15 path');
+  pass('no ESObject/any in 14/15 path (code only)');
 }
 
 if (process.exitCode) {

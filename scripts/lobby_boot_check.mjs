@@ -5,10 +5,10 @@
  *  docs/04-设计/05-开场大厅v3-UI动效挂点.md I.2 Hm1–Hm8).
  * Cloud has no DevEco — this is not CompileArkTS.
  */
-import { execSync } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ANY_ESOBJECT, findInCode, formatHits, methodBody } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -49,6 +49,11 @@ const audio = src('entry/src/main/ets/features/lobby/LobbyAudio.ets');
 const ids = src('entry/src/main/ets/common/Ids.ets');
 const strings = src('entry/src/main/resources/base/element/string.json');
 const pages = src('entry/src/main/resources/base/profile/main_pages.json');
+
+// CTA enable / guard as they are in code today. bootReady is still the T6 gate;
+// 185bca1 (L1 overlay) added matchLoading, 0a91b07 added matchBusy.
+const CTA_ENABLED = '.enabled(this.bootReady && !this.matchBusy && !this.matchLoading)';
+const CTA_GUARD = 'if (!this.bootReady || this.matchBusy || this.matchLoading)';
 
 const TOTAL = readConst(boot, 'BOOT_MS_TOTAL');
 const MIN = readConst(boot, 'BOOT_MS_MIN');
@@ -232,8 +237,8 @@ if (lobby.includes('ScreenIds.LOBBY') && !lobby.includes('lb_scr_home') && !page
   fail('home route leaked');
 }
 
-if (lobby.includes('enabled(this.bootReady)') && lobby.includes('if (!this.bootReady)')) {
-  pass('CTA gated until bootReady');
+if (lobby.includes(CTA_ENABLED) && lobby.includes(CTA_GUARD)) {
+  pass('CTA gated until bootReady (+ !matchBusy / !matchLoading)');
 } else {
   fail('CTA gate');
 }
@@ -369,10 +374,21 @@ if (machine.includes('CROSS_MS: number = 150') || boot.includes('BOOT_MS_IDLE_CR
 }
 
 const etsBlob = [boot, lobby, panel, audio, machine].join('\n');
-if (/\bany\b/.test(etsBlob) || /\bunknown\b/.test(etsBlob) || /ESObject/.test(etsBlob) || /lb_art_/.test(etsBlob)) {
-  fail('any/unknown/ESObject/lb_art_ in lobby v3 ets');
+// any/unknown/ESObject: code-only (comments + string text stripped, lib/ets_scan.mjs).
+// lb_art_ stays a raw-text check: it guards resource names, which live in strings.
+const lobbyEts = [
+  { path: 'entry/src/main/ets/features/lobby/LobbyBoot.ets', text: boot },
+  { path: 'entry/src/main/ets/pages/Lobby.ets', text: lobby },
+  { path: 'entry/src/main/ets/features/lobby/LobbyPanel.ets', text: panel },
+  { path: 'entry/src/main/ets/features/lobby/LobbyAudio.ets', text: audio },
+  { path: 'entry/src/main/ets/features/lobby/DealerIdleMachine.ets', text: machine }
+];
+const lobbyTypeHits = findInCode(lobbyEts, [...ANY_ESOBJECT, /\bunknown\b/]);
+if (lobbyTypeHits.length > 0 || /lb_art_/.test(etsBlob)) {
+  fail('any/unknown/ESObject/lb_art_ in lobby v3 ets' +
+    (lobbyTypeHits.length ? `:\n  ${formatHits(lobbyTypeHits)}` : ' (lb_art_)'));
 } else {
-  pass('no any/unknown/ESObject/lb_art_');
+  pass('no any/unknown/ESObject (code only) / lb_art_');
 }
 if (etsBlob.includes("decks[") || etsBlob.includes("decks['")) {
   fail('indexed deck bag access');
@@ -407,26 +423,112 @@ for (const [rel, magic] of assets) {
   }
 }
 
-const frozen = [
-  'entry/src/main/ets/engine/MatchEngine.ets',
-  'entry/src/main/ets/pages/Table.ets',
-  'entry/src/main/ets/pages/Challenge.ets',
-  'entry/src/main/ets/pages/Report.ets',
-  'entry/src/main/ets/common/MatchDirector.ets',
-  'entry/src/main/resources/rawfile/config/demo_seed.json',
-  'entry/src/main/resources/rawfile/config/deck.json',
-  'entry/src/main/resources/rawfile/config/match_defaults.json'
-];
+// Frozen rule config (负责人 2026-10-07, P1 gate cleanup).
+// Before: `git diff origin/develop` over MatchEngine/Table/Challenge/Report/
+// MatchDirector .ets + three configs. That drifted with the remote (clean
+// develop passed, any client PR touching those .ets failed) and froze files
+// every client PR legitimately edits. Now: only the two rule-config files,
+// compared by parsed value (CRLF / key order / whitespace-proof, no git
+// needed) against the expected values below = develop@ac74f67.
+// demo_seed.json is not frozen here (#291 changed it; engine_mainpath_check
+// asserts its flags).
+// RULE: any future change to these config files must update this gate's
+// expected values in the same PR, and the PR body must cite which decision
+// authorized it; never loosen the check silently.
+const FROZEN_CONFIG = {
+  'entry/src/main/resources/rawfile/config/deck.json': {
+    "schema_version": "0.3.0",
+    "ranks": [
+      "A",
+      "K",
+      "Q"
+    ],
+    "wild": "JOKER",
+    "claimable": [
+      "A",
+      "K",
+      "Q"
+    ],
+    "decks": {
+      "n3": {
+        "A": 6,
+        "K": 6,
+        "Q": 6,
+        "JOKER": 2
+      },
+      "n4": {
+        "A": 6,
+        "K": 6,
+        "Q": 6,
+        "JOKER": 2
+      },
+      "n5": {
+        "A": 6,
+        "K": 6,
+        "Q": 6,
+        "JOKER": 2
+      },
+      "n6": {
+        "A": 6,
+        "K": 6,
+        "Q": 6,
+        "JOKER": 2
+      }
+    }
+  },
+  'entry/src/main/resources/rawfile/config/match_defaults.json': {
+    "schema_version": "0.4.0",
+    "min_players": 3,
+    "max_players": 6,
+    "default_players": 4,
+    "lives_default": 3,
+    "revolver_chambers": 6,
+    "revolver_live": 1,
+    "hand_size_default": 5,
+    "max_play_cards": 3,
+    "min_play_cards": 1,
+    "turn_seconds": 15,
+    "challenge_only_seconds": 8,
+    "challenge_bet_seconds": 2,
+    "challenge_ritual_max_seconds": 4,
+    "low_time_threshold": 5,
+    "timeout_auto_play": true,
+    "max_slam_per_game": 5,
+    "max_hesitate_per_game": 8,
+    "hesitate_dwell_ms": 800,
+    "soft_max_velocity": 1200,
+    "slam_min_velocity": 2800,
+    "demo_seed_enabled": false,
+    "demo_seed_value": 20260906,
+    "first_actor_policy": "random",
+    "avoid_same_claim_streak": 1,
+    "face_bet_enabled": true,
+    "face_bet_correct": 2,
+    "face_bet_wrong": 0,
+    "auto_play_prefer_legal": true,
+    "auto_play_else": "random_one",
+    "challenge_only_on_timeout": "skip",
+    "consecutive_timeout_warn": 2,
+    "ai_think_ms_min": 400,
+    "ai_think_ms_max": 1200
+  }
+};
+const canon = (v) => (Array.isArray(v) ? `[${v.map(canon).join(',')}]`
+  : v !== null && typeof v === 'object'
+    ? `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}`
+    : JSON.stringify(v));
 let frozenDirty = false;
-for (const rel of frozen) {
-  const diff = execSync(`git diff origin/develop -- ${rel}`, { cwd: root, encoding: 'utf8' });
-  if (diff.trim().length > 0) {
-    fail(`frozen file changed: ${rel}`);
+for (const [rel, expected] of Object.entries(FROZEN_CONFIG)) {
+  const actual = JSON.parse(src(rel));
+  if (canon(actual) !== canon(expected)) {
+    const keys = [...new Set([...Object.keys(actual), ...Object.keys(expected)])]
+      .filter((k) => canon(actual[k]) !== canon(expected[k]));
+    fail(`frozen rule config changed: ${rel} (keys: ${keys.join(', ')}) — update FROZEN_CONFIG in the same PR and cite the decision`);
     frozenDirty = true;
   }
 }
 if (!frozenDirty) {
-  pass('MatchEngine / Table / Challenge / Report / demo_seed / decks / match_defaults untouched');
+  pass('rule config deck.json / match_defaults.json == frozen values (develop@ac74f67)');
 }
 
 const engineCheck = src('entry/src/main/ets/engine/MatchEngine.ets');
@@ -465,7 +567,7 @@ const peekLayer = lobby.match(/@Builder\s+peekLayer\(\)[\s\S]*?\n  private /);
 if (ctaLayer && ctaLayer[0].includes('.onHover(') && ctaLayer[0].includes('.focusable(true)') &&
     ctaLayer[0].includes('.onFocus(') && ctaLayer[0].includes('.onBlur(') &&
     ctaLayer[0].includes('tavern_accent') && ctaLayer[0].includes('ctaHotBorder') &&
-    ctaLayer[0].includes('ctaHotGlow') && ctaLayer[0].includes('.enabled(this.bootReady)')) {
+    ctaLayer[0].includes('ctaHotGlow') && ctaLayer[0].includes(CTA_ENABLED)) {
   pass('R2a lb_btn_quickstart hover/focus brass-or-glow + T6 enabled gate kept');
 } else {
   fail('R2a CTA hover/focus wiring');
@@ -518,14 +620,25 @@ if (!etsBlob.includes('sfx_hover') && !ids.includes('sfx_hover')) {
 }
 
 if (lobby.includes("app.media.art_fx_candle") &&
-    lobby.includes('BlendMode.PLUS') &&
     audio.includes('audio/bgm/bgm_lobby_night.ogg') &&
     audio.includes('audio/sfx/sfx_amb_tavern.ogg') &&
     audio.includes('audio/vo/vo_dealer_greet.wav') &&
     !audio.includes('sfx_hover')) {
-  pass('#33 same-slot candle Plus-blend + three-track paths unchanged');
+  pass('#33 same-slot candle art_fx_candle + three-track paths unchanged');
 } else {
-  fail('#33 rebind / blend');
+  fail('#33 rebind (candle slot / three-track paths)');
+}
+// #33 candle BlendMode.PLUS — RETIRED (documented skip, not a pass):
+// #71 (d595fa2, "diag(lobby): A/B disable PLUS candle", falsification-only)
+// removed .blendMode(BlendMode.PLUS) while hunting the lobby flicker; #72 kept
+// it off and no later PR restored it or recorded a final decision. Asserting
+// PLUS would demand code that was deliberately pulled; asserting its absence
+// would lock in a diagnostic. If 负责人 rules to restore PLUS, put the
+// assertion back in the same PR that restores it.
+if (lobby.includes('BlendMode.PLUS')) {
+  console.log('NOTE #33 candle BlendMode.PLUS is present again — re-add the hard assertion here');
+} else {
+  console.log('SKIP #33 candle BlendMode.PLUS — retired: removed by #71 diag (d595fa2), never restored; pending 负责人 decision');
 }
 
 if (lobby.includes('CTA_HOT_SCALE: number = 1.01') &&
@@ -542,9 +655,19 @@ if (lobby.includes('CTA_HOT_SCALE: number = 1.01') &&
 console.log('--- HARD GATES (交审五条) ---');
 
 const t4Arm = lobby.match(/this\.arm\(marks\.t4At, \(\): void => \{[\s\S]*?\}\);/);
+// 185bca1 routed quick start through beginMatchLoad (L1 overlay) and renamed the
+// early-return log "quickstart ignored: boot axis not finished" →
+// "match load ignored: boot not ready or already loading". Same behaviour:
+// before T6 a tap returns before any table opens.
+const quickBody = methodBody(lobby, 'doQuickStart');
+const loadBody = methodBody(lobby, 'beginMatchLoad');
+const loadGuard = loadBody === null ? -1 : loadBody.indexOf(CTA_GUARD);
+const loadLog = loadBody === null ? -1 : loadBody.indexOf("'match load ignored: boot not ready or already loading'");
+const loadStart = loadBody === null ? -1 : loadBody.search(/startMatch\(|LbRouter\.toTable\(\)/);
 if (lobby.includes('@State bootReady: boolean = false') &&
-    lobby.includes('.enabled(this.bootReady)') &&
-    lobby.includes("quickstart ignored: boot axis not finished") &&
+    lobby.includes(CTA_ENABLED) &&
+    quickBody !== null && quickBody.includes('this.beginMatchLoad()') &&
+    loadGuard >= 0 && loadLog > loadGuard && (loadStart < 0 || loadStart > loadLog) &&
     /this\.arm\(marks\.clickableAt, \(\): void => \{[\s\S]*?this\.enableCta\(\);/.test(lobby)) {
   pass('HARD1 T6/BOOT 结束前 lb_btn_quickstart disabled，误点不开桌');
 } else {
