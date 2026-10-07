@@ -3,6 +3,8 @@ import { window } from '@kit.ArkUI';
 import { AppRuntime } from '../common/AppRuntime';
 import { ControlIds, ScreenIds, SfxIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
+import { PauseListener, PauseReasons, PauseState, RESUME_GRACE_MS } from '../common/MatchDirector';
+import { PausableScheduler } from '../common/PausableScheduler';
 import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
 import { DealAudio } from '../features/table/DealAudio';
@@ -25,6 +27,7 @@ import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/t
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
 import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
+import { RecordCommit, RecordStore } from '../persist/RecordStore';
 import { EventKind, Phase, PlayStyle, SeatRole, SeatStatus, TurnWindow } from '../engine/Phase';
 
 const TAG = 'Table';
@@ -157,6 +160,10 @@ struct Table {
   @State debugLifeOpen: boolean = false;
   /** EXP 1: debug panel BGM mute (table AVPlayer only; SFX stay). */
   @State debugBgmMuted: boolean = false;
+  /** PR-B 最小暂停层（只有「继续」，临时样式）；正式暂停菜单等 UI 22 线框后换皮。 */
+  @State pauseLayerOn: boolean = false;
+  /** 21 §3.6 BG_RESUME：切后台进的暂停，层上加 lb_str_pause_bg_note。 */
+  @State pauseFromBackground: boolean = false;
   /** EXP 3: debug panel renderer vs SoundPool A/B. */
   @State debugSfxRenderer: boolean = true;
   /** EXP 5: debug panel touch-down earlier arm vs playFlip-only. */
@@ -256,8 +263,19 @@ struct Table {
   private flushHandH: number = 0;
   private flushHandGY: number = 0;
   private hintTimer: number = -1;
-  /** PR-A 离局二次确认：弹窗挂起期间系统返回键/回开桌键不重复弹、不直接离局。 */
+  /** PR-A 离局二次确认：弹窗挂起期间系统返回键/回大厅键不重复弹、不直接离局。 */
   private leaveConfirmOpen: boolean = false;
+  /**
+   * PR-B 离局锁（负责人裁定）：点「离开」确认后置位，直到路由完成都不复位（页面被 replace 掉即随之销毁）；
+   * 唯一例外：路由 replace 与 back 都失败 → releaseLeaveLock() 解锁并打 error。
+   * 锁住期间：返回键吞掉不动作、lb_btn_home / requestLeave 不再弹窗、goHome 第二次调用直接返回、中退只写一次。
+   */
+  private leaving: boolean = false;
+  /** goHome 已开始（幂等闸）。 */
+  private homeRouting: boolean = false;
+  /** PR-B: every page one-shot timer goes through here so pause can freeze/resume them. */
+  private timers: PausableScheduler = new PausableScheduler();
+  private pauseListener: PauseListener | null = null;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -289,8 +307,13 @@ struct Table {
     this.lockTableWindow();
     this.pull();
     this.pollId = setInterval((): void => {
+      // PR-B: snapshot polling suspended while paused (engine clock frozen anyway).
+      if (this.timers.isPaused()) {
+        return;
+      }
       this.pull();
     }, SNAP_POLL_MS);
+    this.bindPause();
     Logger.info(TAG, 'table listening to engine snapshot');
   }
 
@@ -317,9 +340,11 @@ struct Table {
     this.cancelChoiceActTimer();
     AppRuntime.director.playBusy = false;
     if (this.hintTimer >= 0) {
-      clearTimeout(this.hintTimer);
+      this.timers.cancel(this.hintTimer);
       this.hintTimer = -1;
     }
+    this.unbindPause();
+    this.timers.cancelAll();
     DealAudio.release();
     SoundPlayer.release();
     this.unbindAvoid();
@@ -484,6 +509,10 @@ struct Table {
 
         // F3: home exit above fly/reveal/debug chrome so mid-match return works.
         this.homeExitChrome()
+
+        if (this.pauseLayerOn) {
+          this.pauseLayer()
+        }
       }
       .width('100%')
       .height('100%')
@@ -1089,6 +1118,24 @@ struct Table {
         .onClick(() => {
           this.onDebugLifeDec();
         })
+      // PR-B 调试暂停：只在 DebugBuild（appInfo.debug，读不到按交付包处理 = 不挂）。文案用 21 §6.5 lb_str_pause。
+      if (DebugBuild.debugPauseShown()) {
+        Text($r('app.string.lb_str_pause'))
+          .fontColor($r('app.color.tavern_shadow'))
+          .fontSize($r('app.float.caption_text_size'))
+          .padding({
+            left: 10,
+            right: 10,
+            top: 4,
+            bottom: 4
+          })
+          .backgroundColor($r('app.color.tavern_mute'))
+          .borderRadius(6)
+          .onClick(() => {
+            this.debugLifeOpen = false;
+            this.requestUserPause();
+          })
+      }
       Text(this.debugBgmMuted ? $r('app.string.lb_str_debug_bgm_on') :
         $r('app.string.lb_str_debug_bgm_mute'))
         .id(ControlIds.DEBUG_BGM_MUTE)
@@ -1553,6 +1600,15 @@ struct Table {
 
   /** F3: system back → same as lb_btn_home (PR-A: via leave confirm). Always consume. */
   onBackPress(): boolean {
+    if (this.leaving) {
+      // 离局锁：已确认离开、正在锁竖屏/路由，返回键吞掉不动作。
+      return true;
+    }
+    if (this.pauseLayerOn) {
+      // 21 §3.1 P08 / §3.5：暂停层内返回键 = 继续（常规恢复，含 RESUME_GRACE_MS）。
+      this.resumeFromPauseLayer();
+      return true;
+    }
     this.requestLeave();
     return true;
   }
@@ -1562,13 +1618,21 @@ struct Table {
    * 确认才 goHome；取消/点遮罩/返回键关窗 = 留在桌上。
    */
   private requestLeave(): void {
+    if (this.leaving) {
+      return;
+    }
     if (this.leaveConfirmOpen) {
       return;
     }
     this.leaveConfirmOpen = true;
+    // PR-B（21 §3.1 P06 / S21-45）：弹窗一开就走同一条暂停路径（导演 → 引擎 pauseClock / 页面定时器 / BGM）；
+    // 开牌/燃烛序列中则先 PENDING 放完再停。
+    AppRuntime.director.requestPause(PauseReasons.LEAVE_CONFIRM);
+    const ghost: boolean = this.humanIsGhost(AppRuntime.engine.current());
     const opts: AlertDialogParamWithButtons = {
       title: $r('app.string.lb_str_leave_confirm_title'),
-      message: $r('app.string.lb_str_leave_confirm_body'),
+      // 21 §3.5：观战中离局不改战绩，正文换 lb_str_confirm_lobby_ghost_body。
+      message: ghost ? $r('app.string.lb_str_confirm_lobby_ghost_body') : $r('app.string.lb_str_leave_confirm_body'),
       autoCancel: false,
       alignment: DialogAlignment.Center,
       primaryButton: {
@@ -1593,22 +1657,183 @@ struct Table {
     } catch (err) {
       // Dialog failed to show: stay on table (never leave without confirm).
       this.leaveConfirmOpen = false;
+      this.resumeIfLeavePause();
       Logger.warn(TAG, 'leave confirm dialog fail-soft — stay on table');
     }
   }
 
   private onLeaveCancel(): void {
+    if (this.leaving || !this.leaveConfirmOpen) {
+      return;
+    }
     this.leaveConfirmOpen = false;
+    // 「再想想」/ 返回键关窗 → 常规恢复（含 RESUME_GRACE_MS 缓冲）。
+    this.resumeIfLeavePause();
     Logger.info(TAG, 'leave confirm → cancel, stay on table');
   }
 
   private onLeaveConfirmed(): void {
-    this.leaveConfirmOpen = false;
+    if (this.leaving || !this.leaveConfirmOpen) {
+      return;
+    }
+    // 离局锁：此路径上 leaving / leaveConfirmOpen 都不再复位，直到路由完成。
+    this.leaving = true;
     Logger.info(TAG, 'leave confirm → ok, goHome');
+    this.commitLeaveRecord();
     this.goHome();
   }
 
+  /**
+   * PR-B 负责人拍板 1 / 21 §2.4：在局离开 = 记一败、标「中退」；观战（人类已 GHOST）离开 = 按已定名次记负、非中退。
+   * 已到 RECAP/END 的局由导演在 RECAP 写（此处不写）；last_match_id 去重，两路不会都写；演示局不写。
+   * 时长扣暂停：pausedTotalAt(now) 含弹窗开着的这段。
+   */
+  private commitLeaveRecord(): void {
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.phase === Phase.LOBBY || snap.phase === Phase.RECAP || snap.phase === Phase.END) {
+      return;
+    }
+    const leaveCommit: RecordCommit = {
+      quit: !this.humanIsGhost(snap),
+      isDemo: AppRuntime.engine.isDemoMatch(),
+      ff: false,
+      pausedMs: AppRuntime.engine.pausedTotalAt(Date.now())
+    };
+    RecordStore.commitOnce(snap, leaveCommit);
+  }
+
+  private humanIsGhost(snap: MatchSnapshot | null): boolean {
+    if (snap === null) {
+      return false;
+    }
+    for (let i = 0; i < snap.seats.length; i++) {
+      if (snap.seats[i].role === SeatRole.HUMAN) {
+        return snap.seats[i].status === SeatStatus.GHOST;
+      }
+    }
+    return false;
+  }
+
+  /** Cancel only undoes the pause the dialog itself took (not a user/background pause). */
+  private resumeIfLeavePause(): void {
+    if (AppRuntime.director.pauseReasonNow() === PauseReasons.LEAVE_CONFIRM) {
+      AppRuntime.director.resumeFromPause();
+    }
+  }
+
+  // ---------------------------------------------------------------- PR-B pause
+
+  private bindPause(): void {
+    const fn: PauseListener = (state: PauseState, shiftMs: number): void => {
+      this.onPauseState(state, shiftMs);
+    };
+    this.pauseListener = fn;
+    AppRuntime.director.addPauseListener(fn);
+    // 开牌（抽→翻→持面）与桌槌序列仍在放 = 不可打断，按暂停进 PENDING。
+    AppRuntime.director.setSequenceBusyProbe((): boolean => {
+      return this.revealTimer >= 0 || this.choiceActTimer >= 0;
+    });
+  }
+
+  private unbindPause(): void {
+    if (this.pauseListener !== null) {
+      AppRuntime.director.removePauseListener(this.pauseListener);
+      this.pauseListener = null;
+    }
+    AppRuntime.director.setSequenceBusyProbe(null);
+    TableAudio.clearGamePause();
+    this.pauseLayerOn = false;
+  }
+
+  private onPauseState(state: PauseState, shiftMs: number): void {
+    if (state === PauseState.PAUSED) {
+      // Same freeze for every reason (user / background / leave-confirm): timers + BGM.
+      this.timers.pause();
+      TableAudio.pauseForGame();
+      // Leave-confirm pause shows the dialog only; user/background pause shows the layer.
+      const reason: string = AppRuntime.director.pauseReasonNow();
+      this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM;
+      this.pauseFromBackground = reason === PauseReasons.BACKGROUND;
+      return;
+    }
+    if (state === PauseState.PENDING) {
+      Logger.info(TAG, 'pause pending — finishing reveal/candle sequence first');
+      return;
+    }
+    // RUNNING (resume or pending cancelled). Only a real freeze gets the RESUME_GRACE_MS floor (21 §3.4).
+    if (this.timers.isPaused()) {
+      this.timers.resume(RESUME_GRACE_MS);
+      if (this.challengeTickId >= 0) {
+        this.challengeDeadlineMs = Math.max(this.challengeDeadlineMs + shiftMs, Date.now() + RESUME_GRACE_MS);
+      }
+    }
+    TableAudio.resumeForGame();
+    this.pauseLayerOn = false;
+    this.pauseFromBackground = false;
+    this.lastHudStamp = '';
+    this.pull();
+  }
+
+  /** PR-B 调试入口：请求暂停（PENDING/PAUSED 中重复请求被导演忽略）。交付包无入口，且此处再挡一次。 */
+  private requestUserPause(): void {
+    if (!DebugBuild.debugPauseShown() || this.leaving) {
+      return;
+    }
+    AppRuntime.director.requestPause(PauseReasons.USER);
+  }
+
+  private resumeFromPauseLayer(): void {
+    AppRuntime.director.resumeFromPause();
+  }
+
+  /**
+   * PR-B 最小暂停层（临时样式，UI 22 合入后换皮）：标题 + 只放「继续」；切后台进来时加 21 §3.6 提示。
+   * 文案用 21 §6.5 键：lb_str_pause_title / lb_str_pause_bg_note / lb_str_pause_resume。
+   * 正式菜单（继续/设置/规则/结束游戏/回大厅）等 UI 22。
+   */
+  @Builder
+  pauseLayer() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.tavern_shadow'))
+        .opacity(0.72)
+      Column({ space: 14 }) {
+        Text($r('app.string.lb_str_pause_title'))
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+        if (this.pauseFromBackground) {
+          Text($r('app.string.lb_str_pause_bg_note'))
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+        }
+        Button($r('app.string.lb_str_pause_resume'))
+          .height($r('app.float.btn_height'))
+          .backgroundColor($r('app.color.tavern_accent'))
+          .fontColor($r('app.color.tavern_bg'))
+          .onClick(() => {
+            this.resumeFromPauseLayer();
+          })
+      }
+      .padding(24)
+      .backgroundColor($r('app.color.tavern_panel'))
+      .borderRadius(12)
+    }
+    .width('100%')
+    .height('100%')
+    .zIndex(60)
+  }
+
+  /**
+   * 离桌唯一出口。幂等：第二次调用直接返回（离局锁，负责人裁定）；锁只在路由全失败时由 releaseLeaveLock 复位。
+   */
   private goHome(): void {
+    if (this.homeRouting) {
+      return;
+    }
+    this.homeRouting = true;
+    this.leaving = true;
     this.resetPlayFlyUi();
     this.resetRevealUi();
     this.revealForChallengeId = '';
@@ -1618,6 +1843,10 @@ struct Table {
     this.closeChallengeEntry(false);
     AppRuntime.director.stop();
     AppRuntime.engine.toLobby();
+    this.timers.cancelAll();
+    TableAudio.clearGamePause();
+    this.pauseLayerOn = false;
+    this.pauseFromBackground = false;
     // Portrait before replace so lobby is not stuck landscape (R-LAND return).
     void this.unlockLobbyThenRoute();
   }
@@ -1629,7 +1858,24 @@ struct Table {
     } catch (err) {
       Logger.warn(TAG, 'goHome portrait lock fail-soft');
     }
-    LbRouter.toLobby();
+    // 回大厅：replace → 失败退 back()；两步都失败才解锁（见 releaseLeaveLock）。
+    const routed: boolean = await LbRouter.toLobbyOrBack();
+    if (!routed) {
+      this.releaseLeaveLock();
+    }
+  }
+
+  /**
+   * 离局锁唯一的解锁点：路由 replace 与 back 都失败。打 error 日志，复位三把锁，把桌面锁回横屏，
+   * 让玩家还能再点离开重试（中退不会重复写：goHome 已把引擎送回 LOBBY，commitLeaveRecord 跳过，
+   * 且 RecordStore 按 last_match_id 去重）。
+   */
+  private releaseLeaveLock(): void {
+    Logger.error(TAG, 'leave routing failed (replace + back) — release leaving lock so the player can retry');
+    this.homeRouting = false;
+    this.leaving = false;
+    this.leaveConfirmOpen = false;
+    void this.lockTableWindow();
   }
 
   private cancelPlaySheet(): void {
@@ -2246,9 +2492,9 @@ struct Table {
   private flashHint(kind: number): void {
     this.hintKind = kind;
     if (this.hintTimer >= 0) {
-      clearTimeout(this.hintTimer);
+      this.timers.cancel(this.hintTimer);
     }
-    this.hintTimer = setTimeout((): void => {
+    this.hintTimer = this.timers.schedule((): void => {
       this.hintTimer = -1;
       this.hintKind = 0;
     }, 800);
@@ -2473,7 +2719,7 @@ struct Table {
       this.playFlyX = dest[0];
       this.playFlyY = dest[1];
     });
-    this.playFlyTimer = setTimeout((): void => {
+    this.playFlyTimer = this.timers.schedule((): void => {
       this.playFlyTimer = -1;
       this.onPlayLanded();
     }, PlayFlyFx.FLY_MS);
@@ -2667,14 +2913,14 @@ struct Table {
 
   private cancelPlayFlyTimer(): void {
     if (this.playFlyTimer >= 0) {
-      clearTimeout(this.playFlyTimer);
+      this.timers.cancel(this.playFlyTimer);
       this.playFlyTimer = -1;
     }
   }
 
   private cancelRoundWinTimer(): void {
     if (this.roundWinTimer >= 0) {
-      clearTimeout(this.roundWinTimer);
+      this.timers.cancel(this.roundWinTimer);
       this.roundWinTimer = -1;
     }
   }
@@ -2687,7 +2933,7 @@ struct Table {
     this.closeChallengeEntry(false);
     AppRuntime.engine.beginRoundWin();
     Logger.info(TAG, `RoundWin tip ${PlayFlyFx.ROUND_WIN_MS}ms`);
-    this.roundWinTimer = setTimeout((): void => {
+    this.roundWinTimer = this.timers.schedule((): void => {
       this.roundWinTimer = -1;
       this.finishRoundWin();
     }, PlayFlyFx.ROUND_WIN_MS);
@@ -2703,7 +2949,7 @@ struct Table {
 
   private cancelRevealTimer(): void {
     if (this.revealTimer >= 0) {
-      clearTimeout(this.revealTimer);
+      this.timers.cancel(this.revealTimer);
       this.revealTimer = -1;
     }
   }
@@ -2864,7 +3110,7 @@ struct Table {
       this.choiceActLift = -ChoiceActFx.LIFT_VP;
       this.choiceActScale = ChoiceActFx.RAISE_SCALE;
     });
-    this.choiceActTimer = setTimeout((): void => {
+    this.choiceActTimer = this.timers.schedule((): void => {
       this.choiceActTimer = -1;
       if (gen !== this.choiceActGen) {
         return;
@@ -2880,7 +3126,7 @@ struct Table {
         this.choiceActSquashY = ChoiceActFx.SQUASH_SCALE_Y;
       });
       TableAudio.playHammerHit();
-      this.choiceActTimer = setTimeout((): void => {
+      this.choiceActTimer = this.timers.schedule((): void => {
         this.choiceActTimer = -1;
         if (gen !== this.choiceActGen) {
           return;
@@ -2894,7 +3140,7 @@ struct Table {
           this.choiceActSquashY = 1;
           this.choiceActShake = ChoiceActFx.SHAKE_VP;
         });
-        this.choiceActTimer = setTimeout((): void => {
+        this.choiceActTimer = this.timers.schedule((): void => {
           this.choiceActTimer = -1;
           if (gen !== this.choiceActGen) {
             return;
@@ -2907,12 +3153,12 @@ struct Table {
             this.choiceActShake = 0;
           });
           // SMASH_SCALE 持面 220ms（HIT 须可见），再回 REST.
-          this.choiceActTimer = setTimeout((): void => {
+          this.choiceActTimer = this.timers.schedule((): void => {
             this.choiceActTimer = -1;
             if (gen !== this.choiceActGen) {
               return;
             }
-            this.choiceActTimer = setTimeout((): void => {
+            this.choiceActTimer = this.timers.schedule((): void => {
               this.choiceActTimer = -1;
               if (gen !== this.choiceActGen) {
                 return;
@@ -2927,7 +3173,7 @@ struct Table {
                 this.choiceActScale = ChoiceActFx.REST_SCALE;
                 this.choiceActSquashY = 1;
               });
-              this.choiceActTimer = setTimeout((): void => {
+              this.choiceActTimer = this.timers.schedule((): void => {
                 this.choiceActTimer = -1;
                 if (gen !== this.choiceActGen) {
                   return;
@@ -2944,11 +3190,11 @@ struct Table {
 
   private retractChoiceAct(): void {
     if (this.choiceActTimer >= 0) {
-      clearTimeout(this.choiceActTimer);
+      this.timers.cancel(this.choiceActTimer);
       this.choiceActTimer = -1;
     }
     if (this.choiceActHideTimer >= 0) {
-      clearTimeout(this.choiceActHideTimer);
+      this.timers.cancel(this.choiceActHideTimer);
       this.choiceActHideTimer = -1;
     }
     this.choiceActGen = this.choiceActGen + 1;
@@ -2965,11 +3211,11 @@ struct Table {
   private cancelChoiceActTimer(): void {
     this.choiceActGen = this.choiceActGen + 1;
     if (this.choiceActTimer >= 0) {
-      clearTimeout(this.choiceActTimer);
+      this.timers.cancel(this.choiceActTimer);
       this.choiceActTimer = -1;
     }
     if (this.choiceActHideTimer >= 0) {
-      clearTimeout(this.choiceActHideTimer);
+      this.timers.cancel(this.choiceActHideTimer);
       this.choiceActHideTimer = -1;
     }
   }
@@ -3197,7 +3443,7 @@ struct Table {
     if (text.length === 0) {
       return;
     }
-    this.npcBubbleTimer = setTimeout((): void => {
+    this.npcBubbleTimer = this.timers.schedule((): void => {
       this.npcBubbleTimer = -1;
       if (this.npcChallengeBubble === text) {
         this.npcChallengeBubble = '';
@@ -3207,7 +3453,7 @@ struct Table {
 
   private cancelNpcBubbleTimer(): void {
     if (this.npcBubbleTimer >= 0) {
-      clearTimeout(this.npcBubbleTimer);
+      this.timers.cancel(this.npcBubbleTimer);
       this.npcBubbleTimer = -1;
     }
   }
@@ -3284,7 +3530,7 @@ struct Table {
 
   /**
    * Q03: PlayLanded ∧ hand>0 ∧ canChallenge ∧ human.
-   * Zero entry during PlayLaunch / confirmBusy / RoundWin / before any play (no lastPlay).
+   * Zero entry during PlayLaunch / confirmBusy / RoundWin / before the first play (no lastPlay).
    * R2: after every play (incl. first of round), next seat enters 质疑|相信.
    * ForceChallenge2 (=2 empty): allow even when actor emptied.
    */
@@ -3499,6 +3745,9 @@ struct Table {
     this.challengeDeadlineMs = Date.now() + ChallengeFx.AWAIT_MS;
     this.challengeRemainSec = Math.round(ChallengeFx.AWAIT_MS / 1000);
     this.challengeTickId = setInterval((): void => {
+      if (this.timers.isPaused()) {
+        return;
+      }
       const left: number = this.challengeDeadlineMs - Date.now();
       let sec: number = Math.ceil(left / 1000);
       if (sec < 0) {
@@ -3616,7 +3865,7 @@ struct Table {
         this.revealDeferTries = 0;
         return;
       }
-      this.revealTimer = setTimeout((): void => {
+      this.revealTimer = this.timers.schedule((): void => {
         this.revealTimer = -1;
         const again: MatchSnapshot | null = AppRuntime.engine.current();
         if (again !== null &&
@@ -3643,13 +3892,13 @@ struct Table {
     this.revealOn = true;
     TableAudio.playRevealDraw();
     Logger.info(TAG, `${SfxIds.REVEAL_DRAW} beginRevealAfterAck n=${ranks.length}`);
-    this.revealTimer = setTimeout((): void => {
+    this.revealTimer = this.timers.schedule((): void => {
       this.revealTimer = -1;
       // R4: only flip after DRAW_TO_FLIP_MS; never skip to face-up instantly.
       this.revealFaceUp = true;
       TableAudio.playRevealFlip();
       Logger.info(TAG, `${SfxIds.REVEAL_FLIP} faceUp`);
-      this.revealTimer = setTimeout((): void => {
+      this.revealTimer = this.timers.schedule((): void => {
         this.revealTimer = -1;
         // R4: hold full REVEAL_HOLD_MS before resetRevealUi / pull. Ban early cut.
         this.resetRevealUi();
@@ -3714,6 +3963,9 @@ struct Table {
     this.challengeDeadlineMs = Date.now() + leftMs;
     this.challengeRemainSec = Math.ceil(leftMs / 1000);
     this.challengeTickId = setInterval((): void => {
+      if (this.timers.isPaused()) {
+        return;
+      }
       const left: number = this.challengeDeadlineMs - Date.now();
       let sec: number = Math.ceil(left / 1000);
       if (sec < 0) {
@@ -3823,7 +4075,8 @@ struct Table {
       }
       this.flyRot = 0;
     });
-    this.armDeal(cardMs, (): void => {
+    // 21 §3.2 / PAU-3：暂停时当前在飞的这张照常落地（atomic），后续 stagger / 下一张 / dealDone 走普通 armDeal，暂停中挂起。
+    this.armDealLanding(cardMs, (): void => {
       this.markLanded(beat.seatId);
       this.flyOn = false;
       if (i + 1 >= beats.length) {
@@ -4010,8 +4263,16 @@ struct Table {
     return [Number(area.globalPosition.x) - this.stackGX, Number(area.globalPosition.y) - this.stackGY];
   }
 
+  /** 当前这张牌的落地：不随暂停冻结（只这一段），id 仍进 dealTimers，离桌/重发时一并取消。 */
+  private armDealLanding(ms: number, fn: () => void): void {
+    const id: number = this.timers.scheduleAtomic((): void => {
+      fn();
+    }, ms);
+    this.dealTimers.push(id);
+  }
+
   private armDeal(ms: number, fn: () => void): void {
-    const id: number = setTimeout((): void => {
+    const id: number = this.timers.schedule((): void => {
       fn();
     }, ms);
     this.dealTimers.push(id);
@@ -4019,7 +4280,7 @@ struct Table {
 
   private cancelDealTimers(): void {
     for (let i = 0; i < this.dealTimers.length; i++) {
-      clearTimeout(this.dealTimers[i]);
+      this.timers.cancel(this.dealTimers[i]);
     }
     this.dealTimers = [];
   }

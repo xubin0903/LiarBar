@@ -6,6 +6,7 @@ import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { SfxPcm, SfxWavClip } from './SfxPcm';
+import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'SoundPlayer';
 const TAG_READY: string = 'SfxReady';
@@ -456,11 +457,16 @@ export class SoundPlayer {
         `SfxReady play slot=${idName} id=${soundId} ready=true pending=false ` +
           `deferred=false playN=${playN} t=${now} path=${SoundPlayer.pathLabel()}`);
     }
-    if (renderer) {
-      SoundPlayer.fireRenderer(volume, 'renderer', isFlip);
+    // PR-B: 音效轨乘子在出声口乘一次（翻牌/熄烛都是音效轨）。
+    const gained: number = AudioSettings.sfx01(volume);
+    if (gained <= 0) {
       return;
     }
-    SoundPlayer.firePlay(soundId, volume, 'play');
+    if (renderer) {
+      SoundPlayer.fireRenderer(gained, 'renderer', isFlip);
+      return;
+    }
+    SoundPlayer.firePlay(soundId, gained, 'play');
   }
 
   private static firePlay(soundId: number, volume: number, path: string): void {

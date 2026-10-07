@@ -53,7 +53,7 @@ export class ControlIds {
   static readonly AGAIN: string = 'lb_btn_again';
   /** 局内退出键（homeExitChrome）专用。结算页回大厅不再复用此 id。 */
   static readonly HOME: string = 'lb_btn_home';
-  /** 结算页/战绩页「回开桌」（负责人 2026-10-07 拍板，与局内 lb_btn_home 分开）。 */
+  /** 结算页/战绩页「回大厅」（负责人 2026-10-07 拍板，与局内 lb_btn_home 分开）。 */
   static readonly REPORT_LOBBY: string = 'lb_btn_report_lobby';
   static readonly COVER_CHALLENGE: string = 'lb_cover_challenge';
   static readonly BET_BAR: string = 'lb_cmp_bet_bar';
@@ -196,4 +196,8 @@ export class PersistNs {
   static readonly LAST_TABLE: string = 'lb.last_table';
   static readonly STATS: string = 'lb.stats';
   static readonly MATCH_LOG: string = 'lb.match_log';
+  /** PR-B 音量设置（BGM/音效/静默）。 */
+  static readonly AUDIO: string = 'lb.audio';
+  /** PR-B 战绩（最近 20 局 + 累计）。 */
+  static readonly RECORDS: string = 'lb.records';
 }
