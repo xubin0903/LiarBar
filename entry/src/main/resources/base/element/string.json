@@ -122,7 +122,7 @@
     },
     {
       "name": "lb_str_home",
-      "value": "回开桌"
+      "value": "回大厅"
     },
     {
       "name": "lb_str_nav_table",
@@ -937,6 +937,10 @@
       "value": "观战中"
     },
     {
+      "name": "lb_str_ff_running",
+      "value": "快进中"
+    },
+    {
       "name": "lb_str_rec_sum_fmt",
       "value": "共 {场} 局 · 胜 {胜} · 胜率 {率}"
     },
@@ -1014,7 +1018,7 @@
     },
     {
       "name": "lb_str_pause_lobby",
-      "value": "返回大厅"
+      "value": "回大厅"
     },
     {
       "name": "lb_str_pause_bg_note",
@@ -1347,6 +1351,10 @@
     {
       "name": "lb_str_leave_dialog_clock_runs",
       "value": "弹窗开着倒计时/AI 仍在走"
+    },
+    {
+      "name": "lb_str_report_hl_repeat_winner",
+      "value": "无高光时重复胜者行 / 兜底句与回放句同屏重复"
     },
     {
       "name": "lb_str_hl_none",
