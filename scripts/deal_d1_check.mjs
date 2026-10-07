@@ -248,7 +248,8 @@ if (lobby.includes('MatchLoadOverlay') && lobby.includes('beginMatchLoad') &&
 // quick-start path, and the only way into it from the table would be a new
 // startMatch(). Check on comment/string-stripped code across ALL .ets:
 //  - L1 symbols live only in Lobby / MatchLoadOverlay / Ids;
-//  - startMatch( is called only from Lobby (the engine only defines it);
+//  - startMatch( is called only from Lobby, plus Report's 21 §1.6「再来一局」(restartMatch only:
+//    same opts → director.start → LbRouter.replaceTable, no L1 overlay — the report page is already landscape);
 //  - the two redeal bodies never call startMatch / resetToLobby / router.
 const L1_HOME = new Set([
   'entry/src/main/ets/pages/Lobby.ets',
@@ -264,13 +265,22 @@ const engineCode = stripCommentsAndStrings(engine);
 const engineSelfStart = /this\.startMatch\(/.test(engineCode);
 const redealLeaks = [stallBody || '', collectBody || ''].some((b) =>
   /startMatch\(|resetToLobby\(|beginMatchLoad|MatchLoadOverlay|LbRouter|router\./.test(stripCommentsAndStrings(b)));
-if (l1Leaks.length === 0 && startCallers.length === 1 && startCallers[0] === 'entry/src/main/ets/pages/Lobby.ets' &&
+const REPORT_ETS = 'entry/src/main/ets/pages/Report.ets';
+const reportCode = stripCommentsAndStrings(src(REPORT_ETS));
+const restartAt = reportCode.indexOf('private restartMatch(): boolean {');
+const restartEnd = restartAt < 0 ? -1 : reportCode.indexOf('\n  }\n', restartAt);
+const reportStartOk = !startCallers.includes(REPORT_ETS) ||
+  ((reportCode.match(/\.startMatch\(/g) || []).length === 1 && restartAt >= 0 &&
+    reportCode.indexOf('.startMatch(') > restartAt && reportCode.indexOf('.startMatch(') < restartEnd &&
+    reportCode.slice(restartAt, restartEnd).includes('LbRouter.replaceTable()'));
+const otherStarters = startCallers.filter((p) => p !== 'entry/src/main/ets/pages/Lobby.ets' && p !== REPORT_ETS);
+if (l1Leaks.length === 0 && startCallers.includes('entry/src/main/ets/pages/Lobby.ets') && otherStarters.length === 0 && reportStartOk &&
   !engineSelfStart && !redealLeaks && stallBody !== null && collectBody !== null) {
-  pass('D1e rebuild/redeal does not trigger MatchLoadOverlay (L1 only via Lobby startMatch)');
+  pass('D1e rebuild/redeal does not trigger MatchLoadOverlay (L1 only via Lobby startMatch; Report 再来一局 = restartMatch → replaceTable, no L1)');
 } else {
   fail('rebuild path must not re-run L1 MatchLoadOverlay' +
     (l1Leaks.length ? `\n  L1 symbol outside Lobby:\n  ${formatHits(l1Leaks)}` : '') +
-    `\n  startMatch callers: ${JSON.stringify(startCallers)} engineSelfStart=${engineSelfStart} redealLeaks=${redealLeaks}`);
+    `\n  startMatch callers: ${JSON.stringify(startCallers)} reportStartOk=${reportStartOk} engineSelfStart=${engineSelfStart} redealLeaks=${redealLeaks}`);
 }
 
 if (!engine.includes('MATCH_LOADING') && !engine.includes("DEALING =")) {

@@ -148,6 +148,27 @@ export interface MatchSnapshot {
 }
 
 /**
+ * 21 §1.3 引擎私有出牌日志 `playLog` 的一条（结算面板唯一数据源）。
+ * 不进 MatchSnapshot（局中不出现）；只在 RECAP / END 后经 MatchEngine.recapPlayLog() 读副本。
+ * seq = 本局手序（1 起，rollback 弹末条、不留空号），不是 playId 里的 playSeq。
+ */
+export interface PlayLogEntry {
+  seq: number;
+  round: number;
+  actorSeatId: number;
+  /** 张数 1～3。 */
+  count: number;
+  /** 本手非宣称非 Joker 张数（commitPicked 内已算的 fake）。 */
+  fakeCount: number;
+  style: PlayStyle;
+  challenged: boolean;
+  challengerSeatId: number;
+  /** 裁定 SUCCESS（被拆穿）。 */
+  caught: boolean;
+  loserSeatId: number;
+}
+
+/**
  * PR-A 结算高光快照：collectRedeal 清空 challenge/lastPlay 之前抓取。
  * handNo = 本局第几手（全局手序，回撤已扣），不是张数。
  */

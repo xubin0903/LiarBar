@@ -4,7 +4,9 @@ import { ControlIds, ScreenIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { ReportPanel } from '../features/report/ReportPanel';
+import { REPORT_TEXT_KEYS, ReportInput, ReportModel, ReportView } from '../features/report/ReportModel';
 import { TableAudio } from '../features/table/TableAudio';
+import { StartMatchOpts } from '../engine/MatchEngine';
 import { MatchSnapshot } from '../engine/MatchTypes';
 import { Phase, SeatRole } from '../engine/Phase';
 import { WindowOrientation } from '../harmony/WindowOrientation';
@@ -13,21 +15,21 @@ import { RecordCommit, RecordStore } from '../persist/RecordStore';
 const TAG = 'Report';
 
 /**
- * PR-A 结算/战绩页。
- * - 赛后（Table → replaceReport，phase=RECAP/END）：结算模式，沿用横屏（不在结算页再拧一次），
- *   内容整体包 Scroll，横屏底部「再来一局 / 回开桌」始终可滚到；离开时先锁回竖屏再回大厅。
- * - 大厅「战绩」（Lobby push，phase=LOBBY）：战绩空态，竖屏，不放输赢音效；返回 = router.back()。
+ * 结算战报 / 战绩页（21 §1 · 22 §4）。
+ * - 赛后（Table → replaceReport，phase=RECAP/END）：结算模式，保持横屏。页面一出现就 commitOnce（RPT-11 · 21:298 / :305），
+ *   顶区与按钮条固定，只有中间主体在 Scroll 内（S21-28）；数据只读 playLog（ReportModel）。
+ *   「再来一局」= 同设置直接开新局 → replaceTable（不经大厅、不转屏，21 §1.6）；「回大厅」/ 返回键 = 先竖屏再 toLobby。
+ * - 大厅「战绩」（Lobby push，phase=LOBBY）：战绩空态，竖屏，不放输赢音效；返回 = router.back()（战绩 UI PR 接列表）。
  */
 @Entry
 @Component
 struct Report {
-  @State winnerText: string = '';
-  @State highlight: string = '';
-  @State recapText: string = '';
-  @State humanWon: boolean = false;
-  /** true = 大厅「战绩」入口（无对局结算）；战绩列表 PR-B 后接 RecordStore。 */
+  @State view: ReportView = new ReportView();
+  /** true = 大厅「战绩」入口（无对局结算）。 */
   @State recordsMode: boolean = true;
   private leaving: boolean = false;
+  /** 再来一局用的同一组开局参数（本局人类昵称 / 座数 / 静默局）。 */
+  private againOpts: StartMatchOpts | null = null;
 
   aboutToAppear(): void {
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
@@ -37,9 +39,9 @@ struct Report {
       return;
     }
     this.recordsMode = false;
+    const pausedMs: number = AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now());
     if (snap.phase === Phase.RECAP) {
-      // PR-B 战绩兜底（负责人 #10）：RECAP 后立刻切到结算页、导演 RECAP tick 还没跑时也要记上；
-      // 与导演同一口径，commitOnce 按 last_match_id 幂等（已写过 / 演示局 = 不再写）。
+      // RPT-11：结算页一出现就写（不等玩家点任何键）；与导演 RECAP 回调同一口径，commitOnce 按 last_match_id 幂等。
       const recapCommit: RecordCommit = {
         quit: false,
         isDemo: AppRuntime.engine.isDemoMatch(),
@@ -48,30 +50,35 @@ struct Report {
       };
       RecordStore.commitOnce(snap, recapCommit);
     }
-    let winner: string = '';
+    const input: ReportInput = {
+      seats: snap.seats,
+      recap: snap.recap,
+      eventLog: snap.eventLog,
+      playLog: AppRuntime.engine.recapPlayLog(),
+      winnerSeatId: snap.winnerSeatId,
+      roundIndex: snap.roundIndex,
+      startedAt: snap.startedAt,
+      endedAt: snap.endedAt > 0 ? snap.endedAt : Date.now(),
+      pausedMs: pausedMs,
+      livesDefault: snap.config.lives_default > 0 ? snap.config.lives_default : 3,
+      quit: false,
+      ff: false
+    };
+    this.view = ReportModel.build(input, this.readTexts());
+    let nick: string = '';
     for (let i = 0; i < snap.seats.length; i++) {
-      if (snap.seats[i].seatId === snap.winnerSeatId) {
-        winner = snap.seats[i].nickname;
-        this.humanWon = snap.seats[i].role === SeatRole.HUMAN;
+      if (snap.seats[i].role === SeatRole.HUMAN) {
+        nick = snap.seats[i].nickname;
       }
     }
-    this.winnerText = winner;
-    this.highlight = snap.highlightLine;
-    if (this.highlight.length === 0) {
-      this.highlight = snap.dealerLine;
-    }
-    let lines: string = '';
-    for (let i = 0; i < snap.recap.length; i++) {
-      const row = snap.recap[i];
-      lines = `${lines}${row.nickname} 出${row.playCount} 假${row.fakeHandCount} 疑${row.challengeCount} 中${row.challengeHits}\n`;
-    }
-    this.recapText = lines;
+    const again: StartMatchOpts = { nickname: nick, playerCount: snap.seats.length, silent: snap.silentMode };
+    this.againOpts = again;
     TableAudio.setSilent(snap.silentMode);
-    TableAudio.playResult(this.humanWon);
+    TableAudio.playResult(this.view.humanWon);
     TableAudio.fadeBgmOut(TableAudio.BGM_FADE_OUT_MS);
   }
 
-  /** 结算模式：系统返回键 = 回开桌（重置引擎 + 竖屏）；战绩模式：默认 back。 */
+  /** 结算模式：系统返回键 = 回大厅（不弹确认，21 §1.6）；战绩模式：默认 back。 */
   onBackPress(): boolean {
     if (this.recordsMode) {
       return false;
@@ -81,41 +88,39 @@ struct Report {
   }
 
   build() {
-    Scroll() {
-      Column() {
-        Text($r('app.string.lb_str_app_title'))
-          .fontColor($r('app.color.tavern_candle'))
-          .fontSize($r('app.float.title_text_size'))
-          .margin({ top: 24, bottom: 12 })
-
-        if (this.recordsMode) {
-          this.recordsEmpty()
-        } else {
-          ReportPanel({
-            winnerText: this.winnerText,
-            highlight: this.highlight,
-            recapText: this.recapText,
-            humanWon: this.humanWon,
-            onAgain: () => {
-              this.leaveMatchReport(true);
-            },
-            onHome: () => {
-              this.leaveMatchReport(false);
-            }
-          })
+    Column() {
+      if (this.recordsMode) {
+        Scroll() {
+          Column() {
+            Text($r('app.string.lb_str_app_title'))
+              .fontColor($r('app.color.tavern_candle'))
+              .fontSize($r('app.float.title_text_size'))
+              .margin({ top: 24, bottom: 12 })
+            this.recordsEmpty()
+          }
+          .width('100%')
+          .padding(20)
+          .alignItems(HorizontalAlign.Center)
         }
+        .width('100%')
+        .height('100%')
+        .scrollable(ScrollDirection.Vertical)
+        .align(Alignment.Top)
+      } else {
+        ReportPanel({
+          view: this.view,
+          onAgain: () => {
+            this.leaveMatchReport(true);
+          },
+          onHome: () => {
+            this.leaveMatchReport(false);
+          }
+        })
       }
-      .width('100%')
-      .padding(20)
-      .alignItems(HorizontalAlign.Center)
     }
     .id(ScreenIds.REPORT)
     .width('100%')
     .height('100%')
-    .scrollable(ScrollDirection.Vertical)
-    .scrollBar(BarState.Auto)
-    .edgeEffect(EdgeEffect.Spring)
-    .align(Alignment.Top)
     .backgroundColor($r('app.color.tavern_bg'))
   }
 
@@ -143,18 +148,56 @@ struct Report {
     .width('100%')
   }
 
+  /** 结算句模板按键名读 string.json（显式传参填充，不走 DealerLines fill）。 */
+  private readTexts(): Map<string, string> {
+    const texts: Map<string, string> = new Map<string, string>();
+    try {
+      const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
+      for (let i = 0; i < REPORT_TEXT_KEYS.length; i++) {
+        try {
+          texts.set(REPORT_TEXT_KEYS[i], ctx.resourceManager.getStringByNameSync(REPORT_TEXT_KEYS[i]));
+        } catch (err) {
+          Logger.warn(TAG, `report text miss ${REPORT_TEXT_KEYS[i]}`);
+        }
+      }
+    } catch (err) {
+      Logger.warn(TAG, 'report texts: no context');
+    }
+    return texts;
+  }
+
   private leaveMatchReport(again: boolean): void {
     if (this.leaving) {
       return;
     }
     this.leaving = true;
     AppRuntime.director.stop();
-    if (again) {
-      AppRuntime.engine.playAgain();
-    } else {
-      AppRuntime.engine.toLobby();
+    if (again && this.restartMatch()) {
+      return;
     }
+    AppRuntime.engine.toLobby();
     void this.portraitThenLobby();
+  }
+
+  /**
+   * 21 §1.6 再来一局：同 nickname / playerCount / silent → startMatch → director.start → replaceTable。
+   * 保持横屏、不经大厅（S21-29）；结算页被新桌替换，栈深不变。开局被拒 → 回落「回大厅」路径。
+   */
+  private restartMatch(): boolean {
+    const opts: StartMatchOpts | null = this.againOpts;
+    if (opts === null) {
+      return false;
+    }
+    AppRuntime.bootDirector();
+    if (!AppRuntime.engine.startMatch(opts)) {
+      Logger.warn(TAG, 'again: START_MATCH rejected → lobby');
+      return false;
+    }
+    AppRuntime.director.start();
+    // 新桌 aboutToAppear 重新 prepare / startBgm；先放掉本局桌音（含 resultPlayed），避免 prepare 早退复用旧池。
+    TableAudio.release();
+    LbRouter.replaceTable();
+    return true;
   }
 
   /** Same order as Table.unlockLobbyThenRoute: portrait first so lobby never flashes landscape. */

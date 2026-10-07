@@ -31,6 +31,7 @@ GONE_REL = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁 �
 GONE_TEAR = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁（收尾已由 aboutToDisappear 做过）→ 不再碰已销毁的页面。\n      return;\n    }\n")
 GONE_SET = "    this.pageGone = true; // 补丁轮 3：本页已销毁。下一行（负责人 #12 / #6）：离局路由已发起而本页被移走 → 停导演、引擎回 LOBBY 终态。\n"
 LA, DA = E + 'features/lobby/LobbyAudio.ets', E + 'features/table/DealAudio.ets'
+RP, RM = E + 'pages/Report.ets', E + 'features/report/ReportModel.ets'
 PHASE_FLR = ("    if (snap === null || snap.phase === Phase.LOBBY || snap.phase === Phase.RECAP || snap.phase === Phase.END) {\n      return;\n    }\n"
              "    Logger.warn(TAG, 'table removed after leave route was issued")
 LA_GUARD = "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {\n      return;\n    }\n    if (LobbyAudio.context === null) {"
@@ -345,6 +346,40 @@ M = [
  "    LobbyAudio.stopBedsNow();\n", 'lobby-bgm-hide-on-push'),
 ('B129 onPageHide fades but never pauses', LA,
  "      LobbyAudio.hideTimer = -1;\n      LobbyAudio.stopBedsNow();\n", "      LobbyAudio.hideTimer = -1;\n", 'lobby-bgm-hide-on-push'),
+# 结算面板 PR（2a）：RPT-11 真跑 / playLog / ReportModel / 再来一局
+('B130 RPT-11 commitOnce moved from Report.aboutToAppear to the leave path', RP,
+ [("      RecordStore.commitOnce(snap, recapCommit);\n", ""),
+  ("    this.leaving = true;\n    AppRuntime.director.stop();\n",
+   "    this.leaving = true;\n    const s0: MatchSnapshot | null = AppRuntime.engine.current();\n    if (s0 !== null) {\n"
+   "      RecordStore.commitOnce(s0, { quit: false, isDemo: AppRuntime.engine.isDemoMatch(), ff: false, pausedMs: 0 });\n    }\n"
+   "    AppRuntime.director.stop();\n")], None, 'RPT-11 ⓐ real Report commits on appear'),
+('B131 commitOnce last_match_id dedup removed', R,
+ "    if (snap.matchId === RecordStore.lastMatchId || snap.matchId === RecordStore.demoClaim) {",
+ "    if (snap.matchId === RecordStore.demoClaim) {", 'RPT-11 ⓑ director wrote first'),
+('B132 rollbackLastPlay does not pop playLog', ME,
+ "    this.playLog.popLast(actor);\n", "", 'real engine methods: commitPicked append / rollbackLastPlay pop'),
+('B133 playLog copy exposed mid-match', ME,
+ "    if (this.phase !== Phase.RECAP && this.phase !== Phase.END) {\n      return [];\n    }\n    return this.playLog.entries();",
+ "    return this.playLog.entries();", 'real engine methods: commitPicked append'),
+('B134 replay {手} filled with card count instead of seq', RM,
+ "      `${e.seq}`,\n", "      `${e.count}`,\n", 'replay target = last judged hand involving the human'),
+('B135 three cards only when all three enter (failing card hidden)', RM,
+ "    v.showCards = b !== null || d !== null || u !== null;", "    v.showCards = b !== null && d !== null && u !== null;", '§1.4.3a rule 1'),
+('B136 fallback always hl_none (quiet case lost)', RM,
+ "judged ? 'lb_str_hl_quiet' : 'lb_str_hl_none'", "'lb_str_hl_none'", '§1.4.3a rule 2 / 3'),
+('B137 H1 tie-break prefers the smaller fake sum', RM,
+ "      return a.fakeSum > b.fakeSum;", "      return a.fakeSum < b.fakeSum;", 'tie-breaks'),
+('B138 再来一局 goes back to the lobby', RP,
+ "    if (again && this.restartMatch()) {", "    if (false && again && this.restartMatch()) {", '再来一局 real Report'),
+('B139 再来一局 keeps the old table audio (no release before replaceTable)', RP,
+ "    TableAudio.release();\n    LbRouter.replaceTable();", "    LbRouter.replaceTable();", '再来一局 real Report'),
+# #307 终审打回补闸：再来一局沿用本局 opts（21:218）/ 结算时长扣暂停（RPT-4）
+('B140 再来一局 silent hard-coded false', RP,
+ "silent: snap.silentMode };", "silent: false };", "再来一局 keeps this match's nickname / playerCount / silent"),
+('B141 再来一局 playerCount hard-coded 4', RP,
+ "playerCount: snap.seats.length,", "playerCount: 4,", "再来一局 keeps this match's nickname / playerCount / silent"),
+('B142 report duration ignores pauses (pausedMs 0 into ReportModel)', RP,
+ "      pausedMs: pausedMs,\n", "      pausedMs: 0,\n", 'report duration excludes pause'),
 ]
 
 

@@ -3,7 +3,7 @@
  * PR-A static gate (负责人分派单 v1 · 2026-10-07):
  *  ① 结算高光：collectRedeal 先快照 challenge/lastPlay 再清空；{n}=手数（不是张数）
  *  ② 大厅「战绩」不走输音效（Report 仅 RECAP/END 才 playResult）
- *  ③ Report 内容包 Scroll，横屏底部按钮可滚到
+ *  ③ Report 结算页：顶区固定 + 主体是唯一 Scroll + 按钮条固定、不在 Scroll 内（结算面板 PR 改写 · 21 §1.6-2 / 22 §4.2 / S21-28）；战绩空态仍可滚
  *  ④ lb_btn_home / 系统返回键 先过离局二次确认；goHome 出口按方法逐路径白名单（PR-B 改写 goHomeCalls===1）+ 离局锁
  *  ⑤ string.json 必需键都在 + 无重复 name（不比对 git 基线、不查临时串文案；只增不删放 PR 正文自查）
  *  ⑥ 结算页回大厅 id = lb_btn_report_lobby；lb_btn_home 只留局内退出键
@@ -111,13 +111,47 @@ if (report.includes("$r('app.string.lb_str_records_empty')")) {
   fail('records empty-state not shown');
 }
 
-// ③ Report wrapped in Scroll
+// ③ Report layout — rewritten in the 结算面板 PR (22 §4.2 · S21-28 / S22-02): the old "root Scroll wraps everything incl. the
+// buttons" made the buttons scroll-reachable, not fixed. Now: Report root is a plain Column; the records empty state keeps its
+// own vertical Scroll; the match report is ReportPanel = head (fixed) → Scroll (the ONLY scroll area) → btnBar (fixed, after the
+// Scroll's closing brace, holding AGAIN + REPORT_LOBBY).
+const reportPanel = src('entry/src/main/ets/features/report/ReportPanel.ets');
+/** Index just past the brace block that opens at the first '{' at/after `from` (comments/strings stripped text). */
+function blockEnd(text, from) {
+  const open = text.indexOf('{', from);
+  if (open < 0) return -1;
+  let depth = 0;
+  for (let i = open; i < text.length; i++) {
+    if (text[i] === '{') depth++;
+    else if (text[i] === '}') { depth--; if (depth === 0) return i + 1; }
+  }
+  return -1;
+}
 const build = methodBody(report, '  build() {');
-if (/^\s*build\(\) \{\s*\n\s*Scroll\(\) \{/m.test(build + '\n') && build.includes('ScrollDirection.Vertical') &&
-  build.indexOf('ReportPanel(') > build.indexOf('Scroll()')) {
-  pass('Report root is a vertical Scroll wrapping ReportPanel / empty state');
+const recBranch = build.indexOf('if (this.recordsMode) {');
+const recScroll = build.indexOf('Scroll()', recBranch);
+const recEnd = blockEnd(build, recBranch);
+const panelAt = build.indexOf('ReportPanel(');
+if (/^\s*build\(\) \{\s*\n\s*Column\(\) \{/m.test(build + '\n') && recBranch >= 0 && recScroll > recBranch && recScroll < recEnd &&
+  build.includes('ScrollDirection.Vertical') && panelAt > recEnd && build.lastIndexOf('Scroll()') < recEnd) {
+  pass('Report root = Column; records empty state in its own vertical Scroll; match report = ReportPanel (not inside a Scroll)');
 } else {
-  fail('Report not wrapped in Scroll');
+  fail(`Report layout: root Column / records Scroll / ReportPanel outside Scroll (rec=${recBranch} scroll=${recScroll} end=${recEnd} panel=${panelAt})`);
+}
+const pb = stripCommentsAndStrings(methodBody(reportPanel, '  build() {'));
+const headAt = pb.indexOf('this.head()');
+const scrollAt = pb.indexOf('Scroll()');
+const scrollEnd = scrollAt < 0 ? -1 : blockEnd(pb, scrollAt);
+const scrollTail = scrollEnd < 0 ? '' : pb.slice(scrollEnd, pb.indexOf('this.btnBar()'));
+const barAt = pb.indexOf('this.btnBar()');
+const bar = stripCommentsAndStrings(methodBody(reportPanel, '  btnBar() {'));
+if (headAt >= 0 && scrollAt > headAt && scrollEnd > scrollAt && barAt > scrollEnd && (pb.match(/Scroll\(\)/g) || []).length === 1 &&
+  scrollTail.includes('.id(ControlIds.REPORT_SCROLL)') && scrollTail.includes('ScrollDirection.Vertical') && scrollTail.includes('.layoutWeight(1)') &&
+  !pb.slice(scrollAt, scrollEnd).includes('btnBar') && bar.includes('.id(ControlIds.REPORT_BTNBAR)') &&
+  bar.indexOf('ControlIds.REPORT_LOBBY') >= 0 && bar.indexOf('ControlIds.AGAIN') > bar.indexOf('ControlIds.REPORT_LOBBY')) {
+  pass('ReportPanel: head fixed → one vertical Scroll (lb_cmp_report_scroll, layoutWeight 1) → btnBar fixed outside the Scroll; left 回大厅, right 再来一局 (22 §4.2)');
+} else {
+  fail(`ReportPanel layout: head=${headAt} scroll=${scrollAt}..${scrollEnd} btnBar=${barAt} (button bar must be outside the only Scroll)`);
 }
 if (report.includes('WindowOrientation.lockPortrait(') && report.includes('LbRouter.toLobby()') &&
   report.indexOf('WindowOrientation.lockPortrait(') < report.lastIndexOf('LbRouter.toLobby()')) {

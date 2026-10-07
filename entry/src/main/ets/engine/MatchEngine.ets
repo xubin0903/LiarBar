@@ -28,6 +28,7 @@ import {
   HighlightPick,
   MatchEvent,
   MatchSnapshot,
+  PlayLogEntry,
   PlayModel,
   RecapRow,
   SeatModel
@@ -46,6 +47,7 @@ import {
   TurnWindow
 } from './Phase';
 import { SeededRng } from './SeededRng';
+import { PlayLog, PlayLogTally } from './PlayLog';
 import { aliveCount, nextAlive, seatById } from './SeatUtil';
 import { allOtherAliveEmpty, classifyEmptyGate, EmptyGateKind } from './HandEmptyGate';
 
@@ -120,13 +122,8 @@ export class MatchEngine {
   private hesitateUsed: number = 0;
   private lastClaimRank: string = '';
   private viewerSeatId: number = 0;
-  private playCounts: number[] = [];
-  private fakeHandCounts: number[] = [];
-  private challengeCounts: number[] = [];
-  private challengeHits: number[] = [];
-  /** PR-B 战绩 21 §2.2 doubted / caught：被质疑次数、被识破次数（按出牌者座位）。结算 playLog 落地后由它取代。 */
-  private doubtedCounts: number[] = [];
-  private caughtCounts: number[] = [];
+  /** 21 §1.3 出牌日志：结算 / 战绩逐座数据的唯一来源（取代旧六个计数器）。 */
+  private playLog: PlayLog = new PlayLog();
   /** PR-B 战绩：每座离场时刻的存活座数（含自己），0 = 还在场（21 §1.5 名次）。 */
   private aliveAtExits: number[] = [];
   private tableMode: TableMode = TableMode.SOCIAL;
@@ -310,6 +307,7 @@ export class MatchEngine {
     this.demoOn = cfg.demo_seed_enabled;
     this.seed = this.demoOn ? cfg.demo_seed_value : Date.now();
     this.rng = new SeededRng(this.seed);
+    this.playLog.clear();
     this.nowMs = Date.now();
     this.clockPausedAt = 0;
     this.pausedTotalMs = 0;
@@ -503,10 +501,7 @@ export class MatchEngine {
     if (this.playIndexInRound < 0) {
       this.playIndexInRound = 0;
     }
-    this.playCounts[actor] = this.playCounts[actor] - 1;
-    if (this.playCounts[actor] < 0) {
-      this.playCounts[actor] = 0;
-    }
+    this.playLog.popLast(actor);
     this.lastPlay = null;
     this.lastPlayRanks = [];
     this.currentSeatId = actor;
@@ -589,8 +584,6 @@ export class MatchEngine {
       bets: []
     };
     this.challengeHappened = true;
-    this.challengeCounts[this.currentSeatId] = this.challengeCounts[this.currentSeatId] + 1;
-    this.bumpSeatCount(this.doubtedCounts, this.lastPlay.actorSeatId);
     this.stallSkipCount = 0;
     this.phase = Phase.CHALLENGE_RITUAL;
     this.revealOpen = false;
@@ -771,6 +764,14 @@ export class MatchEngine {
     this.dealFresh(false);
     Logger.info(TAG, 'collectRedeal → DEAL');
     return true;
+  }
+
+  /** 21 §1.3：playLog 副本只在 RECAP / END 后给结算面板；局中返回空（不进 snapshot）。 */
+  recapPlayLog(): PlayLogEntry[] {
+    if (this.phase !== Phase.RECAP && this.phase !== Phase.END) {
+      return [];
+    }
+    return this.playLog.entries();
   }
 
   playAgain(): boolean {
@@ -981,12 +982,6 @@ export class MatchEngine {
     }
     this.seats = [];
     this.hands = [];
-    this.playCounts = [];
-    this.fakeHandCounts = [];
-    this.challengeCounts = [];
-    this.challengeHits = [];
-    this.doubtedCounts = [];
-    this.caughtCounts = [];
     this.aliveAtExits = [];
     let nick: string = opts.nickname;
     if (nick.length === 0) {
@@ -1019,12 +1014,6 @@ export class MatchEngine {
         consecutiveTimeouts: 0
       });
       this.hands.push([]);
-      this.playCounts.push(0);
-      this.fakeHandCounts.push(0);
-      this.challengeCounts.push(0);
-      this.challengeHits.push(0);
-      this.doubtedCounts.push(0);
-      this.caughtCounts.push(0);
       this.aliveAtExits.push(0);
     }
   }
@@ -1268,10 +1257,7 @@ export class MatchEngine {
     const emptied: boolean = this.handOf(actor).length === 0;
     this.playIndexInRound = this.playIndexInRound + 1;
     this.stallSkipCount = 0;
-    this.playCounts[actor] = this.playCounts[actor] + 1;
-    if (fake > 0) {
-      this.fakeHandCounts[actor] = this.fakeHandCounts[actor] + 1;
-    }
+    this.playLog.append(this.roundIndex, actor, picked.length, fake, style);
     let namedBit: string = '0';
     if (namedSeatId >= 0) {
       namedBit = '1';
@@ -1447,14 +1433,12 @@ export class MatchEngine {
       this.challenge.result = ChallengeResult.SUCCESS;
       loser = this.lastPlay.actorSeatId;
       reason = LifeReason.CHALLENGE_SUCCESS_ON_TARGET;
-      this.challengeHits[this.challenge.challengerSeatId] =
-        this.challengeHits[this.challenge.challengerSeatId] + 1;
-      this.bumpSeatCount(this.caughtCounts, this.lastPlay.actorSeatId);
       this.dealerKey = 'lb_str_dlr_judge_success';
     } else {
       this.challenge.result = ChallengeResult.FAIL;
       this.dealerKey = 'lb_str_dlr_judge_fail';
     }
+    this.playLog.markJudged(this.lastPlay.actorSeatId, this.challenge.challengerSeatId, success, loser);
     this.lastLoserSeatId = loser;
     this.lastLoserReason = reason;
     this.extinguishPending = true;
@@ -1528,13 +1512,9 @@ export class MatchEngine {
     }
   }
 
-  /** 本局已落定的手数（commitPicked +1，rollbackLastPlay −1）。 */
+  /** 本局已落定的手数 = playLog 长度（commitPicked 追加，rollbackLastPlay 弹末条）。 */
   private matchHandNo(): number {
-    let n: number = 0;
-    for (let i = 0; i < this.playCounts.length; i++) {
-      n = n + this.playCounts[i];
-    }
-    return n;
+    return this.playLog.size();
   }
 
   /** Priority unchanged: SLAM 被拆穿 > 开错 > 兜底（取本局最后一次判定的质疑）。 */
@@ -1802,12 +1782,6 @@ export class MatchEngine {
     }
   }
 
-  private bumpSeatCount(arr: number[], seat: number): void {
-    if (seat >= 0 && seat < arr.length) {
-      arr[seat] = arr[seat] + 1;
-    }
-  }
-
   private seatCount(arr: number[], seat: number): number {
     return seat >= 0 && seat < arr.length ? arr[seat] : 0;
   }
@@ -1815,15 +1789,16 @@ export class MatchEngine {
   private buildRecap(): RecapRow[] {
     const rows: RecapRow[] = [];
     for (let i = 0; i < this.seats.length; i++) {
+      const t: PlayLogTally = this.playLog.tally(this.seats[i].seatId);
       rows.push({
         seatId: this.seats[i].seatId,
         nickname: this.seats[i].nickname,
-        playCount: this.playCounts[i],
-        fakeHandCount: this.fakeHandCounts[i],
-        challengeCount: this.challengeCounts[i],
-        challengeHits: this.challengeHits[i],
-        doubtedCount: this.seatCount(this.doubtedCounts, i),
-        caughtCount: this.seatCount(this.caughtCounts, i),
+        playCount: t.plays,
+        fakeHandCount: t.fakeHands,
+        challengeCount: t.doubts,
+        challengeHits: t.doubtHits,
+        doubtedCount: t.doubted,
+        caughtCount: t.caught,
         aliveAtExit: this.seatCount(this.aliveAtExits, i)
       });
     }
