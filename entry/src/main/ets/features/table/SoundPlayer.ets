@@ -6,6 +6,8 @@ import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { SfxPcm, SfxWavClip } from './SfxPcm';
+import { AudioSettings } from '../../persist/AudioSettings';
+import { TableAudio } from './TableAudio';
 
 const TAG = 'SoundPlayer';
 const TAG_READY: string = 'SfxReady';
@@ -111,6 +113,11 @@ export class SoundPlayer {
   private static pendingFlip: number = 0;
   private static pendingExt: number = 0;
   private static inFlight: Promise<void> | null = null;
+  /**
+   * release() 代际号（负责人第 3 条遗留）：异步 prepare（建池 / 建 renderer / 加载）在 release 之后才返回时，
+   * 返回处比对代际，不一致就立刻释放新建对象，不登记、不播放。
+   */
+  private static gen: number = 0;
   private static warmResolve: (() => void) | null = null;
   private static warmTimer: number = -1;
   private static completedIds: number[] = [];
@@ -325,7 +332,19 @@ export class SoundPlayer {
       `SfxDiag T2 kind=${kind} playN=${playN} t=${t2} dT2-T0=${d20} dT2-T1=${d21}`);
   }
 
+  /**
+   * 补丁轮 2 第 4 条（同 TableAudio.pauseForGame 清 pending）：进局内暂停即丢掉还没补响的翻牌 / 熄烛，
+   * 恢复后资源才就绪也不补响过时的声音。
+   */
+  static pauseForGame(): void {
+    SoundPlayer.pendingFlip = 0;
+    SoundPlayer.pendingExt = 0;
+  }
+
   static release(): void {
+    SoundPlayer.gen = SoundPlayer.gen + 1;
+    // 在途 prepare 已作废：下一次 prepare 重新开始，不去等旧的那一趟。
+    SoundPlayer.inFlight = null;
     SoundPlayer.clearWarmWait();
     SoundPlayer.clearCompleteWait();
     SoundPlayer.pendingFlip = 0;
@@ -357,6 +376,7 @@ export class SoundPlayer {
       Logger.warn(TAG, 'prepare skipped: no context');
       return;
     }
+    const gen: number = SoundPlayer.gen;
     try {
       SoundPlayer.resetDiag();
       SoundPlayer.useRenderer = SoundPlayer.EXP_USE_RENDERER;
@@ -365,14 +385,27 @@ export class SoundPlayer {
         `SfxDiag floor bufMs=93 nativeFast=${SoundPlayer.EXP_USE_NATIVE_OHAUDIO} ` +
           `armFlip=${SoundPlayer.armFlipTouch} volFlip=${SoundPlayer.VOL_FLIP} ` +
           `note=ArkTS-no-SetFrameSize;no-cpp-NAPI;touchDown-arm`);
-      await SoundPlayer.prepareClipsAndRates();
-      await SoundPlayer.prepareRenderers();
+      await SoundPlayer.prepareClipsAndRates(gen);
+      if (SoundPlayer.gen !== gen) {
+        return;
+      }
+      await SoundPlayer.prepareRenderers(gen);
+      if (SoundPlayer.gen !== gen) {
+        return;
+      }
       if (SoundPlayer.pool === null) {
         const info: audio.AudioRendererInfo = {
           usage: audio.StreamUsage.STREAM_USAGE_GAME,
           rendererFlags: 1
         };
         const pool: media.SoundPool = await media.createSoundPool(SoundPlayer.MAX_STREAMS, info);
+        if (SoundPlayer.gen !== gen) {
+          Logger.info(TAG, 'stale sfx pool (created after release) — released, not registered');
+          pool.release().catch((err: BusinessError): void => {
+            Logger.warn(TAG, `stale pool release fail-soft: ${err.message}`);
+          });
+          return;
+        }
         SoundPlayer.pool = pool;
         pool.on('loadComplete', (soundId: number): void => {
           SoundPlayer.onLoadComplete(soundId);
@@ -382,11 +415,19 @@ export class SoundPlayer {
         });
       }
       if (SoundPlayer.flipId < 0) {
-        SoundPlayer.flipId = await SoundPlayer.loadPath(PATH_FLIP);
+        const flipId: number = await SoundPlayer.loadPath(PATH_FLIP);
+        if (SoundPlayer.gen !== gen) {
+          return;
+        }
+        SoundPlayer.flipId = flipId;
         SoundPlayer.applyCompleted(SoundPlayer.flipId);
       }
       if (SoundPlayer.extId < 0) {
-        SoundPlayer.extId = await SoundPlayer.loadPath(PATH_EXTINGUISH);
+        const extId: number = await SoundPlayer.loadPath(PATH_EXTINGUISH);
+        if (SoundPlayer.gen !== gen) {
+          return;
+        }
+        SoundPlayer.extId = extId;
         SoundPlayer.applyCompleted(SoundPlayer.extId);
       }
       if (SoundPlayer.flipId < 0 && SoundPlayer.extId < 0 && !SoundPlayer.rendererOk) {
@@ -395,8 +436,14 @@ export class SoundPlayer {
       }
       SoundPlayer.armReadyTimeout();
       await SoundPlayer.waitSlotsReady();
-      await SoundPlayer.warmupIsolated(PATH_FLIP, SfxIds.CARD_FLIP, true);
-      await SoundPlayer.warmupIsolated(PATH_EXTINGUISH, SfxIds.LIFE_EXTINGUISH, false);
+      if (SoundPlayer.gen !== gen) {
+        return;
+      }
+      await SoundPlayer.warmupIsolated(PATH_FLIP, SfxIds.CARD_FLIP, true, gen);
+      await SoundPlayer.warmupIsolated(PATH_EXTINGUISH, SfxIds.LIFE_EXTINGUISH, false, gen);
+      if (SoundPlayer.gen !== gen) {
+        return;
+      }
       Logger.info(TAG_READY,
         `SfxReady warmup done slot=${SfxIds.CARD_FLIP} id=${SoundPlayer.flipId} ` +
           `warmId=${SoundPlayer.flipWarmId} ready=${SoundPlayer.flipReady} ` +
@@ -429,6 +476,11 @@ export class SoundPlayer {
       }
       return;
     }
+    if (TableAudio.isGamePaused()) {
+      // PR-B 暂停闸：暂停中不出声，也不排补播。
+      Logger.info(TAG_READY, `SfxReady ${idName} skipped (game paused) playN=${playN} t=${now}`);
+      return;
+    }
     if (!renderer && (soundId < 0 || SoundPlayer.pool === null || !ready)) {
       if (isFlip) {
         SoundPlayer.pendingFlip = SoundPlayer.pendingFlip + 1;
@@ -456,11 +508,16 @@ export class SoundPlayer {
         `SfxReady play slot=${idName} id=${soundId} ready=true pending=false ` +
           `deferred=false playN=${playN} t=${now} path=${SoundPlayer.pathLabel()}`);
     }
-    if (renderer) {
-      SoundPlayer.fireRenderer(volume, 'renderer', isFlip);
+    // PR-B: 音效轨乘子在出声口乘一次（翻牌/熄烛都是音效轨）。
+    const gained: number = AudioSettings.sfx01(volume);
+    if (gained <= 0) {
       return;
     }
-    SoundPlayer.firePlay(soundId, volume, 'play');
+    if (renderer) {
+      SoundPlayer.fireRenderer(gained, 'renderer', isFlip);
+      return;
+    }
+    SoundPlayer.firePlay(soundId, gained, 'play');
   }
 
   private static firePlay(soundId: number, volume: number, path: string): void {
@@ -554,8 +611,14 @@ export class SoundPlayer {
    * User play keeps flipId/extId so silent warmup cannot steal the audible id
    * (OH: same sound ID play() multiple times may only play once).
    */
-  private static async warmupIsolated(path: string, idName: string, isFlip: boolean): Promise<void> {
+  private static async warmupIsolated(path: string, idName: string, isFlip: boolean, gen: number): Promise<void> {
+    if (SoundPlayer.gen !== gen) {
+      return;
+    }
     const warmId: number = await SoundPlayer.loadPath(path);
+    if (SoundPlayer.gen !== gen) {
+      return;
+    }
     if (isFlip) {
       SoundPlayer.flipWarmId = warmId;
     } else {
@@ -566,6 +629,9 @@ export class SoundPlayer {
       return;
     }
     await SoundPlayer.waitOneComplete(warmId);
+    if (SoundPlayer.gen !== gen) {
+      return;
+    }
     await SoundPlayer.warmupSlot(warmId, idName);
   }
 
@@ -728,28 +794,41 @@ export class SoundPlayer {
     SoundPlayer.notifyReady();
   }
 
+  /**
+   * 资源就绪后的延迟补播。PR-B：增益同样乘音效轨（静音 / SFX=0 → 增益 0 → 完全无声）；
+   * 局内暂停中就绪 → 丢弃挂起项，不补响。
+   */
   private static drainPending(isFlip: boolean): void {
+    const paused: boolean = TableAudio.isGamePaused();
     if (isFlip) {
       const n: number = SoundPlayer.pendingFlip;
       SoundPlayer.pendingFlip = 0;
+      const flipGain: number = AudioSettings.sfx01(SoundPlayer.VOL_FLIP);
+      if (paused || flipGain <= 0) {
+        return;
+      }
       for (let i = 0; i < n; i++) {
         SoundPlayer.logDeferredReplay(SfxIds.CARD_FLIP, SoundPlayer.flipId);
         if (SoundPlayer.slotRendererReady(true)) {
-          SoundPlayer.fireRenderer(SoundPlayer.VOL_FLIP, 'deferred', true);
+          SoundPlayer.fireRenderer(flipGain, 'deferred', true);
         } else {
-          SoundPlayer.firePlay(SoundPlayer.flipId, SoundPlayer.VOL_FLIP, 'deferred');
+          SoundPlayer.firePlay(SoundPlayer.flipId, flipGain, 'deferred');
         }
       }
       return;
     }
     const n: number = SoundPlayer.pendingExt;
     SoundPlayer.pendingExt = 0;
+    const extGain: number = AudioSettings.sfx01(SoundPlayer.VOL_EXTINGUISH);
+    if (paused || extGain <= 0) {
+      return;
+    }
     for (let i = 0; i < n; i++) {
       SoundPlayer.logDeferredReplay(SfxIds.LIFE_EXTINGUISH, SoundPlayer.extId);
       if (SoundPlayer.slotRendererReady(false)) {
-        SoundPlayer.fireRenderer(SoundPlayer.VOL_EXTINGUISH, 'deferred', false);
+        SoundPlayer.fireRenderer(extGain, 'deferred', false);
       } else {
-        SoundPlayer.firePlay(SoundPlayer.extId, SoundPlayer.VOL_EXTINGUISH, 'deferred');
+        SoundPlayer.firePlay(SoundPlayer.extId, extGain, 'deferred');
       }
     }
   }
@@ -1060,14 +1139,18 @@ export class SoundPlayer {
   }
 
   /** EXP 2: device preferred output vs rawfile wav. Resample on mismatch; never trim. */
-  private static async prepareClipsAndRates(): Promise<void> {
+  private static async prepareClipsAndRates(gen: number): Promise<void> {
     const ctx: common.UIAbilityContext | null = SoundPlayer.context;
     if (ctx === null) {
       return;
     }
-    SoundPlayer.deviceRate = await SoundPlayer.probeDeviceRate();
+    const rate: number = await SoundPlayer.probeDeviceRate();
     const flipRaw: SfxWavClip | null = await SoundPlayer.loadClip(PATH_FLIP);
     const extRaw: SfxWavClip | null = await SoundPlayer.loadClip(PATH_EXTINGUISH);
+    if (SoundPlayer.gen !== gen) {
+      return;
+    }
+    SoundPlayer.deviceRate = rate;
     const flipRate: number = flipRaw !== null ? flipRaw.sampleRate : 0;
     const extRate: number = extRaw !== null ? extRaw.sampleRate : 0;
     const matchFlip: boolean = flipRate === SoundPlayer.deviceRate;
@@ -1147,7 +1230,7 @@ export class SoundPlayer {
   }
 
   /** EXP 3: pre-started AudioRenderer + writeData silence so HAL is already open. */
-  private static async prepareRenderers(): Promise<void> {
+  private static async prepareRenderers(gen: number): Promise<void> {
     SoundPlayer.rendererOk = false;
     if (SoundPlayer.flipClip === null && SoundPlayer.extClip === null) {
       Logger.info(TAG_READY, 'SfxReady renderer skipped: no PCM clips');
@@ -1155,10 +1238,21 @@ export class SoundPlayer {
     }
     try {
       if (SoundPlayer.flipClip !== null) {
-        SoundPlayer.flipRenderer = await SoundPlayer.createSlotRenderer(SoundPlayer.flipClip, true);
+        const flip: audio.AudioRenderer | null = await SoundPlayer.createSlotRenderer(SoundPlayer.flipClip, true);
+        if (SoundPlayer.gen !== gen) {
+          // release 已在建 renderer 挂起时发生：立刻释放，不登记。
+          SoundPlayer.releaseOneRenderer(flip);
+          return;
+        }
+        SoundPlayer.flipRenderer = flip;
       }
       if (SoundPlayer.extClip !== null) {
-        SoundPlayer.extRenderer = await SoundPlayer.createSlotRenderer(SoundPlayer.extClip, false);
+        const ext: audio.AudioRenderer | null = await SoundPlayer.createSlotRenderer(SoundPlayer.extClip, false);
+        if (SoundPlayer.gen !== gen) {
+          SoundPlayer.releaseOneRenderer(ext);
+          return;
+        }
+        SoundPlayer.extRenderer = ext;
       }
       SoundPlayer.rendererOk = SoundPlayer.flipRenderer !== null && SoundPlayer.extRenderer !== null;
       Logger.info(TAG_READY,

@@ -4,7 +4,7 @@
  *  ① 结算高光：collectRedeal 先快照 challenge/lastPlay 再清空；{n}=手数（不是张数）
  *  ② 大厅「战绩」不走输音效（Report 仅 RECAP/END 才 playResult）
  *  ③ Report 内容包 Scroll，横屏底部按钮可滚到
- *  ④ lb_btn_home / 系统返回键 先过离局二次确认
+ *  ④ lb_btn_home / 系统返回键 先过离局二次确认；goHome 出口按方法逐路径白名单（PR-B 改写 goHomeCalls===1）+ 离局锁
  *  ⑤ string.json 必需键都在 + 无重复 name（不比对 git 基线、不查临时串文案；只增不删放 PR 正文自查）
  *  ⑥ 结算页回大厅 id = lb_btn_report_lobby；lb_btn_home 只留局内退出键
  * Box has no DevEco — this is not CompileArkTS. 合入 ≠ 终验.
@@ -12,6 +12,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { stripCommentsAndStrings } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -143,18 +144,100 @@ if (homeChrome.includes('this.requestLeave()') && !homeChrome.includes('this.goH
 } else {
   fail('lb_btn_home bypasses confirm');
 }
-const goHomeCalls = (table.match(/this\.goHome\(\)/g) || []).length;
-const confirmed = methodBody(table, '  private onLeaveConfirmed(): void {');
-if (goHomeCalls === 1 && confirmed.includes('this.goHome()')) {
-  pass('goHome only reachable from onLeaveConfirmed');
-} else {
-  fail(`goHome call sites=${goHomeCalls} (expected 1, inside onLeaveConfirmed)`);
+// goHome exit paths — rewritten in PR-B (负责人 2026-10-07: 「goHomeCalls===1 要正式改掉，不许绕开」).
+// Instead of one global count, every `this.goHome()` / `this.onLeaveConfirmed()` / `this.requestLeave()` call
+// is attributed to its enclosing Table method (comments/strings stripped) and must match the allowlist
+// EXACTLY (no extra path, no missing path, same count per path). Each allowed goHome path must set the
+// leaving lock (`this.leaving = true`) before calling goHome, and goHome itself must be idempotent.
+// Report → lobby does NOT go through Table.goHome: Report.ets routes on its own (checked in ③ above).
+// TODO(UI 22): 暂停层「结束游戏 / 回大厅」接进来后会新增 goHome 路径 —— 在 GOHOME_EXIT_PATHS 登记
+// 新方法名与次数，并给新路径同样补离局锁 / 中退一次的断言；不许删表或放宽成计数≥1。
+const GOHOME_EXIT_PATHS = { onLeaveConfirmed: 1 };
+// PR-B 离局待停（21 §3.1 P06）：弹框从 requestLeave 拆到 openLeaveConfirm（requestLeave 直弹 / 待停结束由 onPauseState 调）。
+const LEAVE_OK_PATHS = { openLeaveConfirm: 1 };
+const LEAVE_REQUEST_PATHS = { homeExitChrome: 1, onBackPress: 1 };
+const tableCode = stripCommentsAndStrings(table);
+function callSitesByMethod(code, callRe) {
+  const sigRe = /^  (?:private |public |protected |static |async )*(\w+)\s*\([^)\n]*\)\s*(?::\s*[\w<>\[\]| ]+)?\s*\{\s*$/gm;
+  const sigs = [];
+  let m;
+  while ((m = sigRe.exec(code)) !== null) {
+    sigs.push({ at: m.index, name: m[1] });
+  }
+  const out = {};
+  const re = new RegExp(callRe.source, 'g');
+  while ((m = re.exec(code)) !== null) {
+    let owner = '?';
+    for (const sg of sigs) {
+      if (sg.at < m.index) {
+        owner = sg.name;
+      } else {
+        break;
+      }
+    }
+    out[owner] = (out[owner] || 0) + 1;
+  }
+  return out;
 }
-const req = methodBody(table, '  private requestLeave(): void {');
-if (req.includes('if (this.leaveConfirmOpen)') && req.includes('showAlertDialog(') &&
+const sameMap = (a, b) => {
+  const ka = Object.keys(a).sort();
+  const kb = Object.keys(b).sort();
+  return ka.length === kb.length && ka.every((k, i) => k === kb[i] && a[k] === b[k]);
+};
+const show = (o) => JSON.stringify(o);
+const goHomeSites = callSitesByMethod(tableCode, /this\.goHome\(\)/);
+if (sameMap(goHomeSites, GOHOME_EXIT_PATHS)) {
+  pass(`goHome exit paths per method = ${show(goHomeSites)} (allowlist exact)`);
+} else {
+  fail(`goHome exit paths ${show(goHomeSites)} != allowlist ${show(GOHOME_EXIT_PATHS)}`);
+}
+const okSites = callSitesByMethod(tableCode, /this\.onLeaveConfirmed\(\)/);
+const reqBody = methodBody(table, '  private openLeaveConfirm(): void {');
+if (sameMap(okSites, LEAVE_OK_PATHS) && /secondaryButton:[\s\S]*?this\.onLeaveConfirmed\(\)/.test(reqBody)) {
+  pass('onLeaveConfirmed only from the leave dialog OK (secondaryButton) in openLeaveConfirm');
+} else {
+  fail(`onLeaveConfirmed call sites ${show(okSites)} (expected dialog OK only)`);
+}
+const reqSites = callSitesByMethod(tableCode, /this\.requestLeave\(\)/);
+if (sameMap(reqSites, LEAVE_REQUEST_PATHS)) {
+  pass(`requestLeave entries = ${show(reqSites)} (lb_btn_home + system back only)`);
+} else {
+  fail(`requestLeave entries ${show(reqSites)} != ${show(LEAVE_REQUEST_PATHS)}`);
+}
+for (const path of Object.keys(GOHOME_EXIT_PATHS)) {
+  const b = stripCommentsAndStrings(methodBody(table, `  private ${path}(`));
+  const lockAt = b.indexOf('this.leaving = true');
+  const homeAt = b.indexOf('this.goHome()');
+  if (lockAt >= 0 && homeAt > lockAt) {
+    pass(`${path}: leaving lock set before goHome`);
+  } else {
+    fail(`${path}: leaving lock not set before goHome (lock=${lockAt} home=${homeAt})`);
+  }
+}
+const goHomeBody = stripCommentsAndStrings(methodBody(table, '  private goHome(): void {'));
+if (/^\s*\{?\s*if \(this\.homeRouting\) \{\s*return;\s*\}\s*this\.homeRouting = true;/.test(goHomeBody.slice(goHomeBody.indexOf('{') + 1))) {
+  pass('goHome idempotent: first statement guards homeRouting, second call is a no-op');
+} else {
+  fail('goHome not idempotent (missing homeRouting guard at top)');
+}
+// Lock reset: only allowed inside releaseLeaveLock (routing replace + back both failed), nowhere else.
+const resetSites = callSitesByMethod(tableCode, /this\.(?:leaving|homeRouting) = false/);
+const releaseSites = callSitesByMethod(tableCode, /this\.releaseLeaveLock\(\)/);
+if (sameMap(resetSites, { releaseLeaveLock: 2 }) && sameMap(releaseSites, { unlockLobbyThenRoute: 1 })) {
+  pass('leaving / homeRouting reset only in releaseLeaveLock (called once, from unlockLobbyThenRoute on routing failure)');
+} else {
+  fail(`lock reset sites ${show(resetSites)} / releaseLeaveLock callers ${show(releaseSites)} (only the routing-failure branch may unlock)`);
+}
+if (!/goHome\(/.test(stripCommentsAndStrings(report))) {
+  pass('Report → lobby path does not call Table.goHome (routes itself)');
+} else {
+  fail('Report references goHome');
+}
+const req = methodBody(table, '  private requestLeave(): void {') + methodBody(table, '  private openLeaveConfirm(): void {');
+if (req.includes('if (this.leaveConfirmOpen || this.leavePending)') && req.includes('if (this.leaving || this.leaveConfirmOpen)') && req.includes('showAlertDialog(') &&
   req.includes('lb_str_leave_confirm_title') && req.includes('lb_str_leave_confirm_body') &&
   req.includes('lb_str_leave_confirm_ok') && req.includes('lb_str_leave_confirm_cancel')) {
-  pass('requestLeave: AlertDialog with 4 lb_str_leave_confirm_* keys; re-entry guarded');
+  pass('requestLeave/openLeaveConfirm: AlertDialog with 4 lb_str_leave_confirm_* keys; re-entry guarded (open / pending)');
 } else {
   fail('requestLeave dialog incomplete');
 }
