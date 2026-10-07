@@ -905,10 +905,6 @@
       "value": "{质疑者} 第 {手} 手开错了，自己熄了一支烛"
     },
     {
-      "name": "lb_str_replay_none",
-      "value": "整局没人翻过牌，全靠信任"
-    },
-    {
       "name": "lb_str_style_word_soft",
       "value": "轻放"
     },
