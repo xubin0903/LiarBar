@@ -3,8 +3,11 @@ import { window } from '@kit.ArkUI';
 import { ConfigRepository } from '../config/ConfigRepository';
 import { AppRuntime } from '../common/AppRuntime';
 import { Logger } from '../common/Logger';
+import { PauseReasons, PauseState } from '../common/MatchDirector';
 import { WindowOrientation } from '../harmony/WindowOrientation';
+import { AudioSettings } from '../persist/AudioSettings';
 import { LocalStore } from '../persist/LocalStore';
+import { RecordStore } from '../persist/RecordStore';
 
 const TAG = 'EntryAbility';
 
@@ -21,6 +24,8 @@ export default class EntryAbility extends UIAbility {
     try {
       await ConfigRepository.loadAll(this.context);
       await LocalStore.init(this.context);
+      await AudioSettings.init(this.context);
+      await RecordStore.init(this.context);
       AppRuntime.bootDirector();
       AppRuntime.engine.resetToLobby();
     } catch (err) {
@@ -62,7 +67,9 @@ export default class EntryAbility extends UIAbility {
     Logger.info(TAG, 'onForeground');
   }
 
+  /** PR-B 负责人拍板 4：切后台自动暂停（对局外/已暂停时导演自己忽略）。回前台不自动恢复。 */
   onBackground(): void {
-    Logger.info(TAG, 'onBackground');
+    const st: PauseState = AppRuntime.director.requestPause(PauseReasons.BACKGROUND);
+    Logger.info(TAG, `onBackground → pause=${st}`);
   }
 }

@@ -7,8 +7,10 @@ import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { LobbyBoot } from './LobbyBoot';
 import { MatchLoad } from './MatchLoad';
+import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'LobbyAudio';
+const STALE_PREPARE: string = 'prepare stale: released while loading';
 
 const PATH_BGM: string = 'audio/bgm/bgm_lobby_night.ogg';
 const PATH_AMB: string = 'audio/sfx/sfx_amb_tavern.ogg';
@@ -62,14 +64,37 @@ export class LobbyAudio {
   private static ambReady: boolean = false;
   private static bgmVol: number = 0;
   private static ambVol: number = 0;
+  private static settingsHooked: boolean = false;
+  /** release() 代际号（负责人第 3 条遗留）：异步 prepare 在 release 之后才返回 → 立刻释放新建对象，不登记、不播放。 */
+  private static gen: number = 0;
   private static bgmFadeId: number = -1;
   private static ambFadeId: number = -1;
   private static releaseTimer: number = -1;
   private static bgmFdOpen: boolean = false;
   private static ambFdOpen: boolean = false;
+  /** 最近一次 prepare() 发起时的代际号（补丁轮 3）：== gen 表示本代的池 / 床已建或正在建，playIfIdle 不重复 prepare。 */
+  private static preparedGen: number = -1;
 
   static bind(context: common.UIAbilityContext): void {
     LobbyAudio.context = context;
+    if (!LobbyAudio.settingsHooked) {
+      LobbyAudio.settingsHooked = true;
+      AudioSettings.addListener((): void => {
+        LobbyAudio.applyAudioSettings();
+      });
+    }
+  }
+
+  /** PR-B 设置即时生效：BGM 与环境床都走 BGM 轨（淡入淡出进行中由 ramp 自己带乘子）。 */
+  static applyAudioSettings(): void {
+    const bgm: media.AVPlayer | null = LobbyAudio.bgmPlayer;
+    if (bgm !== null && LobbyAudio.bgmFadeId < 0 && LobbyAudio.bgmVol > 0) {
+      bgm.setVolume(AudioSettings.bgm01(LobbyAudio.bgmVol));
+    }
+    const amb: media.AVPlayer | null = LobbyAudio.ambPlayer;
+    if (amb !== null && LobbyAudio.ambFadeId < 0 && LobbyAudio.ambVol > 0) {
+      amb.setVolume(AudioSettings.bgm01(LobbyAudio.ambVol));
+    }
   }
 
   static setSilent(on: boolean): void {
@@ -96,30 +121,46 @@ export class LobbyAudio {
   }
 
   static async prepare(): Promise<void> {
+    if (LobbyAudio.preparedGen === LobbyAudio.gen) {
+      return;
+    }
     if (LobbyAudio.context === null) {
       Logger.warn(TAG, 'prepare skipped: no context');
       return;
     }
+    const gen: number = LobbyAudio.gen;
+    LobbyAudio.preparedGen = gen;
     try {
       const info: audio.AudioRendererInfo = {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
         rendererFlags: 1
       };
       const pool: media.SoundPool = await media.createSoundPool(5, info);
+      if (LobbyAudio.gen !== gen) {
+        Logger.info(TAG, 'stale sound pool (created after release) — released, not registered');
+        pool.release().catch((err: BusinessError): void => {
+          Logger.warn(TAG, `stale pool release fail-soft: ${err.message}`);
+        });
+        return;
+      }
       LobbyAudio.pool = pool;
       pool.on('loadComplete', (soundId: number): void => {
         LobbyAudio.onLoaded(soundId);
       });
-      LobbyAudio.hitId = await LobbyAudio.loadPath(PATH_HIT);
-      LobbyAudio.ctaId = await LobbyAudio.loadPath(PATH_CTA);
-      LobbyAudio.voId = await LobbyAudio.loadPath(PATH_VO);
-      LobbyAudio.matchOpenId = await LobbyAudio.loadPath(PATH_MATCH_OPEN);
+      LobbyAudio.hitId = await LobbyAudio.loadPath(PATH_HIT, gen);
+      LobbyAudio.ctaId = await LobbyAudio.loadPath(PATH_CTA, gen);
+      LobbyAudio.voId = await LobbyAudio.loadPath(PATH_VO, gen);
+      LobbyAudio.matchOpenId = await LobbyAudio.loadPath(PATH_MATCH_OPEN, gen);
       Logger.info(TAG, 'sound pool ready');
     } catch (err) {
+      if (LobbyAudio.gen !== gen) {
+        Logger.info(TAG, 'prepare dropped: released while loading');
+        return;
+      }
       Logger.warn(TAG, `sound pool unavailable — fail-soft, timeline continues: ${err}`);
     }
-    await LobbyAudio.prepareBed(true);
-    await LobbyAudio.prepareBed(false);
+    await LobbyAudio.prepareBed(true, gen);
+    await LobbyAudio.prepareBed(false, gen);
   }
 
   static playBootHit(): void {
@@ -191,7 +232,7 @@ export class LobbyAudio {
     }
     Logger.info(TAG, `${SfxIds.AMB_TAVERN} fade ${fadeMs}ms`);
     LobbyAudio.fadeAmb(LobbyAudio.ambVol, LobbyAudio.VOL_AMB, fadeMs);
-    LobbyAudio.playIfIdle(LobbyAudio.ambPlayer);
+    LobbyAudio.playBed(LobbyAudio.ambPlayer);
   }
 
   static startBgm(fadeMs: number, toSteady: boolean): void {
@@ -211,7 +252,7 @@ export class LobbyAudio {
     }
     Logger.info(TAG, `${SfxIds.BGM_LOBBY_NIGHT} fade ${fadeMs}ms target=${target}`);
     LobbyAudio.fadeBgm(LobbyAudio.bgmVol, target, fadeMs);
-    LobbyAudio.playIfIdle(LobbyAudio.bgmPlayer);
+    LobbyAudio.playBed(LobbyAudio.bgmPlayer);
   }
 
   static startReturnBeds(fadeMs: number): void {
@@ -222,6 +263,42 @@ export class LobbyAudio {
     }
     LobbyAudio.startAmb(fadeMs);
     LobbyAudio.startBgm(fadeMs, true);
+  }
+
+  /**
+   * 补丁轮 3（负责人批）：「只渲染」大厅接手音频时调用，幂等。
+   * - 大厅床正在响 / 正由初始化的大厅拉起（本代已 prepare、未在离场淡出）→ 什么都不做：不重新 play、不从头放、不重建；
+   * - 离场淡出中（leaveThenRelease 的释放还没到）→ 撤销释放，按当前增益淡回常驻音量（播放器一直在放，不 play）；
+   * - 已释放（老大厅消失后超过 LbRouter.LOBBY_HANDOVER_MS 新大厅才出现）→ 重建并按当前 AudioSettings 增益起回大厅床
+   *   （与回大厅短入场同一套：startReturnBeds，资源就绪后各 play 一次）。
+   */
+  static playIfIdle(): void {
+    if (LobbyAudio.silent) {
+      Logger.info(TAG, 'playIfIdle skipped (silent)');
+      return;
+    }
+    if (LobbyAudio.releaseTimer >= 0) {
+      const bgm: media.AVPlayer | null = LobbyAudio.bgmPlayer;
+      if (bgm !== null && LobbyAudio.bgmReady) {
+        clearTimeout(LobbyAudio.releaseTimer);
+        LobbyAudio.releaseTimer = -1;
+        LobbyAudio.bedsWanted = true;
+        Logger.info(TAG, 'playIfIdle: leave fade cancelled — beds back to steady (no re-play)');
+        LobbyAudio.fadeBgm(LobbyAudio.bgmVol, LobbyAudio.VOL_BGM_STEADY, LobbyBoot.BOOT_MS_RETURN_ENTER);
+        if (LobbyAudio.ambPlayer !== null && LobbyAudio.ambReady) {
+          LobbyAudio.fadeAmb(LobbyAudio.ambVol, LobbyAudio.VOL_AMB, LobbyBoot.BOOT_MS_RETURN_ENTER);
+        }
+        return;
+      }
+      LobbyAudio.release();
+    }
+    if (LobbyAudio.preparedGen === LobbyAudio.gen) {
+      Logger.info(TAG, 'playIfIdle: lobby beds already playing / starting — no-op');
+      return;
+    }
+    Logger.info(TAG, 'playIfIdle: lobby audio was released — rebuild, beds at current gain');
+    LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
+    void LobbyAudio.prepare();
   }
 
   static duckBgmForVo(): void {
@@ -268,6 +345,7 @@ export class LobbyAudio {
   }
 
   static release(): void {
+    LobbyAudio.gen = LobbyAudio.gen + 1;
     LobbyAudio.bedsWanted = false;
     LobbyAudio.pendingHit = false;
     LobbyAudio.pendingCta = false;
@@ -332,18 +410,29 @@ export class LobbyAudio {
     LobbyAudio.startBgm(LobbyBoot.BOOT_MS_RETURN_ENTER, toSteady);
   }
 
-  private static async prepareBed(isBgm: boolean): Promise<void> {
+  private static async prepareBed(isBgm: boolean, gen: number): Promise<void> {
     const ctx: common.UIAbilityContext | null = LobbyAudio.context;
-    if (ctx === null) {
+    if (ctx === null || LobbyAudio.gen !== gen) {
       return;
     }
     const path: string = isBgm ? PATH_BGM : PATH_AMB;
     try {
       const player: media.AVPlayer = await media.createAVPlayer();
+      if (LobbyAudio.gen !== gen) {
+        LobbyAudio.dropStalePlayer(player);
+        return;
+      }
+      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
+      if (LobbyAudio.gen !== gen) {
+        LobbyAudio.dropStalePlayer(player);
+        ctx.resourceManager.closeRawFd(path).catch((err: BusinessError): void => {
+          Logger.warn(TAG, `closeRawFd fail-soft: ${err.message}`);
+        });
+        return;
+      }
       player.on('stateChange', (state: string): void => {
         LobbyAudio.onBedState(isBgm, state);
       });
-      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
       const desc: media.AVFileDescriptor = {
         fd: rawFd.fd,
         offset: rawFd.offset,
@@ -395,7 +484,7 @@ export class LobbyAudio {
     }
   }
 
-  private static playIfIdle(player: media.AVPlayer): void {
+  private static playBed(player: media.AVPlayer): void {
     player.play().catch((err: BusinessError): void => {
       Logger.warn(TAG, `bed play fail-soft: ${err.message}`);
     });
@@ -409,7 +498,7 @@ export class LobbyAudio {
     }
     LobbyAudio.bgmFadeId = LobbyAudio.ramp(fromVol, toVol, fadeMs, (vol: number): void => {
       LobbyAudio.bgmVol = vol;
-      player.setVolume(vol);
+      player.setVolume(AudioSettings.bgm01(vol));
     }, (): void => {
       LobbyAudio.bgmFadeId = -1;
     });
@@ -423,7 +512,7 @@ export class LobbyAudio {
     }
     LobbyAudio.ambFadeId = LobbyAudio.ramp(fromVol, toVol, fadeMs, (vol: number): void => {
       LobbyAudio.ambVol = vol;
-      player.setVolume(vol);
+      player.setVolume(AudioSettings.bgm01(vol));
     }, (): void => {
       LobbyAudio.ambFadeId = -1;
     });
@@ -517,11 +606,16 @@ export class LobbyAudio {
     if (pool === null || soundId < 0) {
       return;
     }
+    // PR-B: VO 跟音效轨（voice01 = sfx 乘子）；其余短 SFX 走 sfx01。
+    const gained: number = rememberVo ? AudioSettings.voice01(volume) : AudioSettings.sfx01(volume);
+    if (gained <= 0) {
+      return;
+    }
     const params: media.PlayParameters = {
       loop: 0,
       rate: audio.AudioRendererRate.RENDER_RATE_NORMAL,
-      leftVolume: volume,
-      rightVolume: volume,
+      leftVolume: gained,
+      rightVolume: gained,
       priority: 0
     };
     pool.play(soundId, params).then((streamId: number): void => {
@@ -533,9 +627,20 @@ export class LobbyAudio {
     });
   }
 
-  private static async loadPath(path: string): Promise<number> {
+  private static dropStalePlayer(player: media.AVPlayer): void {
+    Logger.info(TAG, 'stale bed player (created after release) — released, not registered');
+    player.release().catch((err: BusinessError): void => {
+      Logger.warn(TAG, `stale bed release fail-soft: ${err.message}`);
+    });
+  }
+
+  /** 代际已变（release 过）时抛出，不把旧 id 写回。 */
+  private static async loadPath(path: string, gen: number): Promise<number> {
     const ctx: common.UIAbilityContext | null = LobbyAudio.context;
     const pool: media.SoundPool | null = LobbyAudio.pool;
+    if (LobbyAudio.gen !== gen) {
+      throw new Error(STALE_PREPARE);
+    }
     if (ctx === null || pool === null) {
       return -1;
     }
@@ -545,6 +650,9 @@ export class LobbyAudio {
     const length: number = rawFd.length;
     const soundId: number = await pool.load(fd, offset, length);
     await ctx.resourceManager.closeRawFd(path);
+    if (LobbyAudio.gen !== gen) {
+      throw new Error(STALE_PREPARE);
+    }
     return soundId;
   }
 

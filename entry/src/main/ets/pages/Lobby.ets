@@ -88,10 +88,25 @@ struct Lobby {
   private peekHotActive: boolean = false;
   private matchLoadAxisDone: boolean = false;
   private matchLoadPersistDone: boolean = false;
+  /** 补丁轮 2：本实例是否跑初始化（false = 本次离局令牌已被先落地的大厅用掉 → 只渲染）。 */
+  private lobbyInit: boolean = true;
+  /** LbRouter 登记的大厅实例号（LobbyAudio 持有 / 交接用）。 */
+  private lobbyKey: number = 0;
 
   aboutToAppear(): void {
+    // 补丁轮 2（负责人）：先查 LbRouter 里本次离局令牌是否已用掉。已用掉（另一趟离局 replace 迟到成功又落了一个大厅）
+    // → 只渲染：不跑 begin()（不停导演 / 不重置引擎 / 不放桌音 / 不 bind LobbyAudio / BGM 在响就不重新 play）。
+    // 无令牌（冷启动 / 结算回大厅）照常初始化。
+    this.lobbyInit = LbRouter.claimLobbyInit(LbRouter.leaveTicketFromRoute());
+    this.lobbyKey = LbRouter.lobbyAppeared(this.lobbyInit);
     Logger.info(TAG,
-      `aboutToAppear lobbyBgOpacity=${this.lobbyBgOpacity} splashOpacity=${this.splashOpacity}`);
+      `aboutToAppear init=${this.lobbyInit} lobbyBgOpacity=${this.lobbyBgOpacity} splashOpacity=${this.splashOpacity}`);
+    if (!this.lobbyInit) {
+      // 补丁轮 3（负责人批）：接手的大厅音频若已在交接窗外被释放（新大厅超过 1000ms 才出现）→ 按当前增益重起；仍在响 → 不动。
+      LobbyAudio.playIfIdle();
+      this.renderOnly();
+      return;
+    }
     this.lockPortraitSoft();
     this.begin();
   }
@@ -100,7 +115,16 @@ struct Lobby {
     this.loopsAlive = false;
     this.idleLoopAlive = false;
     this.clearTimers();
-    LobbyAudio.leaveThenRelease();
+    // 音频已交给后落地的只渲染大厅 → 不释放；交接窗内没人接手 → 照常 leaveThenRelease。
+    LbRouter.lobbyDisappearing(this.lobbyKey, (): void => {
+      LobbyAudio.leaveThenRelease();
+    });
+  }
+
+  /** 只渲染（令牌已用掉）：读昵称 / 人数 / 静音给界面用，走回大厅短入场的画面部分，不碰引擎 / 导演（音频只经 aboutToAppear 的 playIfIdle）。 */
+  private async renderOnly(): Promise<void> {
+    await this.hydrateView();
+    this.startReturnEnter();
   }
 
   /** Return-lobby lock. WindowOrientation skips if already portrait (cold start / debounce). */
@@ -525,7 +549,10 @@ struct Lobby {
     this.pulseBreath();
     this.pulseCandle();
     this.pulseDust();
-    LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
+    if (this.lobbyInit) {
+      // 只渲染的大厅沿用上一个大厅正在响的床，不重新 play。
+      LobbyAudio.startReturnBeds(LobbyBoot.BOOT_MS_RETURN_ENTER);
+    }
     const enterOpt: AnimateParam = {
       duration: LobbyBoot.BOOT_MS_RETURN_ENTER,
       curve: Curve.EaseOut
@@ -940,6 +967,15 @@ struct Lobby {
   }
 
   private async hydrate(): Promise<void> {
+    await this.hydrateView();
+    AppRuntime.bootDirector();
+    AppRuntime.director.stop();
+    AppRuntime.engine.resetToLobby();
+    Logger.info(TAG, 'lobby hydrate ready');
+  }
+
+  /** 只读本地存档给界面（昵称 / 人数 / 静音）；不碰引擎、导演、音频。 */
+  private async hydrateView(): Promise<void> {
     if (ConfigRepository.isReady()) {
       this.playerCount = ConfigRepository.match().default_players;
     }
@@ -951,10 +987,6 @@ struct Lobby {
     const last: LastTable = await LocalStore.loadLastTable();
     this.playerCount = last.playerCount;
     this.silent = last.silent;
-    AppRuntime.bootDirector();
-    AppRuntime.director.stop();
-    AppRuntime.engine.resetToLobby();
-    Logger.info(TAG, 'lobby hydrate ready');
   }
 
   private async doFillLast(): Promise<void> {

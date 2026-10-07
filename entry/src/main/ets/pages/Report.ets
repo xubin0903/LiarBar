@@ -8,6 +8,7 @@ import { TableAudio } from '../features/table/TableAudio';
 import { MatchSnapshot } from '../engine/MatchTypes';
 import { Phase, SeatRole } from '../engine/Phase';
 import { WindowOrientation } from '../harmony/WindowOrientation';
+import { RecordCommit, RecordStore } from '../persist/RecordStore';
 
 const TAG = 'Report';
 
@@ -36,6 +37,17 @@ struct Report {
       return;
     }
     this.recordsMode = false;
+    if (snap.phase === Phase.RECAP) {
+      // PR-B 战绩兜底（负责人 #10）：RECAP 后立刻切到结算页、导演 RECAP tick 还没跑时也要记上；
+      // 与导演同一口径，commitOnce 按 last_match_id 幂等（已写过 / 演示局 = 不再写）。
+      const recapCommit: RecordCommit = {
+        quit: false,
+        isDemo: AppRuntime.engine.isDemoMatch(),
+        ff: false,
+        pausedMs: AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now())
+      };
+      RecordStore.commitOnce(snap, recapCommit);
+    }
     let winner: string = '';
     for (let i = 0; i < snap.seats.length; i++) {
       if (snap.seats[i].seatId === snap.winnerSeatId) {
