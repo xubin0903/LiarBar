@@ -51,7 +51,10 @@ export class ControlIds {
   static readonly CHALLENGE: string = 'lb_btn_challenge';
   static readonly PLAY: string = 'lb_btn_play';
   static readonly AGAIN: string = 'lb_btn_again';
+  /** 局内退出键（homeExitChrome）专用。结算页回大厅不再复用此 id。 */
   static readonly HOME: string = 'lb_btn_home';
+  /** 结算页/战绩页「回开桌」（负责人 2026-10-07 拍板，与局内 lb_btn_home 分开）。 */
+  static readonly REPORT_LOBBY: string = 'lb_btn_report_lobby';
   static readonly COVER_CHALLENGE: string = 'lb_cover_challenge';
   static readonly BET_BAR: string = 'lb_cmp_bet_bar';
   static readonly REVEAL_ROW: string = 'lb_cmp_reveal_row';

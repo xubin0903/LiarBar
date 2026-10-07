@@ -202,7 +202,8 @@ struct Lobby {
           if (!this.bootReady || this.matchBusy || this.matchLoading) {
             return;
           }
-          LbRouter.toReport();
+          // PR-A: 战绩入口 = 空态页，不放输音效（结算音效只在 RECAP/END 的 Report 播）。
+          LbRouter.toRecords();
         })
     }
     .width('100%')
