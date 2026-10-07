@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ANY_ESOBJECT, findInCode, formatHits } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -238,11 +239,22 @@ if (engine.includes('isChallengeSuccess') && engine.includes('applyPenaltyExting
   fail('rule primary path broken');
 }
 
-if (/\bany\b/.test(decidePath) || /ESObject/.test(decidePath) ||
-    /\bany\b/.test(mathSrc) || /ESObject/.test(mathSrc)) {
-  fail('any/ESObject in AI path');
+// Code-only scan (comments + string text stripped; see lib/ets_scan.mjs).
+const aiAnyHits = findInCode([
+  { path: 'entry/src/main/ets/ai/PlayPolicy.ets', text: playPol },
+  { path: 'entry/src/main/ets/ai/ChallengePolicy.ets', text: chalPol },
+  { path: 'entry/src/main/ets/ai/ThinkDelay.ets', text: thinkSrc },
+  { path: 'entry/src/main/ets/ai/InfoSetBuilder.ets', text: builder },
+  { path: 'entry/src/main/ets/ai/Memory.ets', text: memorySrc },
+  { path: 'entry/src/main/ets/ai/PersonaParams.ets', text: personaSrc },
+  { path: 'entry/src/main/ets/ai/AiSeatController.ets', text: controller },
+  { path: 'entry/src/main/ets/common/MatchDirector.ets (runAi slice)', text: runAi },
+  { path: 'entry/src/main/ets/ai/AiMath.ets', text: mathSrc }
+], ANY_ESOBJECT);
+if (aiAnyHits.length > 0) {
+  fail(`any/ESObject in AI path:\n  ${formatHits(aiAnyHits)}`);
 } else {
-  pass('no any/ESObject in AI modules');
+  pass('no any/ESObject in AI modules (code only)');
 }
 
 const n4 = deck.decks.n4;

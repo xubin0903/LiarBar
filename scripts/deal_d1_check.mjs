@@ -6,6 +6,7 @@
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { ANY_ESOBJECT, findInCode, formatHits, listEts, methodBody, stripCommentsAndStrings } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -214,11 +215,24 @@ if (engine.includes('dealDone()') && engine.includes('T02 DEAL_DONE') &&
   fail('DEAL hold / dealDone');
 }
 
-if (engine.includes('T17 REDEAL_STALL → DEAL (rebuild show, no L1)') &&
-  engine.includes('dealFresh(true)') && table.includes("rebuild ? 'rebuild' : 'opening'")) {
-  pass('D1e rebuild uses same DealFx, keeps redeal line, no L1');
+// D1e rebuild/redeal show. The old check pinned the log suffix
+// "T17 REDEAL_STALL → DEAL (rebuild show, no L1)", dropped by #167 (038523c).
+// Assert the behaviour instead: both redeal entries (T17 stall + CollectRedeal)
+// stay in DEAL and re-deal in place; Table plays them with the rebuild DealFx.
+const stallBody = methodBody(engine, 'redealStall');
+const collectBody = methodBody(engine, 'collectRedeal');
+const rebuildPred = methodBody(table, 'isRebuildDeal');
+if (stallBody !== null && /this\.phase = Phase\.DEAL;\s*this\.dealFresh\(true\);/.test(stallBody) &&
+  stallBody.includes("'lb_str_dlr_redeal'") && stallBody.includes('T17 REDEAL_STALL → DEAL') &&
+  collectBody !== null && /this\.phase = Phase\.DEAL;\s*this\.dealFresh\(false\);/.test(collectBody) &&
+  rebuildPred !== null && rebuildPred.includes("snap.dealerKey === 'lb_str_dlr_redeal'") &&
+  rebuildPred.includes('snap.roundIndex > 1') &&
+  /const rebuild: boolean = this\.isRebuildDeal\(snap\);/.test(table) &&
+  table.includes('DealFx.cardMs(rebuild)') && table.includes('DealFx.staggerMs(rebuild)') &&
+  table.includes("rebuild ? 'rebuild' : 'opening'")) {
+  pass('D1e T17 stall + CollectRedeal re-deal in DEAL; Table picks rebuild DealFx (redeal key / round>1)');
 } else {
-  fail('rebuild path');
+  fail('rebuild path (T17 redealStall / collectRedeal / Table isRebuildDeal → DealFx rebuild)');
 }
 
 if (lobby.includes('MatchLoadOverlay') && lobby.includes('beginMatchLoad') &&
@@ -230,12 +244,33 @@ if (lobby.includes('MatchLoadOverlay') && lobby.includes('beginMatchLoad') &&
   fail('L1 overlay / MATCH_OPEN missing from lobby after rebase');
 }
 
-if (!table.includes('MatchLoadOverlay') && !table.includes('beginMatchLoad') &&
-  !table.includes('lb_ovl_match_load') && !engine.includes('MatchLoadOverlay') &&
-  !engine.includes('beginMatchLoad') && engine.includes('rebuild show, no L1')) {
-  pass('D1e rebuild/redeal does not trigger MatchLoadOverlay');
+// "Rebuild must not re-run L1": L1 (MatchLoadOverlay) only exists on the Lobby
+// quick-start path, and the only way into it from the table would be a new
+// startMatch(). Check on comment/string-stripped code across ALL .ets:
+//  - L1 symbols live only in Lobby / MatchLoadOverlay / Ids;
+//  - startMatch( is called only from Lobby (the engine only defines it);
+//  - the two redeal bodies never call startMatch / resetToLobby / router.
+const L1_HOME = new Set([
+  'entry/src/main/ets/pages/Lobby.ets',
+  'entry/src/main/ets/features/lobby/MatchLoadOverlay.ets',
+  'entry/src/main/ets/common/Ids.ets'
+]);
+const etsAll = listEts(root).map((p) => ({ path: p, text: src(p) }));
+const l1Leaks = findInCode(etsAll.filter((f) => !L1_HOME.has(f.path)),
+  [/\bMatchLoadOverlay\b/, /\bbeginMatchLoad\b/, /\bMATCH_LOAD\b/]);
+const startCallers = etsAll.filter((f) => f.path !== 'entry/src/main/ets/engine/MatchEngine.ets' &&
+  /\.startMatch\(/.test(stripCommentsAndStrings(f.text))).map((f) => f.path);
+const engineCode = stripCommentsAndStrings(engine);
+const engineSelfStart = /this\.startMatch\(/.test(engineCode);
+const redealLeaks = [stallBody || '', collectBody || ''].some((b) =>
+  /startMatch\(|resetToLobby\(|beginMatchLoad|MatchLoadOverlay|LbRouter|router\./.test(stripCommentsAndStrings(b)));
+if (l1Leaks.length === 0 && startCallers.length === 1 && startCallers[0] === 'entry/src/main/ets/pages/Lobby.ets' &&
+  !engineSelfStart && !redealLeaks && stallBody !== null && collectBody !== null) {
+  pass('D1e rebuild/redeal does not trigger MatchLoadOverlay (L1 only via Lobby startMatch)');
 } else {
-  fail('rebuild path must not re-run L1 MatchLoadOverlay');
+  fail('rebuild path must not re-run L1 MatchLoadOverlay' +
+    (l1Leaks.length ? `\n  L1 symbol outside Lobby:\n  ${formatHits(l1Leaks)}` : '') +
+    `\n  startMatch callers: ${JSON.stringify(startCallers)} engineSelfStart=${engineSelfStart} redealLeaks=${redealLeaks}`);
 }
 
 if (!engine.includes('MATCH_LOADING') && !engine.includes("DEALING =")) {
@@ -300,11 +335,17 @@ if (!challengeTouched) {
   fail('challenge files touched by deal');
 }
 
-const scan = [fx, audio, table, engine].join('\n');
-if (/\bany\b/.test(scan) || /ESObject/.test(scan)) {
-  fail('ESObject/any in deal path');
+// Code-only scan (comments + string text stripped; see lib/ets_scan.mjs).
+const anyHits = findInCode([
+  { path: 'entry/src/main/ets/features/table/DealFx.ets', text: fx },
+  { path: 'entry/src/main/ets/features/table/DealAudio.ets', text: audio },
+  { path: 'entry/src/main/ets/pages/Table.ets', text: table },
+  { path: 'entry/src/main/ets/engine/MatchEngine.ets', text: engine }
+], ANY_ESOBJECT);
+if (anyHits.length > 0) {
+  fail(`ESObject/any in deal path:\n  ${formatHits(anyHits)}`);
 } else {
-  pass('no ESObject/any in deal path');
+  pass('no ESObject/any in deal path (code only)');
 }
 
 if (!table.includes('#FF') && !table.includes('Color.Red') && table.includes('art_card_back')) {
