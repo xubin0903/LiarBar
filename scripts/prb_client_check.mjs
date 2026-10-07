@@ -3105,27 +3105,34 @@ ${stripEts(REPORT_SIGS.map((sg) => body(reportPage, sg) + '\n  }\n').join('\n'),
 }
 export { ReportHarness };`;
   const T0r = 1759900000000;
-  const mkRecapSnap = (mid) => ({
-    matchId: mid, phase: PhaseE4.RECAP, config: { lives_default: 3 }, silentMode: false, startedAt: T0r, endedAt: T0r + 240000, roundIndex: 4,
-    winnerSeatId: 1, eventLog: [{ kind: EK.LIFE_CHANGE, seatId: 0, detail: '', at: 0 }, { kind: EK.OUT, seatId: 0, detail: '', at: 0 }],
-    seats: [0, 1, 2, 3].map((i) => ({ seatId: i, role: i === 0 ? SRo.HUMAN : SRo.AI, aiPersona: i === 0 ? '' : 'AI_SHARK', nickname: i === 0 ? '阿龙' : `ai${i}`,
-      lives: i === 1 ? 2 : 0, status: i === 1 ? SS4.ALIVE : SS4.GHOST })),
-    recap: [0, 1, 2, 3].map((i) => ({ seatId: i, nickname: `s${i}`, playCount: 2, fakeHandCount: 1, challengeCount: 1, challengeHits: 0, doubtedCount: 1,
-      caughtCount: 0, aliveAtExit: [4, 0, 3, 2][i] }))
-  });
-  const world = async (mid, startOk) => {
+  // o = { n: seats, silent, nick } — defaults = the 4-seat / not silent / 阿龙 fixture; the 3-seat / silent / 小满 variant proves the restart
+  // re-uses THIS match's nickname / playerCount / silent (21:218), not hard-coded defaults.
+  const mkRecapSnap = (mid, o) => {
+    const n = o && o.n ? o.n : 4;
+    const ids = Array.from({ length: n }, (_, i) => i);
+    return {
+      matchId: mid, phase: PhaseE4.RECAP, config: { lives_default: 3 }, silentMode: !!(o && o.silent), startedAt: T0r, endedAt: T0r + 240000, roundIndex: 4,
+      winnerSeatId: 1, eventLog: [{ kind: EK.LIFE_CHANGE, seatId: 0, detail: '', at: 0 }, { kind: EK.OUT, seatId: 0, detail: '', at: 0 }],
+      seats: ids.map((i) => ({ seatId: i, role: i === 0 ? SRo.HUMAN : SRo.AI, aiPersona: i === 0 ? '' : 'AI_SHARK',
+        nickname: i === 0 ? (o && o.nick ? o.nick : '阿龙') : `ai${i}`, lives: i === 1 ? 2 : 0, status: i === 1 ? SS4.ALIVE : SS4.GHOST })),
+      recap: ids.map((i) => ({ seatId: i, nickname: `s${i}`, playCount: 2, fakeHandCount: 1, challengeCount: 1, challengeHits: 0, doubtedCount: 1,
+        caughtCount: 0, aliveAtExit: i === 1 ? 0 : n - (i === 0 ? 0 : i - 1) }))
+    };
+  };
+  const world = async (mid, startOk, o) => {
     curPrefStore = makePrefStore();
     const RSr = await loadRecordStore();
     await RSr.init({});
     const log = [];
-    const snap = mkRecapSnap(mid);
-    const eng = { current: () => snap, isDemoMatch: () => false, pausedTotalAt: () => 0, recapPlayLog: () => [],
+    const snap = mkRecapSnap(mid, o);
+    const pausedStub = o && o.paused ? o.paused : 0;
+    const eng = { current: () => snap, isDemoMatch: () => false, pausedTotalAt: () => pausedStub, recapPlayLog: () => [],
       toLobby: () => { log.push('engine.toLobby'); return true; }, startMatch: (o) => { log.push(`engine.startMatch:${o.nickname}/${o.playerCount}/${o.silent}`); return startOk; } };
     const director = { stop: () => log.push('director.stop'), start: () => log.push('director.start') };
     const H = (await importFresh(rpJs, {
       AppRuntime: { engine: eng, director, bootDirector: () => log.push('bootDirector') },
       Phase: PhaseE4, SeatRole: SRo, RecordStore: RSr, ReportModel: RMod, REPORT_TEXT_KEYS: RKEYS,
-      TableAudio: { setSilent: () => {}, playResult: () => log.push('playResult'), fadeBgmOut: () => {}, BGM_FADE_OUT_MS: 400, release: () => log.push('TableAudio.release') },
+      TableAudio: { setSilent: (on) => log.push(`TableAudio.setSilent:${on}`), playResult: () => log.push('playResult'), fadeBgmOut: () => {}, BGM_FADE_OUT_MS: 400, release: () => log.push('TableAudio.release') },
       LbRouter: { toLobby: () => log.push('LbRouter.toLobby'), replaceTable: () => log.push('LbRouter.replaceTable'), back: () => log.push('LbRouter.back') },
       WindowOrientation: { lockPortrait: async () => { log.push('lockPortrait'); } },
       getContext: () => ({ resourceManager: { getStringByNameSync: (k) => strMap.get(k) } }),
@@ -3180,7 +3187,7 @@ export { ReportHarness };`;
     w.h.leaveMatchReport(true);
     w.h.leaveMatchReport(true);
     await drainMicrotasks();
-    const seq = w.log.filter((x) => x !== 'playResult').join(' → ');
+    const seq = w.log.filter((x) => x !== 'playResult' && !x.startsWith('TableAudio.setSilent')).join(' → ');
     ok(seq === 'director.stop → bootDirector → engine.startMatch:阿龙/4/false → director.start → TableAudio.release → LbRouter.replaceTable' &&
       curPrefStore.dump() === dumpA && w.RSr.recent().length === 1,
       `再来一局 real Report: ${seq} (once; stays landscape; record untouched)`);
@@ -3189,7 +3196,28 @@ export { ReportHarness };`;
     w2.h.leaveMatchReport(true);
     await drainMicrotasks();
     ok(w2.log.includes('engine.toLobby') && w2.log.includes('LbRouter.toLobby') && !w2.log.includes('LbRouter.replaceTable') && !w2.log.includes('director.start'),
-      `再来一局 START_MATCH rejected → falls back to the lobby path (${w2.log.filter((x) => x !== 'playResult').join(' → ')})`);
+      `再来一局 START_MATCH rejected → falls back to the lobby path (${w2.log.filter((x) => x !== 'playResult' && !x.startsWith('TableAudio.setSilent')).join(' → ')})`);
+  }
+  // 再来一局 keeps THIS match's opts (21:218): 3 seats, silent match, non-default nickname → startMatch:小满/3/true
+  {
+    const w = await world(`m-${T0r}-again-3s`, true, { n: 3, silent: true, nick: '小满' });
+    w.h.aboutToAppear();
+    await tickIo();
+    w.h.leaveMatchReport(true);
+    await drainMicrotasks();
+    const seq3 = w.log.filter((x) => x !== 'playResult' && !x.startsWith('TableAudio.setSilent')).join(' → ');
+    ok(seq3 === 'director.stop → bootDirector → engine.startMatch:小满/3/true → director.start → TableAudio.release → LbRouter.replaceTable' &&
+      w.log.includes('TableAudio.setSilent:true') && w.RSr.recent().length === 1,
+      `再来一局 keeps this match's nickname / playerCount / silent (3 seats, silent, 小满): ${seq3}`);
+  }
+  // duration on the report = endedAt − startedAt − pausedTotalAt (stub pause 30000 ms → 4:00 − 0:30 = 3:30), same Δ in the stored record
+  {
+    const w = await world(`m-${T0r}-paused`, true, { paused: 30000 });
+    w.h.aboutToAppear();
+    await tickIo();
+    const rec0 = w.RSr.recent()[0];
+    ok(w.h.view && w.h.view.durationText === '用时 3分30秒' && rec0 && rec0.durationMs === 210000,
+      `report duration excludes pause (pausedTotalAt=30000): view "${w.h.view && w.h.view.durationText}", record durationMs=${rec0 && rec0.durationMs} (RPT-4)`);
   }
   // view built from the real model + real strings on the same page instance
   {

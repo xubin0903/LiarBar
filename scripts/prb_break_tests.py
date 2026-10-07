@@ -373,6 +373,13 @@ M = [
  "    if (again && this.restartMatch()) {", "    if (false && again && this.restartMatch()) {", '再来一局 real Report'),
 ('B139 再来一局 keeps the old table audio (no release before replaceTable)', RP,
  "    TableAudio.release();\n    LbRouter.replaceTable();", "    LbRouter.replaceTable();", '再来一局 real Report'),
+# #307 终审打回补闸：再来一局沿用本局 opts（21:218）/ 结算时长扣暂停（RPT-4）
+('B140 再来一局 silent hard-coded false', RP,
+ "silent: snap.silentMode };", "silent: false };", "再来一局 keeps this match's nickname / playerCount / silent"),
+('B141 再来一局 playerCount hard-coded 4', RP,
+ "playerCount: snap.seats.length,", "playerCount: 4,", "再来一局 keeps this match's nickname / playerCount / silent"),
+('B142 report duration ignores pauses (pausedMs 0 into ReportModel)', RP,
+ "      pausedMs: pausedMs,\n", "      pausedMs: 0,\n", 'report duration excludes pause'),
 ]
 
 
