@@ -83,13 +83,13 @@ const expected = {
     pSlam: 0.25, pHesitateOnBluff: 0.20, pNameCall: 0.20
   },
   AI_TIMID: {
-    aggression: 0.25, caution: 0.75, bluffTendency: 0.15, challengeSensitivity: 0.28,
+    aggression: 0.25, caution: 0.75, bluffTendency: 0.15, challengeSensitivity: 0.33,
     handPressureWeight: 0.55, memoryWeight: 0.35, errorRate: 0.08,
     preferPlay1: 0.70, preferPlay2: 0.25, preferPlay3: 0.05,
     pSlam: 0.10, pHesitateOnBluff: 0.15, pNameCall: 0.05
   },
   AI_SHARK: {
-    aggression: 0.55, caution: 0.50, bluffTendency: 0.62, challengeSensitivity: 0.42,
+    aggression: 0.55, caution: 0.50, bluffTendency: 0.62, challengeSensitivity: 0.48,
     handPressureWeight: 0.40, memoryWeight: 0.65, errorRate: 0.05,
     preferPlay1: 0.20, preferPlay2: 0.55, preferPlay3: 0.25,
     pSlam: 0.35, pHesitateOnBluff: 0.25, pNameCall: 0.25
@@ -111,7 +111,7 @@ for (const id of Object.keys(expected)) {
   }
 }
 if (personaOk) {
-  pass('§4b.4 persona continuous knobs (Timid challengeSensitivity=0.28)');
+  pass('§4b.4 persona continuous knobs (Timid challengeSensitivity=0.33 Soft nudge)');
 }
 const bind = personas.mvpSeatBind;
 if (bind && bind.seat1 === 'AI_TIMID' && bind.seat2 === 'AI_SHARK' && bind.seat3 === 'AI_KAREN') {
@@ -124,6 +124,11 @@ if (demo.demo_force_ai_enabled === false) {
   pass('demo_force_ai_enabled false');
 } else {
   fail('demo_force_ai_enabled must be false');
+}
+if (demo.demo_seed_enabled === false && match.demo_seed_enabled === false) {
+  pass('demo_seed_enabled false (demo_seed.json + match_defaults)');
+} else {
+  fail(`demo_seed_enabled must be false demo=${demo.demo_seed_enabled} match=${match.demo_seed_enabled}`);
 }
 if (engine.includes('demoForceAiEnabled()') && engine.includes('demo_force_ai_enabled === true')) {
   pass('engine gates shouldForce* on demoForceAiEnabled');

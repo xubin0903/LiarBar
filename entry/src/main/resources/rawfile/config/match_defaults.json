@@ -20,7 +20,7 @@
   "hesitate_dwell_ms": 800,
   "soft_max_velocity": 1200,
   "slam_min_velocity": 2800,
-  "demo_seed_enabled": true,
+  "demo_seed_enabled": false,
   "demo_seed_value": 20260906,
   "first_actor_policy": "random",
   "avoid_same_claim_streak": 1,
