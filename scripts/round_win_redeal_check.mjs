@@ -1,12 +1,19 @@
 #!/usr/bin/env node
 /**
- * Spec check: U03b RoundWin → RedealAll (出牌扣牌 v0.4.0 / #160).
- * hand==0 → RoundWin tip → RedealAll; no RankSettle-on-empty.
+ * Spec check: hand==0 → HandEmptyGate, round end → CollectRedeal.
+ *
+ * History: this gate was written for U03b RoundWin → RedealAll (#160/#163).
+ * #167 (038523c, GDD v0.3.0 / 对局-状态机 R8/R10) abolished RoundWin: hand==0
+ * now enters HandEmptyGate (EmptySafe ≥3 / ForceChallenge =2) and every round
+ * ends via CollectRedeal (→ MatchEnd when ≤1 alive, else → DEAL).
+ * beginRoundWin()/redealAll() survive only as deprecated no-ops. The file name
+ * is kept so existing run lists still find it.
  * Cloud has no DevEco — this is not CompileArkTS. 合入 ≠ 终验.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { methodBody, stripCommentsAndStrings } from './lib/ets_scan.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const src = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -51,55 +58,45 @@ if (table.includes('nextB: number = this.insetVp(box.bottom)') &&
   fail('padB path rewritten');
 }
 
-if (flyFx.includes('ROUND_WIN_MS: number = 1000') &&
-    flyFx.includes('ROUND_WIN_MS_MIN: number = 800') &&
-    flyFx.includes('ROUND_WIN_MS_MAX: number = 1200')) {
-  pass('ROUND_WIN_MS=1000 (window 800～1200)');
+// Retired with RoundWin (#167): ROUND_WIN_MS 1000, lb_cmp_round_win / 本轮胜,
+// Table startRoundWin→redealAll wiring. They asserted that artefacts of the
+// abolished mechanic still exist; keeping them would block their cleanup.
+
+const tableCode = stripCommentsAndStrings(table);
+const engineCode = stripCommentsAndStrings(engine);
+
+// Deprecated RoundWin API must stay inert.
+const brw = methodBody(engine, 'beginRoundWin');
+const rda = methodBody(engine, 'redealAll');
+const inert = (b) => b !== null && /return false;\s*$/.test(b.trim() + '\n') &&
+  !/dealFresh|Phase\.|toRecap|collectRedeal/.test(stripCommentsAndStrings(b));
+if (inert(brw) && inert(rda)) {
+  pass('beginRoundWin / redealAll are inert no-ops (return false, no deal / phase change) — 废 RoundWin');
 } else {
-  fail('ROUND_WIN_MS drifted');
+  fail('deprecated beginRoundWin / redealAll do work again (RoundWin abolished by #167)');
 }
 
-if (ids.includes("ROUND_WIN: string = 'lb_cmp_round_win'") &&
-    strings.includes('"name": "lb_str_round_win"') &&
-    strings.includes('本轮胜') &&
-    table.includes('ControlIds.ROUND_WIN') &&
-    table.includes("lb_str_round_win")) {
-  pass('lb_cmp_round_win + lb_str_round_win = 本轮胜');
+// CollectRedeal is the only round-end redeal.
+const cr = methodBody(engine, 'collectRedeal');
+if (cr !== null &&
+    cr.includes('this.roundWinPending = false;') && cr.includes('this.emptyOrder = [];') &&
+    cr.includes('this.lastPlay = null;') && cr.includes('this.clearEmptyGate();') &&
+    /const live: number = aliveCount\(this\.seats\);\s*if \(live <= 1\) \{\s*this\.toRecap\(\);/.test(cr) &&
+    cr.includes('collectRedeal → MatchEnd (≤1 alive)') &&
+    /this\.phase = Phase\.DEAL;\s*this\.dealFresh\(false\);/.test(cr) &&
+    cr.includes('collectRedeal → DEAL')) {
+  pass('collectRedeal: reset round state; ≤1 alive → toRecap (MatchEnd); else → DEAL + dealFresh');
 } else {
-  fail('RoundWin id / string missing');
+  fail('collectRedeal → MatchEnd / DEAL path missing');
 }
-
-if (table.includes('startRoundWin') &&
-    table.includes('finishRoundWin') &&
-    table.includes('beginRoundWin') &&
-    table.includes('redealAll') &&
-    table.includes('PlayFlyFx.ROUND_WIN_MS') &&
-    table.includes('roundWinOn')) {
-  pass('Table RoundWin tip → redealAll path');
+const pd = methodBody(engine, 'penaltyDone');
+const srw = methodBody(engine, 'maybeSettleRoundSafeWait');
+if (pd !== null && pd.includes('return this.collectRedeal();') &&
+    srw !== null && srw.includes('this.collectRedeal();') &&
+    !/this\.(redealAll|beginRoundWin)\(/.test(engineCode)) {
+  pass('CollectRedeal entered from PenaltyExtinguish1 (penaltyDone) and RoundSafeWait settle; engine never calls redealAll/beginRoundWin');
 } else {
-  fail('Table RoundWin path incomplete');
-}
-
-// No RankSettle-on-empty: land hand==0 must not set rankSettleOn / RankSettle place.
-if (!table.includes('rankSettleOn') &&
-    !table.includes('rankSettlePlace') &&
-    !table.includes('rankSettleBanner') &&
-    table.includes('startRoundWin()') &&
-    table.includes('left === 0')) {
-  pass('no RankSettle-on-empty (RoundWin replaces)');
-} else {
-  fail('RankSettle-on-empty still present');
-}
-
-if (engine.includes('beginRoundWin()') &&
-    engine.includes('redealAll()') &&
-    engine.includes('roundWinPending') &&
-    types.includes('roundWinPending: boolean') &&
-    engine.includes('RoundWinPending') &&
-    engine.includes('redealAll → DEAL')) {
-  pass('engine beginRoundWin / redealAll + roundWinPending');
-} else {
-  fail('engine RoundWin API missing');
+  fail('CollectRedeal entry points changed / engine still calls RoundWin API');
 }
 
 if (engine.includes('Not whole-match place') ||
@@ -109,30 +106,40 @@ if (engine.includes('Not whole-match place') ||
   fail('emptyOrder still documents whole-match place');
 }
 
-if (engine.includes('aliveCount(this.seats)') &&
-    engine.includes('redealAll → RankSettle (1 alive)') &&
-    engine.includes('this.toRecap()')) {
-  pass('match RankSettle only when ≤1 alive on redealAll');
+// Table: hand==0 on land goes to HandEmptyGate, never to RoundWin / RankSettle.
+const landEmpty = /if \(left === 0\) \{([\s\S]*?)\} else \{/.exec(tableCode);
+const startRoundWinCalls = (tableCode.match(/this\.startRoundWin\(/g) || []).length;
+if (landEmpty && /this\.syncEmptySafeEntry\(snap\)/.test(landEmpty[1]) &&
+    /this\.isForceChallengeEmpty\(snap\)/.test(landEmpty[1]) &&
+    !/RoundWin|redealAll/.test(landEmpty[1]) &&
+    startRoundWinCalls === 0 &&
+    !table.includes('rankSettleOn') && !table.includes('rankSettlePlace') && !table.includes('rankSettleBanner')) {
+  pass('Table land hand==0 → EmptySafeEntry / ForceChallenge; startRoundWin has 0 call sites; no RankSettle-on-empty');
 } else {
-  fail('1-alive RankSettle path missing on redealAll');
+  fail(`Table hand==0 path not HandEmptyGate (startRoundWin call sites=${startRoundWinCalls})`);
+}
+if (/private startRoundWin\(/.test(tableCode)) {
+  console.log('NOTE Table.ets still defines dead startRoundWin/finishRoundWin (0 callers) — ets cleanup is out of scope here (P2).');
 }
 
-if (engine.includes('roundWinPending') &&
-    engine.includes('canChallengeNow') &&
-    engine.includes('if (this.roundWinPending)')) {
-  pass('AwaitChallenge banned while roundWinPending');
+// Challenge gating after #167 (replaces "banned while roundWinPending").
+const canCh = methodBody(engine, 'canChallengeSeat');
+if (canCh !== null &&
+    /if \(this\.emptySafePending \|\| this\.forceChallengeEmpty\) \{\s*return this\.lastPlay\.actorSeatId === this\.emptyHandSeatId;/.test(canCh) &&
+    /this\.roundSafeWaitSeats\[i\] === this\.lastPlay\.actorSeatId\) \{\s*return false;/.test(canCh) &&
+    /this\.lastPlay === null \|\| this\.playIndexInRound < 1/.test(canCh)) {
+  pass('canChallengeSeat: EmptySafe/ForceChallenge → only the emptier last hand; RoundSafeWait-sealed hand not challengeable');
 } else {
-  fail('challenge not gated by roundWinPending');
+  fail('canChallengeSeat gate drifted from #167 HandEmptyGate');
 }
 
-if (table.includes('this.roundWinOn') &&
-    table.includes('shouldShowChallengeEntry') &&
-    table.includes('this.playFlyOn || this.confirmBusy || this.roundWinOn')) {
-  pass('UI bans AwaitChallenge during RoundWin tip');
+if (table.includes('shouldShowChallengeEntry') &&
+    /this\.playFlyOn \|\| this\.confirmBusy/.test(table)) {
+  pass('UI bans ChallengeEntry while play-fly / confirm busy');
 } else {
-  fail('UI challenge gate missing RoundWin');
+  fail('UI challenge gate missing play-fly / confirm busy');
 }
 
 if (!process.exitCode) {
-  console.log('round_win_redeal_check: all green');
+  console.log('round_win_redeal_check (HandEmptyGate/CollectRedeal): all green');
 }

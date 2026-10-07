@@ -165,11 +165,16 @@ if (strings.includes('按住看牌 · 松手收起') && strings.includes('侧边
   fail('C1 peek strings missing');
 }
 
-const n4 = deck.decks.n4;
-if (n4.A === 8 && n4.K === 8 && n4.Q === 8 && n4.JOKER === 4) {
-  pass('deck n4 unchanged A8/K8/Q8/JOKER4');
+// GDD §牌堆构成 v0.3.0 / 对局-状态机 R1: 20 = 6K + 6Q + 6A + 2Joker for every
+// table size (deck.json since #167 038523c; the old n4 A8/K8/Q8/JOKER4 = 28 is gone).
+const deckBad = ['n3', 'n4', 'n5', 'n6'].filter((k) => {
+  const d = deck.decks[k];
+  return !d || d.A !== 6 || d.K !== 6 || d.Q !== 6 || d.JOKER !== 2;
+});
+if (deckBad.length === 0) {
+  pass('deck n3..n6 = A6/K6/Q6/JOKER2 (20, GDD v0.3.0 R1)');
 } else {
-  fail('deck counts changed');
+  fail(`deck counts changed (not A6/K6/Q6/JOKER2): ${deckBad.join(', ')}`);
 }
 
 const illustrated = scaffold.slice(scaffold.indexOf('ILLUSTRATED_P0'));
