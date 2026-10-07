@@ -9,6 +9,7 @@ import { PlayStyle } from '../../engine/Phase';
 import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'TableAudio';
+const STALE_PREPARE: string = 'prepare stale: released while loading';
 
 const PATH_BGM: string = 'audio/bgm/bgm_table_bluff.ogg';
 const PATH_CLAIM: string = 'audio/sfx/sfx_claim_set.wav';
@@ -72,6 +73,9 @@ export class TableAudio {
 
   static readonly BGM_FADE_IN_MS: number = 600;
   static readonly BGM_FADE_OUT_MS: number = 400;
+  /** PR-B 局内暂停专用：暂停时 BGM 先淡出 150ms 再 pause（原位）；继续时 300ms 淡入（不影响其它用 BGM_FADE_IN_MS 的地方）。 */
+  static readonly PAUSE_FADE_OUT_MS: number = 150;
+  static readonly RESUME_FADE_IN_MS: number = 300;
   /**
    * EXP 1 rebuild flag (PRIMARY / latency A/B). true = table AVPlayer BGM
    * never starts; flip/extinguish SFX stay on. Default false so normal play
@@ -165,6 +169,11 @@ export class TableAudio {
   /** PR-B 局内暂停：BGM 立即停在当前位置；恢复时从 0 淡回 VOL_BGM。 */
   private static gamePaused: boolean = false;
   private static settingsHooked: boolean = false;
+  /**
+   * release() 代际号（负责人第 3 条遗留）：异步 prepare 在 release 之后才返回时，返回处比对代际，
+   * 不一致就立刻 release 新建的池 / 播放器，不登记、不播放。
+   */
+  private static gen: number = 0;
 
   static bind(context: common.UIAbilityContext): void {
     TableAudio.context = context;
@@ -231,12 +240,17 @@ export class TableAudio {
     if (TableAudio.pool !== null && TableAudio.bgmPlayer !== null) {
       return;
     }
+    const gen: number = TableAudio.gen;
     try {
       const info: audio.AudioRendererInfo = {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
         rendererFlags: 1
       };
       const pool: media.SoundPool = await media.createSoundPool(TableAudio.MAX_STREAMS, info);
+      if (TableAudio.gen !== gen) {
+        TableAudio.dropStalePool(pool);
+        return;
+      }
       TableAudio.pool = pool;
       pool.on('loadComplete', (soundId: number): void => {
         TableAudio.onLoaded(soundId);
@@ -262,10 +276,17 @@ export class TableAudio {
       TableAudio.loseId = await TableAudio.loadPath(PATH_LOSE);
       Logger.info(TAG, 'table sfx pool ready');
     } catch (err) {
+      if (TableAudio.gen !== gen) {
+        Logger.info(TAG, 'prepare dropped: released while loading');
+        return;
+      }
       Logger.warn(TAG, `table pool unavailable — fail-soft: ${err}`);
     }
+    if (TableAudio.gen !== gen) {
+      return;
+    }
     if (TableAudio.bgmPlayer === null) {
-      await TableAudio.prepareBed();
+      await TableAudio.prepareBed(gen);
     }
   }
 
@@ -307,30 +328,63 @@ export class TableAudio {
     player.setVolume(AudioSettings.bgm01(TableAudio.bgmVol));
   }
 
-  /** PR-B 局内暂停：冻结 BGM（不淡出，立即停）；bedsWanted 保留以便恢复。 */
+  /**
+   * PR-B 局内暂停：BGM 先 PAUSE_FADE_OUT_MS（150）淡到 0，淡完 fadeBgm 自己 pause（停在原位，不 stop / 不 seek）；
+   * 正在响的 BGM 为 0 时直接 stopBedsNow（同样只 pause）。bedsWanted 保留以便恢复。
+   * 同时清空所有「资源加载完再补播」的挂起项（暂停中加载完不补响；恢复后也不补旧音）。
+   */
   static pauseForGame(): void {
     if (TableAudio.gamePaused) {
       return;
     }
     TableAudio.gamePaused = true;
     TableAudio.pendingBgm = false;
+    TableAudio.clearPendingShots();
     if (TableAudio.duckTimer >= 0) {
       clearTimeout(TableAudio.duckTimer);
       TableAudio.duckTimer = -1;
     }
-    TableAudio.stopBedsNow();
-    Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} paused (game pause)`);
+    if (TableAudio.bgmPlayer !== null && TableAudio.bgmVol > 0) {
+      TableAudio.fadeBgm(TableAudio.bgmVol, 0, TableAudio.PAUSE_FADE_OUT_MS);
+    } else {
+      TableAudio.stopBedsNow();
+    }
+    Logger.info(TAG, `${SfxIds.BGM_TABLE_BLUFF} paused (game pause, fade ${TableAudio.PAUSE_FADE_OUT_MS}ms)`);
   }
 
-  /** PR-B 局内恢复：仍想要 BGM 且未静默/未实验静音 → 从暂停处淡回。 */
+  /**
+   * PR-B 局内恢复：仍想要 BGM 且未静音/未静默局/未实验静音 → 从暂停处 RESUME_FADE_IN_MS（300）淡回 VOL_BGM × 音量乘子。
+   * 原位续播：fadeBgm 先撤掉还没淡完的暂停淡出（不会再 pause），playIfIdle 只在未在播时 play → 不重头、不叠播。
+   */
   static resumeForGame(): void {
     if (!TableAudio.gamePaused) {
       return;
     }
     TableAudio.gamePaused = false;
     if (TableAudio.bedsWanted && !TableAudio.silent && !TableAudio.bgmMuted) {
-      TableAudio.startBgm(TableAudio.BGM_FADE_IN_MS);
+      TableAudio.startBgm(TableAudio.RESUME_FADE_IN_MS);
     }
+  }
+
+  /** 暂停时丢弃所有挂起的补播（pendingBgm 另算）。 */
+  private static clearPendingShots(): void {
+    TableAudio.pendingClaim = false;
+    TableAudio.pendingSoft = false;
+    TableAudio.pendingSlam = false;
+    TableAudio.pendingHesitate = false;
+    TableAudio.pendingLaunch = false;
+    TableAudio.pendingLand = false;
+    TableAudio.pendingEnter = false;
+    TableAudio.pendingCommit = false;
+    TableAudio.pendingRevealDraw = false;
+    TableAudio.pendingRevealFlip = false;
+    TableAudio.pendingRevClick = false;
+    TableAudio.pendingRevShot = false;
+    TableAudio.pendingRevSpin = false;
+    TableAudio.pendingTurn = false;
+    TableAudio.pendingStare = false;
+    TableAudio.pendingWin = false;
+    TableAudio.pendingLose = false;
   }
 
   /** PR-B 离桌：丢弃暂停标记但不拉起 BGM（离桌流程自己淡出/释放）。 */
@@ -489,6 +543,7 @@ export class TableAudio {
   }
 
   static release(): void {
+    TableAudio.gen = TableAudio.gen + 1;
     TableAudio.bedsWanted = false;
     TableAudio.gamePaused = false;
     TableAudio.bgmMuted = TableAudio.EXP_MUTE_BGM;
@@ -598,6 +653,10 @@ export class TableAudio {
   }
 
   private static onLoaded(soundId: number): void {
+    if (TableAudio.gamePaused) {
+      // 暂停中资源加载完：不补播（pauseForGame 已清挂起项，这里再挡一次）。
+      return;
+    }
     if (soundId === TableAudio.claimId && TableAudio.pendingClaim) {
       TableAudio.pendingClaim = false;
       TableAudio.playClaimSet();
@@ -668,17 +727,29 @@ export class TableAudio {
     }
   }
 
-  private static async prepareBed(): Promise<void> {
+  private static async prepareBed(gen: number): Promise<void> {
     const ctx: common.UIAbilityContext | null = TableAudio.context;
     if (ctx === null) {
       return;
     }
     try {
       const player: media.AVPlayer = await media.createAVPlayer();
+      if (TableAudio.gen !== gen) {
+        // release 已在 createAVPlayer 挂起时发生：立刻释放，不登记、不挂回调、不播放。
+        TableAudio.dropStalePlayer(player);
+        return;
+      }
+      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(PATH_BGM);
+      if (TableAudio.gen !== gen) {
+        TableAudio.dropStalePlayer(player);
+        ctx.resourceManager.closeRawFd(PATH_BGM).catch((err: BusinessError): void => {
+          Logger.warn(TAG, `closeRawFd fail-soft: ${err.message}`);
+        });
+        return;
+      }
       player.on('stateChange', (state: string): void => {
         TableAudio.onBedState(state);
       });
-      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(PATH_BGM);
       const desc: media.AVFileDescriptor = {
         fd: rawFd.fd,
         offset: rawFd.offset,
@@ -812,9 +883,27 @@ export class TableAudio {
     }
   }
 
+  private static dropStalePlayer(player: media.AVPlayer): void {
+    Logger.info(TAG, 'stale bed player (created after release) — released, not registered');
+    player.release().catch((err: BusinessError): void => {
+      Logger.warn(TAG, `stale bed release fail-soft: ${err.message}`);
+    });
+  }
+
+  private static dropStalePool(pool: media.SoundPool): void {
+    Logger.info(TAG, 'stale sfx pool (created after release) — released, not registered');
+    pool.release().catch((err: BusinessError): void => {
+      Logger.warn(TAG, `stale pool release fail-soft: ${err.message}`);
+    });
+  }
+
   private static playShot(soundId: number, volume: number): void {
     const pool: media.SoundPool | null = TableAudio.pool;
     if (pool === null || soundId < 0) {
+      return;
+    }
+    if (TableAudio.gamePaused) {
+      // PR-B 暂停闸：暂停中任何短音效都不出声。
       return;
     }
     const gained: number = AudioSettings.sfx01(volume);
@@ -833,6 +922,7 @@ export class TableAudio {
     });
   }
 
+  /** 加载期间池已换（release 过 / 新一轮 prepare）时抛出，打断 prepare 里后续的登记（不把旧 id 写进新会话）。 */
   private static async loadPath(path: string): Promise<number> {
     const ctx: common.UIAbilityContext | null = TableAudio.context;
     const pool: media.SoundPool | null = TableAudio.pool;
@@ -842,14 +932,21 @@ export class TableAudio {
     const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
     const soundId: number = await pool.load(rawFd.fd, rawFd.offset, rawFd.length);
     await ctx.resourceManager.closeRawFd(path);
+    if (TableAudio.pool !== pool) {
+      throw new Error(STALE_PREPARE);
+    }
     return soundId;
   }
 
   /** Missing hammer wav must not fail the table pool. */
   private static async loadOptional(path: string): Promise<number> {
+    const pool: media.SoundPool | null = TableAudio.pool;
     try {
       return await TableAudio.loadPath(path);
     } catch (err) {
+      if (TableAudio.pool !== pool) {
+        throw new Error(STALE_PREPARE);
+      }
       Logger.info(TAG, `${path} missing — silent slot`);
       return -1;
     }

@@ -153,7 +153,8 @@ if (homeChrome.includes('this.requestLeave()') && !homeChrome.includes('this.goH
 // TODO(UI 22): 暂停层「结束游戏 / 回大厅」接进来后会新增 goHome 路径 —— 在 GOHOME_EXIT_PATHS 登记
 // 新方法名与次数，并给新路径同样补离局锁 / 中退一次的断言；不许删表或放宽成计数≥1。
 const GOHOME_EXIT_PATHS = { onLeaveConfirmed: 1 };
-const LEAVE_OK_PATHS = { requestLeave: 1 };
+// PR-B 离局待停（21 §3.1 P06）：弹框从 requestLeave 拆到 openLeaveConfirm（requestLeave 直弹 / 待停结束由 onPauseState 调）。
+const LEAVE_OK_PATHS = { openLeaveConfirm: 1 };
 const LEAVE_REQUEST_PATHS = { homeExitChrome: 1, onBackPress: 1 };
 const tableCode = stripCommentsAndStrings(table);
 function callSitesByMethod(code, callRe) {
@@ -191,9 +192,9 @@ if (sameMap(goHomeSites, GOHOME_EXIT_PATHS)) {
   fail(`goHome exit paths ${show(goHomeSites)} != allowlist ${show(GOHOME_EXIT_PATHS)}`);
 }
 const okSites = callSitesByMethod(tableCode, /this\.onLeaveConfirmed\(\)/);
-const reqBody = methodBody(table, '  private requestLeave(): void {');
+const reqBody = methodBody(table, '  private openLeaveConfirm(): void {');
 if (sameMap(okSites, LEAVE_OK_PATHS) && /secondaryButton:[\s\S]*?this\.onLeaveConfirmed\(\)/.test(reqBody)) {
-  pass('onLeaveConfirmed only from the leave dialog OK (secondaryButton) in requestLeave');
+  pass('onLeaveConfirmed only from the leave dialog OK (secondaryButton) in openLeaveConfirm');
 } else {
   fail(`onLeaveConfirmed call sites ${show(okSites)} (expected dialog OK only)`);
 }
@@ -232,11 +233,11 @@ if (!/goHome\(/.test(stripCommentsAndStrings(report))) {
 } else {
   fail('Report references goHome');
 }
-const req = methodBody(table, '  private requestLeave(): void {');
-if (req.includes('if (this.leaveConfirmOpen)') && req.includes('showAlertDialog(') &&
+const req = methodBody(table, '  private requestLeave(): void {') + methodBody(table, '  private openLeaveConfirm(): void {');
+if (req.includes('if (this.leaveConfirmOpen || this.leavePending)') && req.includes('if (this.leaving || this.leaveConfirmOpen)') && req.includes('showAlertDialog(') &&
   req.includes('lb_str_leave_confirm_title') && req.includes('lb_str_leave_confirm_body') &&
   req.includes('lb_str_leave_confirm_ok') && req.includes('lb_str_leave_confirm_cancel')) {
-  pass('requestLeave: AlertDialog with 4 lb_str_leave_confirm_* keys; re-entry guarded');
+  pass('requestLeave/openLeaveConfirm: AlertDialog with 4 lb_str_leave_confirm_* keys; re-entry guarded (open / pending)');
 } else {
   fail('requestLeave dialog incomplete');
 }

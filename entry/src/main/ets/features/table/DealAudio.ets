@@ -6,8 +6,10 @@ import { media } from '@kit.MediaKit';
 import { SfxIds } from '../../common/Ids';
 import { Logger } from '../../common/Logger';
 import { AudioSettings } from '../../persist/AudioSettings';
+import { TableAudio } from './TableAudio';
 
 const TAG = 'DealAudio';
+const STALE_PREPARE: string = 'prepare stale: released while loading';
 const PATH_DEAL: string = 'audio/sfx/sfx_deal_card.wav';
 
 /**
@@ -26,6 +28,8 @@ export class DealAudio {
   private static dealId: number = -1;
   private static silent: boolean = false;
   private static pending: number = 0;
+  /** release() 代际号（负责人第 3 条遗留）：异步 prepare 在 release 之后才返回 → 立刻释放新建对象，不登记、不播放。 */
+  private static gen: number = 0;
 
   static bind(context: common.UIAbilityContext): void {
     DealAudio.context = context;
@@ -47,30 +51,50 @@ export class DealAudio {
     if (DealAudio.pool !== null && DealAudio.dealId >= 0) {
       return;
     }
+    const gen: number = DealAudio.gen;
     try {
       const info: audio.AudioRendererInfo = {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
         rendererFlags: 1
       };
       const pool: media.SoundPool = await media.createSoundPool(DealAudio.MAX_STREAMS, info);
+      if (DealAudio.gen !== gen) {
+        Logger.info(TAG, 'stale deal pool (created after release) — released, not registered');
+        pool.release().catch((err: BusinessError): void => {
+          Logger.warn(TAG, `stale pool release fail-soft: ${err.message}`);
+        });
+        return;
+      }
       DealAudio.pool = pool;
       pool.on('loadComplete', (soundId: number): void => {
         if (soundId === DealAudio.dealId && DealAudio.pending > 0) {
           const n: number = DealAudio.pending;
           DealAudio.pending = 0;
+          if (TableAudio.isGamePaused()) {
+            // PR-B 暂停闸：暂停中加载完不补播。
+            return;
+          }
           for (let i = 0; i < n; i++) {
             DealAudio.playDealCard();
           }
         }
       });
-      DealAudio.dealId = await DealAudio.loadPath(PATH_DEAL);
+      DealAudio.dealId = await DealAudio.loadPath(PATH_DEAL, gen);
       Logger.info(TAG, `${SfxIds.DEAL_CARD} pool ready id=${DealAudio.dealId}`);
     } catch (err) {
+      if (DealAudio.gen !== gen) {
+        Logger.info(TAG, 'prepare dropped: released while loading');
+        return;
+      }
       Logger.warn(TAG, `deal pool unavailable — fail-soft, show continues: ${err}`);
     }
   }
 
   static playDealCard(): void {
+    if (TableAudio.isGamePaused()) {
+      // PR-B 暂停闸：暂停中不出声，也不排补播。
+      return;
+    }
     if (DealAudio.silent) {
       Logger.info(TAG, `${SfxIds.DEAL_CARD} skipped (silent)`);
       return;
@@ -101,6 +125,7 @@ export class DealAudio {
   }
 
   static release(): void {
+    DealAudio.gen = DealAudio.gen + 1;
     DealAudio.pending = 0;
     DealAudio.dealId = -1;
     const pool: media.SoundPool | null = DealAudio.pool;
@@ -113,15 +138,22 @@ export class DealAudio {
     });
   }
 
-  private static async loadPath(path: string): Promise<number> {
+  /** 代际已变（release 过）时抛出，不把旧 id 写回。 */
+  private static async loadPath(path: string, gen: number): Promise<number> {
     const ctx: common.UIAbilityContext | null = DealAudio.context;
     const pool: media.SoundPool | null = DealAudio.pool;
+    if (DealAudio.gen !== gen) {
+      throw new Error(STALE_PREPARE);
+    }
     if (ctx === null || pool === null) {
       return -1;
     }
     const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
     const soundId: number = await pool.load(rawFd.fd, rawFd.offset, rawFd.length);
     await ctx.resourceManager.closeRawFd(path);
+    if (DealAudio.gen !== gen) {
+      throw new Error(STALE_PREPARE);
+    }
     return soundId;
   }
 }

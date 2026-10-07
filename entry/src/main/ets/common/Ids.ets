@@ -140,6 +140,12 @@ export class ControlIds {
   /** #236 · 局内调试：只播本地座位锤，零业务. */
   static readonly DEBUG_HAMMER_DOUBT: string = 'lb_btn_debug_hammer_doubt';
   static readonly DEBUG_HAMMER_BELIEVE: string = 'lb_btn_debug_hammer_believe';
+  /** PR-B 调试暂停入口（仅 DebugBuild）。 */
+  static readonly DEBUG_PAUSE: string = 'lb_btn_debug_pause';
+  /** PR-B 临时暂停层（UI 22 换皮前）：层 / 「继续」/ 切后台提示。 */
+  static readonly PAUSE_LAYER: string = 'lb_cmp_pause_layer';
+  static readonly PAUSE_RESUME: string = 'lb_btn_pause_resume';
+  static readonly PAUSE_BG_NOTE: string = 'lb_txt_pause_bg_note';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';
@@ -196,8 +202,8 @@ export class PersistNs {
   static readonly LAST_TABLE: string = 'lb.last_table';
   static readonly STATS: string = 'lb.stats';
   static readonly MATCH_LOG: string = 'lb.match_log';
-  /** PR-B 音量设置（BGM/音效/静默）。 */
-  static readonly AUDIO: string = 'lb.audio';
+  /** PR-B 音量设置（BGM/音效/静音），21 §4.2：Preferences `lb.settings`。 */
+  static readonly AUDIO: string = 'lb.settings';
   /** PR-B 战绩（最近 20 局 + 累计）。 */
   static readonly RECORDS: string = 'lb.records';
 }

@@ -10,6 +10,7 @@ import { MatchLoad } from './MatchLoad';
 import { AudioSettings } from '../../persist/AudioSettings';
 
 const TAG = 'LobbyAudio';
+const STALE_PREPARE: string = 'prepare stale: released while loading';
 
 const PATH_BGM: string = 'audio/bgm/bgm_lobby_night.ogg';
 const PATH_AMB: string = 'audio/sfx/sfx_amb_tavern.ogg';
@@ -64,6 +65,8 @@ export class LobbyAudio {
   private static bgmVol: number = 0;
   private static ambVol: number = 0;
   private static settingsHooked: boolean = false;
+  /** release() 代际号（负责人第 3 条遗留）：异步 prepare 在 release 之后才返回 → 立刻释放新建对象，不登记、不播放。 */
+  private static gen: number = 0;
   private static bgmFadeId: number = -1;
   private static ambFadeId: number = -1;
   private static releaseTimer: number = -1;
@@ -120,26 +123,38 @@ export class LobbyAudio {
       Logger.warn(TAG, 'prepare skipped: no context');
       return;
     }
+    const gen: number = LobbyAudio.gen;
     try {
       const info: audio.AudioRendererInfo = {
         usage: audio.StreamUsage.STREAM_USAGE_MUSIC,
         rendererFlags: 1
       };
       const pool: media.SoundPool = await media.createSoundPool(5, info);
+      if (LobbyAudio.gen !== gen) {
+        Logger.info(TAG, 'stale sound pool (created after release) — released, not registered');
+        pool.release().catch((err: BusinessError): void => {
+          Logger.warn(TAG, `stale pool release fail-soft: ${err.message}`);
+        });
+        return;
+      }
       LobbyAudio.pool = pool;
       pool.on('loadComplete', (soundId: number): void => {
         LobbyAudio.onLoaded(soundId);
       });
-      LobbyAudio.hitId = await LobbyAudio.loadPath(PATH_HIT);
-      LobbyAudio.ctaId = await LobbyAudio.loadPath(PATH_CTA);
-      LobbyAudio.voId = await LobbyAudio.loadPath(PATH_VO);
-      LobbyAudio.matchOpenId = await LobbyAudio.loadPath(PATH_MATCH_OPEN);
+      LobbyAudio.hitId = await LobbyAudio.loadPath(PATH_HIT, gen);
+      LobbyAudio.ctaId = await LobbyAudio.loadPath(PATH_CTA, gen);
+      LobbyAudio.voId = await LobbyAudio.loadPath(PATH_VO, gen);
+      LobbyAudio.matchOpenId = await LobbyAudio.loadPath(PATH_MATCH_OPEN, gen);
       Logger.info(TAG, 'sound pool ready');
     } catch (err) {
+      if (LobbyAudio.gen !== gen) {
+        Logger.info(TAG, 'prepare dropped: released while loading');
+        return;
+      }
       Logger.warn(TAG, `sound pool unavailable — fail-soft, timeline continues: ${err}`);
     }
-    await LobbyAudio.prepareBed(true);
-    await LobbyAudio.prepareBed(false);
+    await LobbyAudio.prepareBed(true, gen);
+    await LobbyAudio.prepareBed(false, gen);
   }
 
   static playBootHit(): void {
@@ -288,6 +303,7 @@ export class LobbyAudio {
   }
 
   static release(): void {
+    LobbyAudio.gen = LobbyAudio.gen + 1;
     LobbyAudio.bedsWanted = false;
     LobbyAudio.pendingHit = false;
     LobbyAudio.pendingCta = false;
@@ -352,18 +368,29 @@ export class LobbyAudio {
     LobbyAudio.startBgm(LobbyBoot.BOOT_MS_RETURN_ENTER, toSteady);
   }
 
-  private static async prepareBed(isBgm: boolean): Promise<void> {
+  private static async prepareBed(isBgm: boolean, gen: number): Promise<void> {
     const ctx: common.UIAbilityContext | null = LobbyAudio.context;
-    if (ctx === null) {
+    if (ctx === null || LobbyAudio.gen !== gen) {
       return;
     }
     const path: string = isBgm ? PATH_BGM : PATH_AMB;
     try {
       const player: media.AVPlayer = await media.createAVPlayer();
+      if (LobbyAudio.gen !== gen) {
+        LobbyAudio.dropStalePlayer(player);
+        return;
+      }
+      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
+      if (LobbyAudio.gen !== gen) {
+        LobbyAudio.dropStalePlayer(player);
+        ctx.resourceManager.closeRawFd(path).catch((err: BusinessError): void => {
+          Logger.warn(TAG, `closeRawFd fail-soft: ${err.message}`);
+        });
+        return;
+      }
       player.on('stateChange', (state: string): void => {
         LobbyAudio.onBedState(isBgm, state);
       });
-      const rawFd: resourceManager.RawFileDescriptor = await ctx.resourceManager.getRawFd(path);
       const desc: media.AVFileDescriptor = {
         fd: rawFd.fd,
         offset: rawFd.offset,
@@ -558,9 +585,20 @@ export class LobbyAudio {
     });
   }
 
-  private static async loadPath(path: string): Promise<number> {
+  private static dropStalePlayer(player: media.AVPlayer): void {
+    Logger.info(TAG, 'stale bed player (created after release) — released, not registered');
+    player.release().catch((err: BusinessError): void => {
+      Logger.warn(TAG, `stale bed release fail-soft: ${err.message}`);
+    });
+  }
+
+  /** 代际已变（release 过）时抛出，不把旧 id 写回。 */
+  private static async loadPath(path: string, gen: number): Promise<number> {
     const ctx: common.UIAbilityContext | null = LobbyAudio.context;
     const pool: media.SoundPool | null = LobbyAudio.pool;
+    if (LobbyAudio.gen !== gen) {
+      throw new Error(STALE_PREPARE);
+    }
     if (ctx === null || pool === null) {
       return -1;
     }
@@ -570,6 +608,9 @@ export class LobbyAudio {
     const length: number = rawFd.length;
     const soundId: number = await pool.load(fd, offset, length);
     await ctx.resourceManager.closeRawFd(path);
+    if (LobbyAudio.gen !== gen) {
+      throw new Error(STALE_PREPARE);
+    }
     return soundId;
   }
 

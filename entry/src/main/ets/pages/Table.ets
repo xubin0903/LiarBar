@@ -3,7 +3,7 @@ import { window } from '@kit.ArkUI';
 import { AppRuntime } from '../common/AppRuntime';
 import { ControlIds, ScreenIds, SfxIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
-import { PauseListener, PauseReasons, PauseState, RESUME_GRACE_MS } from '../common/MatchDirector';
+import { PENDING_CAP_MS, PauseListener, PauseReasons, PauseState } from '../common/MatchDirector';
 import { PausableScheduler } from '../common/PausableScheduler';
 import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
@@ -39,6 +39,11 @@ const TAG = 'Table';
 const FLUSH_TAG: string = 'TableFlush';
 /** HUD poll floor: 200ms @State spam flickered the page. Skip writes if stamp unchanged. */
 const SNAP_POLL_MS: number = 800;
+/**
+ * PR-B 暂停层层序：高于桌上所有飞牌（发牌 flyZ = 1000 + 张序）/ 桌槌 / 调试 / 回大厅 chrome。
+ * 暂停层只在 pauseLayerOn 时挂载，非暂停时层序与布局不变。
+ */
+const PAUSE_LAYER_Z: number = 9000;
 
 /**
  * lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait.
@@ -265,6 +270,14 @@ struct Table {
   private hintTimer: number = -1;
   /** PR-A 离局二次确认：弹窗挂起期间系统返回键/回大厅键不重复弹、不直接离局。 */
   private leaveConfirmOpen: boolean = false;
+  /** 21 §3.1 P06：原子序列中请求离局 → 先记下、待停；序列放完（或满 PENDING_CAP_MS）进 PAUSED 才弹框。重复请求只算一次。 */
+  private leavePending: boolean = false;
+  /** 调试暂停入口是否挂载：aboutToAppear 读一次 DebugBuild（appInfo.debug），Builder 只读此字段。 */
+  private debugPauseOn: boolean = false;
+  /** 离局路由已发起（goHome）；超时判失败后也不复位——迟到的路由成功仍要在 aboutToDisappear 收尾（负责人 #12 / #6）。 */
+  private leaveRouteIssued: boolean = false;
+  /** 离局终态已执行（finishLeaveOnce）：路由成功与迟到成功页面被移走两条路只生效一次（负责人 #12）。 */
+  private leaveFinished: boolean = false;
   /**
    * PR-B 离局锁（负责人裁定）：点「离开」确认后置位，直到路由完成都不复位（页面被 replace 掉即随之销毁）；
    * 唯一例外：路由 replace 与 back 都失败 → releaseLeaveLock() 解锁并打 error。
@@ -288,6 +301,7 @@ struct Table {
     this.debugBgmMuted = TableAudio.isBgmMuted();
     this.debugSfxRenderer = SoundPlayer.usesRenderer() || SoundPlayer.EXP_USE_RENDERER;
     this.debugSfxArm = SoundPlayer.isArmFlipTouchDown();
+    this.debugPauseOn = DebugBuild.debugPauseShown();
     const boot: MatchSnapshot | null = AppRuntime.engine.current();
     if (boot !== null) {
       DealAudio.setSilent(boot.silentMode);
@@ -344,6 +358,8 @@ struct Table {
       this.hintTimer = -1;
     }
     this.unbindPause();
+    // 负责人 #12 / #6：离局路由已发起（含 3000ms 超时判失败后迟到成功）而本页被移走 → 停导演、引擎回 LOBBY 终态。
+    this.finishLeaveIfRouted();
     this.timers.cancelAll();
     DealAudio.release();
     SoundPlayer.release();
@@ -1119,8 +1135,9 @@ struct Table {
           this.onDebugLifeDec();
         })
       // PR-B 调试暂停：只在 DebugBuild（appInfo.debug，读不到按交付包处理 = 不挂）。文案用 21 §6.5 lb_str_pause。
-      if (DebugBuild.debugPauseShown()) {
+      if (this.debugPauseOn) {
         Text($r('app.string.lb_str_pause'))
+          .id(ControlIds.DEBUG_PAUSE)
           .fontColor($r('app.color.tavern_shadow'))
           .fontSize($r('app.float.caption_text_size'))
           .padding({
@@ -1621,13 +1638,27 @@ struct Table {
     if (this.leaving) {
       return;
     }
-    if (this.leaveConfirmOpen) {
+    if (this.leaveConfirmOpen || this.leavePending) {
+      // 框已开或已在待停：重复点只算一次（不弹第二个框）。
+      return;
+    }
+    // PR-B（21 §3.1 P06 / S21-45）：先走同一条暂停路径（导演 → 引擎 pauseClock / 页面定时器 / BGM）。
+    // 开牌/熄烛等原子序列中 → PENDING：记下离局请求，序列放完（或满 PENDING_CAP_MS 兜底）进 PAUSED 时才弹框。
+    const st: PauseState = AppRuntime.director.requestPause(PauseReasons.LEAVE_CONFIRM);
+    if (st === PauseState.PENDING) {
+      this.leavePending = true;
+      Logger.info(TAG, `leave requested during sequence → pending (dialog after sequence, cap ${PENDING_CAP_MS}ms)`);
+      return;
+    }
+    this.openLeaveConfirm();
+  }
+
+  /** 弹离局确认框（AlertDialog：左取消 / 右离开，autoCancel:false）。只在暂停已生效（或非对局阶段）时调用。 */
+  private openLeaveConfirm(): void {
+    if (this.leaving || this.leaveConfirmOpen) {
       return;
     }
     this.leaveConfirmOpen = true;
-    // PR-B（21 §3.1 P06 / S21-45）：弹窗一开就走同一条暂停路径（导演 → 引擎 pauseClock / 页面定时器 / BGM）；
-    // 开牌/燃烛序列中则先 PENDING 放完再停。
-    AppRuntime.director.requestPause(PauseReasons.LEAVE_CONFIRM);
     const ghost: boolean = this.humanIsGhost(AppRuntime.engine.current());
     const opts: AlertDialogParamWithButtons = {
       title: $r('app.string.lb_str_leave_confirm_title'),
@@ -1733,6 +1764,30 @@ struct Table {
     AppRuntime.director.setSequenceBusyProbe((): boolean => {
       return this.revealTimer >= 0 || this.choiceActTimer >= 0;
     });
+    // 21 §3.4 统一平移：页面最早到期（质疑倒计时 / 挂起的一次性定时器）参与 shift 计算。
+    AppRuntime.director.setPendingDeadlineProbe((pausedAtMs: number): number => {
+      return this.pageEarliestDeadline(pausedAtMs);
+    });
+    // 启动竞态：开局到 Table 出现之间已切后台（导演已 PAUSED、通知早于本页挂监听）→ 补一次，暂停层照常出现、可恢复。
+    if (AppRuntime.director.isPaused()) {
+      this.onPauseState(PauseState.PAUSED, 0);
+    }
+  }
+
+  /**
+   * 页面挂起项里最早的绝对到期时刻（无 = 0）：挂起的一次性定时器（按页面暂停瞬间折算）与质疑倒计时。
+   * pausedAtMs = 引擎暂停瞬间（页面同一 tick 内跟着暂停，二者折算差 < 1 tick）。
+   */
+  private pageEarliestDeadline(pausedAtMs: number): number {
+    let best: number = this.timers.earliestHeldDueAt();
+    if (this.challengeTickId >= 0 && this.challengeDeadlineMs > 0 && (best === 0 || this.challengeDeadlineMs < best)) {
+      best = this.challengeDeadlineMs;
+    }
+    if (best > 0 && pausedAtMs > 0 && best < pausedAtMs) {
+      // 暂停前就该到期但还没跑的项：按「暂停瞬间到期」计。
+      best = pausedAtMs;
+    }
+    return best;
   }
 
   private unbindPause(): void {
@@ -1741,8 +1796,10 @@ struct Table {
       this.pauseListener = null;
     }
     AppRuntime.director.setSequenceBusyProbe(null);
+    AppRuntime.director.setPendingDeadlineProbe(null);
     TableAudio.clearGamePause();
     this.pauseLayerOn = false;
+    this.leavePending = false;
   }
 
   private onPauseState(state: PauseState, shiftMs: number): void {
@@ -1754,17 +1811,27 @@ struct Table {
       const reason: string = AppRuntime.director.pauseReasonNow();
       this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM;
       this.pauseFromBackground = reason === PauseReasons.BACKGROUND;
+      if (this.leavePending) {
+        // 21 §3.1 P06：序列放完（或 PENDING_CAP_MS 兜底强停）→ 此刻才弹离局确认。
+        this.leavePending = false;
+        this.openLeaveConfirm();
+      }
       return;
     }
     if (state === PauseState.PENDING) {
       Logger.info(TAG, 'pause pending — finishing reveal/candle sequence first');
       return;
     }
-    // RUNNING (resume or pending cancelled). Only a real freeze gets the RESUME_GRACE_MS floor (21 §3.4).
+    if (this.leavePending) {
+      // 待停被取消（序列直接打完了整局 → RECAP）：已无可离的对局，丢弃这次离局请求。
+      this.leavePending = false;
+      Logger.info(TAG, 'leave pending dropped — match ended during sequence');
+    }
+    // RUNNING (resume or pending cancelled). 21 §3.4：页面挂起项与引擎用导演算的同一个 shift 平移（顺序不变、最早 ≥ RESUME_GRACE_MS）。
     if (this.timers.isPaused()) {
-      this.timers.resume(RESUME_GRACE_MS);
+      this.timers.resume(shiftMs);
       if (this.challengeTickId >= 0) {
-        this.challengeDeadlineMs = Math.max(this.challengeDeadlineMs + shiftMs, Date.now() + RESUME_GRACE_MS);
+        this.challengeDeadlineMs = this.challengeDeadlineMs + shiftMs;
       }
     }
     TableAudio.resumeForGame();
@@ -1776,7 +1843,7 @@ struct Table {
 
   /** PR-B 调试入口：请求暂停（PENDING/PAUSED 中重复请求被导演忽略）。交付包无入口，且此处再挡一次。 */
   private requestUserPause(): void {
-    if (!DebugBuild.debugPauseShown() || this.leaving) {
+    if (!this.debugPauseOn || this.leaving) {
       return;
     }
     AppRuntime.director.requestPause(PauseReasons.USER);
@@ -1805,10 +1872,12 @@ struct Table {
           .fontSize($r('app.float.page_text_size'))
         if (this.pauseFromBackground) {
           Text($r('app.string.lb_str_pause_bg_note'))
+            .id(ControlIds.PAUSE_BG_NOTE)
             .fontColor($r('app.color.tavern_paper'))
             .fontSize($r('app.float.caption_text_size'))
         }
         Button($r('app.string.lb_str_pause_resume'))
+          .id(ControlIds.PAUSE_RESUME)
           .height($r('app.float.btn_height'))
           .backgroundColor($r('app.color.tavern_accent'))
           .fontColor($r('app.color.tavern_bg'))
@@ -1822,7 +1891,8 @@ struct Table {
     }
     .width('100%')
     .height('100%')
-    .zIndex(60)
+    .zIndex(PAUSE_LAYER_Z)
+    .id(ControlIds.PAUSE_LAYER)
   }
 
   /**
@@ -1834,6 +1904,18 @@ struct Table {
     }
     this.homeRouting = true;
     this.leaving = true;
+    this.leaveRouteIssued = true;
+    // 21 §3.1 P13：先锁竖屏再路由。路由成功后才拆桌、送引擎回 LOBBY；
+    // replace / back 都失败（或超时）时局面原样保留，只解锁（releaseLeaveLock），不会停在 LOBBY 空桌。
+    void this.unlockLobbyThenRoute();
+  }
+
+  /** 路由已成功：拆桌 UI、停导演、引擎回 LOBBY、清页面定时器。 */
+  private teardownAfterRoute(): void {
+    if (!this.finishLeaveOnce('route ok')) {
+      // 迟到成功已让页面先被移走并收过尾（aboutToDisappear）→ 第二次成功不再有副作用。
+      return;
+    }
     this.resetPlayFlyUi();
     this.resetRevealUi();
     this.revealForChallengeId = '';
@@ -1841,15 +1923,29 @@ struct Table {
     this.clearChoiceAwait();
     this.choiceActForChallengeId = '';
     this.closeChallengeEntry(false);
-    AppRuntime.director.stop();
-    AppRuntime.engine.toLobby();
     this.timers.cancelAll();
-    TableAudio.clearGamePause();
     this.pauseLayerOn = false;
     this.pauseFromBackground = false;
-    // Portrait before replace so lobby is not stuck landscape (R-LAND return).
-    void this.unlockLobbyThenRoute();
   }
+
+  /**
+   * 离局终态，只做一次（负责人 #12「超时与成功只生效一次」/ #6）：停导演、引擎回 LOBBY、
+   * 局内音频清暂停标记后淡出并释放（不 resume、不淡入 BGM；挂起补播清空）。
+   * 路由成功（teardownAfterRoute）与迟到成功页面被移走（finishLeaveIfRouted）共用；返回本次是否真的执行。
+   */
+  private finishLeaveOnce(why: string): boolean {
+    if (this.leaveFinished) {
+      return false;
+    }
+    this.leaveFinished = true;
+    AppRuntime.director.stop();
+    AppRuntime.engine.toLobby();
+    TableAudio.clearGamePause();
+    TableAudio.leaveThenRelease();
+    Logger.info(TAG, `leave finished (${why})`);
+    return true;
+  }
+
 
   private async unlockLobbyThenRoute(): Promise<void> {
     try {
@@ -1862,19 +1958,41 @@ struct Table {
     const routed: boolean = await LbRouter.toLobbyOrBack();
     if (!routed) {
       this.releaseLeaveLock();
+      return;
     }
+    this.teardownAfterRoute();
   }
 
   /**
-   * 离局锁唯一的解锁点：路由 replace 与 back 都失败。打 error 日志，复位三把锁，把桌面锁回横屏，
-   * 让玩家还能再点离开重试（中退不会重复写：goHome 已把引擎送回 LOBBY，commitLeaveRecord 跳过，
-   * 且 RecordStore 按 last_match_id 去重）。
+   * 离局锁唯一的解锁点：路由 replace 与 back 都失败（或 LbRouter 超时）。打 error 日志，复位锁，
+   * 局面原样保留（拆桌只在路由成功后做），撤掉离局暂停恢复对局，把桌面锁回横屏，让玩家还能再点离开重试
+   * （中退不会重复写：RecordStore 按 last_match_id 去重）。
    */
+  /**
+   * 离局收尾兜底：离局路由发起过、本页正被移走、对局仍在进行（未经 teardownAfterRoute 回 LOBBY、也不是 RECAP 进结算）
+   * → 停导演、引擎置 LOBBY（离局终态），不留「桌页已走、对局还在后台跑」。只在页面消失时做，不会出现「空 LOBBY 桌仍留在桌页」。
+   * 中退已在确认时 commitOnce（last_match_id 幂等），这里不再写。未发起离局的正常离页不进来。
+   */
+  private finishLeaveIfRouted(): void {
+    if (!this.leaveRouteIssued) {
+      return;
+    }
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.phase === Phase.LOBBY || snap.phase === Phase.RECAP || snap.phase === Phase.END) {
+      return;
+    }
+    Logger.warn(TAG, 'table removed after leave route was issued (late route after timeout) — finish leave');
+    this.finishLeaveOnce('page removed by late route');
+  }
+
   private releaseLeaveLock(): void {
-    Logger.error(TAG, 'leave routing failed (replace + back) — release leaving lock so the player can retry');
+    Logger.error(TAG, 'leave routing failed (replace + back / timeout) — keep the table as is, release leaving lock so the player can retry');
     this.homeRouting = false;
     this.leaving = false;
     this.leaveConfirmOpen = false;
+    this.leavePending = false;
+    // 局面没拆：撤掉离局弹窗那次暂停 → 常规恢复（统一平移 + RESUME_GRACE_MS），可继续玩或再次离局。
+    this.resumeIfLeavePause();
     void this.lockTableWindow();
   }
 
@@ -3828,7 +3946,7 @@ struct Table {
   /**
    * 18: after challenge ACK — lift pool hand to reveal stage, draw→flip SFX.
    * Stage center = pool center + (0, REVEAL_DOWN_VP). Dim/blur on bg only.
-   * R4: draw→flip DRAW_TO_FLIP_MS(1000) then face-up REVEAL_HOLD_MS(5000); ban instant cut /
+   * R4: draw→flip DRAW_TO_FLIP_MS(1000) then face-up REVEAL_HOLD_MS(3000); ban instant cut /
    * resetRevealUi / next pull beat before hold done. SUPERSEDE R3 500/2000.
    * Life/judge stub: hold after flip then pull(). Do not open Challenge page.
    */

@@ -8,6 +8,7 @@ import { PersonaRow } from '../config/AiPersonasConfig';
 import { liveClaimShort, livePhaseText } from '../engine/DealerLines';
 import { MatchEngine } from '../engine/MatchEngine';
 import { MatchSnapshot } from '../engine/MatchTypes';
+import { ResumeShift } from '../engine/ResumeShift';
 import { Phase, PlayStyle, SeatRole, TurnWindow } from '../engine/Phase';
 import { SeededRng } from '../engine/SeededRng';
 import { LiveWindowAdapter, LiveWindowPayload } from '../harmony/LiveWindowAdapter';
@@ -38,6 +39,9 @@ export type PauseListener = (state: PauseState, shiftMs: number) => void;
 
 /** 页面报告「开牌/燃烛等不可打断序列」是否仍在放。 */
 export type SequenceBusyProbe = () => boolean;
+
+/** 页面报告自己最早的挂起到期时刻（绝对 ms，无 = 0），参与统一平移量计算（21 §3.4）。 */
+export type PendingDeadlineProbe = (pausedAtMs: number) => number;
 
 /** 暂停来源（日志/UI 判断用，不影响冻结范围）。 */
 export class PauseReasons {
@@ -70,6 +74,7 @@ export class MatchDirector {
   private pauseReason: string = '';
   private pauseListeners: PauseListener[] = [];
   private seqBusyProbe: SequenceBusyProbe | null = null;
+  private deadlineProbe: PendingDeadlineProbe | null = null;
   /** RESUME_GRACE_MS 窗口结束点；之前 tick 只 pulse 不动 AI。0 = 无缓冲。 */
   private resumeHoldUntilMs: number = 0;
   private pendingSinceMs: number = 0;
@@ -154,9 +159,10 @@ export class MatchDirector {
   }
 
   /**
-   * 恢复（PENDING 时 = 取消待停，没冻过就不加缓冲）。返回暂停时长 Δ ms。
-   * PAUSED → RUNNING：引擎 4 个 deadline 与 thinkUntilMs = max(old + Δ, now + RESUME_GRACE_MS)，
-   * 并 hold 导演 RESUME_GRACE_MS（期间 AI 不臂不出手）。
+   * 恢复（PENDING 时 = 取消待停，没冻过就不加缓冲）。返回统一平移量 shift ms。
+   * PAUSED → RUNNING：shift = ResumeShift.compute(Δ, 引擎 4 deadline + thinkUntilMs + 页面最早到期, RESUME_GRACE_MS)，
+   * 所有挂起 deadline 都加这同一个 shift（到期顺序不变，最早一项距恢复 ≥ RESUME_GRACE_MS）；
+   * 页面经 listener 拿到同一个 shift。并 hold 导演 RESUME_GRACE_MS（期间 AI 不臂不出手）。
    */
   resumeFromPause(): number {
     if (this.pauseState === PauseState.PENDING) {
@@ -171,9 +177,16 @@ export class MatchDirector {
       return 0;
     }
     const now: number = Date.now();
-    const shift: number = this.engine.resumeClock(now, RESUME_GRACE_MS);
+    const pausedAt: number = this.engine.clockPausedAtMs();
+    const pending: number[] = [this.engine.earliestDeadline(), this.thinkUntilMs];
+    const probe: PendingDeadlineProbe | null = this.deadlineProbe;
+    if (probe !== null) {
+      pending.push(probe(pausedAt));
+    }
+    const want: number = ResumeShift.compute(pausedAt, now, RESUME_GRACE_MS, pending);
+    const shift: number = this.engine.resumeClock(now, want);
     if (this.thinkUntilMs > 0) {
-      this.thinkUntilMs = Math.max(this.thinkUntilMs + shift, now + RESUME_GRACE_MS);
+      this.thinkUntilMs = this.thinkUntilMs + shift;
     }
     this.resumeHoldUntilMs = now + RESUME_GRACE_MS;
     this.pauseState = PauseState.RUNNING;
@@ -202,6 +215,10 @@ export class MatchDirector {
 
   setSequenceBusyProbe(probe: SequenceBusyProbe | null): void {
     this.seqBusyProbe = probe;
+  }
+
+  setPendingDeadlineProbe(probe: PendingDeadlineProbe | null): void {
+    this.deadlineProbe = probe;
   }
 
   addPauseListener(fn: PauseListener): void {
