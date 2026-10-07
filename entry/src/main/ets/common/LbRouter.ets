@@ -1,5 +1,7 @@
+import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { router } from '@kit.ArkUI';
+import { WindowOrientation } from '../harmony/WindowOrientation';
 import { PageUrls } from './Ids';
 import { Logger } from './Logger';
 
@@ -80,13 +82,17 @@ export class LbRouter {
   /** 已发出、路由层还没回结果的离局 replace 趟数（含已作废的老趟；补丁轮 3，只用于 toTable 打日志）。 */
   private static tripsInFlight: number = 0;
 
-  static toTable(): void {
+  /**
+   * 大厅 → 桌（pushUrl，大厅留在栈底）。页栈小修（负责人）：返回 push 结果——false = pushUrl 失败（reject / 同步抛错），
+   * 调用方（Lobby.tryEnterTable / lockThenPeekTable）据此回滚：停导演 → 引擎回 LOBBY → 先锁竖屏 → 再露出大厅。
+   */
+  static toTable(): Promise<boolean> {
     if (LbRouter.tripsInFlight > 0) {
       // 补丁轮 3（已知限制 L1 真机排查用）：还有离局 replace 没回结果就进新局——它迟到落地会把新 Table 换成大厅。
       Logger.warn('LbRouter', `toTable: ${LbRouter.tripsInFlight} leave replace(s) still in flight (last ticket #${LbRouter.leaveSeq}) — a late landing would swap the new table for the lobby`);
     }
     LbRouter.beginLeaveSession();
-    LbRouter.push(PageUrls.TABLE);
+    return LbRouter.push(PageUrls.TABLE);
   }
 
   /** 进桌 = 新离局会话：上一局的令牌全部过期。 */
@@ -177,6 +183,26 @@ export class LbRouter {
     }
     LbRouter.lobbyAudioOwner = 0;
     release();
+  }
+
+  /**
+   * 页栈小修（负责人）：非冷启动的新大厅初始化完成后调——页栈深度 > 1（栈底还压着上一局的旧大厅等）→ router.clear()，栈深回 1。
+   * 美术要求：只能在本大厅 lobbyAppeared 登记为 LobbyAudio 持有者之后调——被清掉的旧大厅 aboutToDisappear 走
+   * lobbyDisappearing 的「不是持有者」分支，不释放音频（不 leaveThenRelease、gen 不变、BGM 不断）。
+   * 不用 RouterMode.Single / router.back（会破坏离局令牌、音频交接）。
+   */
+  static clearBelowLobby(): void {
+    try {
+      const depth: number = Number(router.getLength());
+      if (!(depth > 1)) {
+        return;
+      }
+      router.clear();
+      Logger.info('LbRouter', `lobby #${LbRouter.lobbyAudioOwner} init done — page stack ${depth} → clear()`);
+    } catch (e) {
+      const be: BusinessError = e as BusinessError;
+      Logger.warn('LbRouter', `clearBelowLobby failed: code=${be.code} ${be.message}`);
+    }
   }
 
   /** Frozen: Section 2 AwaitChallenge is in-table. Do not push lb_scr_challenge. */
@@ -321,17 +347,43 @@ export class LbRouter {
       Logger.warn('LbRouter', `replace ${url} failed: ${err.message}`);
       if (url === PageUrls.LOBBY) {
         router.back();
+      } else if (url === PageUrls.TABLE) {
+        // 页栈小修（负责人裁定 a）：再来一局 replace 到新桌失败 → 先锁竖屏、再回落回大厅（新大厅初始化停导演、引擎回 LOBBY）。
+        LbRouter.portraitThenLobby();
       }
     });
+  }
+
+  /** 页栈小修（负责人裁定 a）：结算页横屏 → 先 await 锁竖屏（fail-soft）再 toLobby，大厅不横着闪（同 Report.portraitThenLobby 的顺序）。 */
+  private static async portraitThenLobby(): Promise<void> {
+    await LbRouter.lockPortraitSoft();
+    LbRouter.toLobby();
+  }
+
+  /** 同 Lobby.lockPortraitSoft：WindowOrientation.lockPortrait，失败只记日志。LbRouter 不是组件 → getContext() 取当前 Ability 上下文。 */
+  private static async lockPortraitSoft(): Promise<void> {
+    try {
+      const ctx: common.UIAbilityContext = getContext() as common.UIAbilityContext;
+      await WindowOrientation.lockPortrait(ctx);
+    } catch (err) {
+      Logger.warn('LbRouter', 'portrait request fail-soft');
+    }
   }
 
   static back(): void {
     router.back();
   }
 
-  private static push(url: string): void {
-    router.pushUrl({ url: url }).catch((err: Error) => {
-      Logger.warn('LbRouter', `push ${url} failed: ${err.message}`);
-    });
+  private static push(url: string): Promise<boolean> {
+    try {
+      return router.pushUrl({ url: url }).then((): boolean => true, (err: Error): boolean => {
+        Logger.warn('LbRouter', `push ${url} failed: ${err.message}`);
+        return false;
+      });
+    } catch (e) {
+      const be: BusinessError = e as BusinessError;
+      Logger.warn('LbRouter', `push ${url} threw: code=${be.code} ${be.message}`);
+      return Promise.resolve(false);
+    }
   }
 }
