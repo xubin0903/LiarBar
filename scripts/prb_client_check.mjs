@@ -33,6 +33,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ANY_ESOBJECT, findInCode, formatHits, stripComments, stripCommentsAndStrings } from './lib/ets_scan.mjs';
 import { clockStubs, drainMicrotasks, importFresh, makeClock, stripEts } from './lib/ets_sim.mjs';
+import { eraseModule, loadEtsBundle } from './lib/ets_bundle.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const rawSrc = (rel) => readFileSync(join(root, rel), 'utf8');
@@ -109,9 +110,11 @@ ok(/if \(capped\) \{\s*Logger\.warn\(TAG, `pending cap \$\{PENDING_CAP_MS\}ms hi
   'PENDING_CAP_MS forced stop writes a log line before entering PAUSED');
 const holdAt = tick.indexOf('Date.now() < this.resumeHoldUntilMs');
 ok(holdAt > 0 && holdAt < armAt && holdAt < runAt, 'tick: resume buffer hold blocks armIfNeeded/runAi');
-ok(/quit: false,\s*isDemo: this\.engine\.isDemoMatch\(\),\s*ff: false,\s*pausedMs: this\.engine\.pausedTotalAt\(/.test(tick) &&
-  tick.includes('RecordStore.commitOnce(snap, recapCommit)') && count(dirCode, /RecordStore\.commitOnce\(/) === 1,
-  'RECAP writes record once via director (isDemo + pausedMs passed)');
+const cmr = code(body(dir, '  private commitRecap(snap: MatchSnapshot): void {'));
+ok(/quit: false,\s*isDemo: this\.engine\.isDemoMatch\(\),\s*ff: this\.ffMatch,\s*pausedMs: this\.engine\.pausedTotalAt\(/.test(cmr) &&
+  cmr.includes('RecordStore.commitOnce(snap, recapCommit)') && count(dirCode, /RecordStore\.commitOnce\(/) === 1 &&
+  /if \(snap\.phase === Phase\.RECAP\) \{\s*this\.commitRecap\(snap\);/.test(tick),
+  'RECAP writes record once via director (isDemo + pausedMs passed; ff = this.ffMatch — 2b · 21:298 one writer for normal / spectate / ff terminals)');
 const rp = code(body(dir, '  requestPause(reason: string): PauseState {'));
 ok(rp.includes('this.pauseState !== PauseState.RUNNING') && rp.includes('PauseState.PENDING'),
   'requestPause ignores repeats while PENDING/PAUSED; enters PENDING when sequence busy');
@@ -172,8 +175,9 @@ ok(/if \(!this\.paused \|\| atomic\) \{\s*this\.arm\(e\);/.test(code(sched)),
   'segments scheduled while paused are held (only atomic arms) → follow-ups of the landed card wait for resume');
 const pb = code(body(table, '  private playBeat(beats: DealBeat[], i: number, cardMs: number, staggerMs: number): void {'));
 ok(pb.includes('this.armDealLanding(cardMs,') && /this\.armDeal\(staggerMs,/.test(pb) && /this\.armDeal\(DealFx\.DEAL_DONE_SETTLE_MS,/.test(pb) &&
-  count(tableCode, /scheduleAtomic\(/) === 1 && count(tableCode, /this\.armDealLanding\(/) === 1,
-  'DEAL: current card landing = atomic; stagger / next card / dealDone held by pause');
+  count(tableCode, /scheduleAtomic\(/) === 2 && count(code(body(table, '  private onElimToReport(): void {')), /this\.timers\.scheduleAtomic\(/) === 1 &&
+  count(tableCode, /this\.armDealLanding\(/) === 1,
+  'DEAL: current card landing = atomic; stagger / next card / dealDone held by pause (only other atomic = 2b fast-forward start, which must fire while PAUSED.ELIM_CHOICE)');
 ok(/private armDealLanding\(ms: number, fn: \(\) => void\): void \{[\s\S]*?this\.timers\.scheduleAtomic\([\s\S]*?this\.dealTimers\.push\(id\);/.test(tableCode),
   'armDealLanding id tracked in dealTimers (cancelled on leave / redeal)');
 
@@ -551,7 +555,7 @@ RUN(false);
 // Both entry points go through commitOnce; no other writer of the three keys.
 const reportSrc = src(E + 'pages/Report.ets');
 const rpa = code(body(reportSrc, '  aboutToAppear(): void {'));
-ok(/if \(snap\.phase === Phase\.RECAP\) \{[\s\S]*?quit: false,\s*isDemo: AppRuntime\.engine\.isDemoMatch\(\),\s*ff: false,\s*pausedMs: pausedMs\s*\}/.test(rpa) &&
+ok(/const ff: boolean = AppRuntime\.director\.isFastForwardMatch\(\);[\s\S]*?if \(snap\.phase === Phase\.RECAP\) \{[\s\S]*?quit: false,\s*isDemo: AppRuntime\.engine\.isDemoMatch\(\),\s*ff: ff,\s*pausedMs: pausedMs\s*\}/.test(rpa) &&
   count(rpa, /AppRuntime\.engine\.pausedTotalAt\(/) === 1 &&
   rpa.includes('RecordStore.commitOnce(snap, recapCommit)') && count(code(reportSrc), /RecordStore\.commitOnce\(/) === 1,
   'Report.aboutToAppear backstop: RECAP → commitOnce with the director\'s shape (idempotent via last_match_id)');
@@ -3047,7 +3051,8 @@ const maxBeats = md.max_players * md.hand_size_default;
 const flyMax = flyBase ? Number(flyBase[1]) + maxBeats : Infinity;
 const plz = /const PAUSE_LAYER_Z: number = (\d+);/.exec(table);
 ok(plz !== null && Number(plz[1]) > Math.max(flyMax, ...zNums) && /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  pauseLayer() {'))) &&
-  count(tableCode, /zIndex\(PAUSE_LAYER_Z\)/) === 1,
+  /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  elimChoiceLayer() {'))) && /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  ffOverlay() {'))) &&
+  count(tableCode, /zIndex\(PAUSE_LAYER_Z\)/) === 3,
   `PAUSE_LAYER_Z=${plz && plz[1]} > every other zIndex (fly max ${flyMax} = ${flyBase && flyBase[1]} + ${md.max_players}×${md.hand_size_default}; literals ${zNums.join('/')})`);
 ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
   'pause layer only mounted while pauseLayerOn (no layout / hit-test change when not paused)');
@@ -3065,15 +3070,18 @@ ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
   const sheet = at(/^if \(this\.showPlay\) \{$/);
   const fly = at(/^if \(this\.flyOn\) \{$/);
   const pause = at(/^if \(this\.pauseLayerOn\) \{$/);
+  const elim = at(/^if \(this\.elimChoiceOn\) \{$/);
+  const ffo = at(/^if \(this\.ffOn\) \{$/);
   const last = kids.length > 0 ? kids[kids.length - 1][0] : -1;
   let deskEnd = -1;
   for (let i = desk + 1; desk >= 0 && i < lines.length; i++) { if (/^ {6}\}/.test(lines[i])) { deskEnd = i; break; } }
   const deskBody = desk >= 0 && deskEnd > desk ? lines.slice(desk, deskEnd + 1).join('\n') : '';
-  ok(desk >= 0 && deskEnd > desk && peek > deskEnd && sheet > peek && fly > sheet && pause > fly && pause === last &&
+  ok(desk >= 0 && deskEnd > desk && peek > deskEnd && sheet > peek && fly > sheet && pause > fly && elim > pause && ffo > elim && ffo === last &&
+    !deskBody.includes('this.elimChoiceLayer()') && !deskBody.includes('this.ffOverlay()') &&
     !deskBody.includes('this.pauseLayer()') && deskBody.includes('this.choiceActLayer()') && deskBody.includes('this.homeExitChrome()') &&
     count(tableCode, /this\.pauseLayer\(\)/) === 1,
     `pause layer mount (by parent): last child of the root Stack (root children lines desk ${desk}-${deskEnd} [mallet + home inside], ` +
-    `PeekMaskOverlay ${peek}, play sheet ${sheet}, fly card ${fly}, pause layer ${pause}; last root child ${last}); not inside the desk Stack`);
+    `PeekMaskOverlay ${peek}, play sheet ${sheet}, fly card ${fly}, pause layer ${pause}, 2b elim choice ${elim}, 2b ff overlay ${ffo}; last root child ${last}); not inside the desk Stack`);
   const plb = body(table, '  pauseLayer() {');
   ok(/\.expandSafeArea\(\[SafeAreaType\.SYSTEM, SafeAreaType\.CUTOUT\],\s*\[SafeAreaEdge\.TOP, SafeAreaEdge\.BOTTOM, SafeAreaEdge\.START, SafeAreaEdge\.END\]\)/.test(plb) &&
     /\.hitTestBehavior\(HitTestMode\.Default\)/.test(plb) && /\.opacity\(0\.72\)\s*\.onClick\(/.test(plb) &&
@@ -3405,7 +3413,7 @@ export { ReportHarness };`;
     };
     const eng = { current: () => snap, isDemoMatch: () => false, pausedTotalAt: pausedAt, recapPlayLog: () => [],
       toLobby: () => { log.push('engine.toLobby'); return true; }, startMatch: (o) => { log.push(`engine.startMatch:${o.nickname}/${o.playerCount}/${o.silent}`); return startOk; } };
-    const director = { stop: () => log.push('director.stop'), start: () => log.push('director.start') };
+    const director = { stop: () => log.push('director.stop'), start: () => log.push('director.start'), isFastForwardMatch: () => !!(o && o.ff) };
     const H = (await importFresh(rpJs, {
       AppRuntime: { engine: eng, director, bootDirector: () => log.push('bootDirector') },
       Phase: PhaseE4, SeatRole: SRo, RecordStore: RSr, ReportModel: RMod, REPORT_TEXT_KEYS: RKEYS,
@@ -3454,6 +3462,19 @@ export { ReportHarness };`;
     const stored = JSON.parse(prefData.get('recent_v1') || '[]');
     ok(wDir === true && stored.length === 1 && w.RSr.recent().length === 1 && curPrefStore.writes().length === writes0 && curPrefStore.dump() === dump0,
       `RPT-11 ⓑ director wrote first → Report appear + leave add nothing (recent_v1=${stored.length}, writes ${writes0} → ${curPrefStore.writes().length}; dedup by last_match_id)`);
+  }
+  // 2b ⓒ 快进局（21:244）：Report 兜底写入与战报 ff 注同源 director.isFastForwardMatch() → 记录 ff=true、view.ffNote=true；对照非快进局两者皆 false
+  {
+    const got = [];
+    for (const ffOn of [true, false]) {
+      const w = await world(`m-${T0r}-ff${ffOn}`, true, { ff: ffOn });
+      w.h.aboutToAppear();
+      await tickIo();
+      const r = w.RSr.recent()[0];
+      got.push({ ffOn, rec: r ? r.ff : null, quit: r ? r.quit : null, note: w.h.view ? w.h.view.ffNote : null });
+    }
+    ok(got[0].rec === true && got[0].note === true && got[0].quit === false && got[1].rec === false && got[1].note === false,
+      `2b real Report: ff match → record ff=${got[0].rec} (quit ${got[0].quit}) + lb_str_rpt_ff_note shown=${got[0].note}; control → ${got[1].rec}/${got[1].note}`);
   }
   // 再来一局 (21 §1.6 · S21-29): same opts → startMatch → director.start → release table audio → replaceTable; no lobby, no portrait lock
   {
@@ -3603,6 +3624,342 @@ RUN(false);
   const total = padT + bar + space + rowH + space + ffH + padB;
   ok(/\.constraintSize\(\{ maxHeight: '20%' \}\)/.test(hd) && /\.clip\(true\)/.test(hd) && lhs.length === 3 && Number.isFinite(total) && total <= 360 * 0.2,
     `2b report head ≤ 20% with ff note at 360vp landscape: ${padT}+${bar}+${space}+${rowH}+${space}+${ffH}+${padB} = ${total} ≤ 72vp (22:211)`);
+}
+
+// ---------------------------------------------------------------- ⑳ 2b 出局二选一 / 快进 / 观战（21 §1.7 · 21:298 RPT-11 · 22 §5.1）
+// 真 MatchEngine + 真 MatchDirector + 真 AI / 配置（scripts/lib/ets_bundle.mjs 去类型打包 32 个模块）+ 真 Table 方法（pull / onPauseState /
+// maybeOfferElimChoice / onElimSpectate / onElimToReport / runFastForward / onBackPress / bindPause / commitLeaveRecord …）+ 真 TableAudio
+// （假 SoundPool / AVPlayer）+ 真 PausableScheduler + 真 RecordStore；全部挂同一个假时钟。人类座按固定脚本操作（出第一张 / 被迫质疑 / 可跳则跳）。
+RUN(true);
+{
+  const FF_SIGS = ['  private pull(): void {', '  private maybeOfferElimChoice(snap: MatchSnapshot): void {', '  private onElimSpectate(): void {',
+    '  private onElimToReport(): void {', '  private runFastForward(): void {', '  private onPauseState(state: PauseState, shiftMs: number): void {',
+    '  onBackPress(): boolean {', '  private humanIsGhost(snap: MatchSnapshot | null): boolean {', '  private bindPause(): void {',
+    '  private pageEarliestDeadline(pausedAtMs: number): number {', '  private commitLeaveRecord(): void {', '  private isHumanTurn(snap: MatchSnapshot): boolean {'];
+  const ffBodies = FF_SIGS.map((sg) => body(table, sg));
+  const ffPaint = Number((/const FF_PAINT_MS: number = (\d+);/.exec(table) || [0, NaN])[1]);
+  ok(ffBodies.every((x) => x.length > 0) && Number.isFinite(ffPaint), `2b ff harness: ${FF_SIGS.length} real Table methods found; FF_PAINT_MS=${ffPaint}`);
+  let ffHarnessJs = '';
+  if (ffBodies.every((x) => x.length > 0)) {
+    const erased = eraseModule(`class TableFFReal {\n${ffBodies.map((x) => x + '\n  }\n').join('\n')}\n}\n`).js;
+    const realNames = new Set(FF_SIGS.map((sg) => /(\w+)\(/.exec(sg.replace(/^\s*(private |async )*/, ''))[1]));
+    const called = new Set([...ffBodies.join('\n').matchAll(/this\.(\w+)\(/g)].map((m) => m[1]).filter((n) => !realNames.has(n) && n !== 'timers'));
+    const stubs = [...called].map((n) => `  ${n}(...a) { this.stubCalls.push('${n}'); return __ret['${n}'] ? __ret['${n}'](...a) : undefined; }`).join('\n');
+    ffHarnessJs = erased.replace(/class TableFFReal \{/, `class TableFF {
+  constructor(Sch) {
+    Object.assign(this, { leaving: false, leaveConfirmOpen: false, leavePending: false, ffOn: false, elimChoiceOn: false, spectating: false, elimOffered: false,
+      pauseLayerOn: false, pauseFromBackground: false, showPlay: false, showPeek: false, revealTimer: -1, choiceActTimer: -1, challengeTickId: -1,
+      challengeDeadlineMs: 0, lastHudStamp: '', dealerLine: '', phaseText: '', pileOn: false, flyOn: false, dealPlaying: false, playFlyOn: false,
+      revealOn: false, roundWinOn: false, hiddenCardIds: [], claimText: '', handEmpty: false, turnSeat: -1, calledSeat: -1, poolText: '',
+      challengeEnabled: false, challengeEntryOn: false, challengeCommitBusy: false, emptySafeEntryOn: false, playEnabled: false, skipEnabled: false,
+      silentHud: false, selectedIds: [], pushedChallenge: false, pauseListener: null, stubCalls: [] });
+    this.timers = new Sch();
+  }
+${stubs}`) + '\nexport { TableFF };';
+  }
+  const PlaySty = enumObj('PlayStyle');
+  /** One world = fresh bundle (fresh statics), fresh prefs / RecordStore / TableAudio, one fake clock; seed = Date.now() at startMatch = t0. */
+  const ffWorld = async (t0, o = {}) => {
+    const clk = makeClock(t0);
+    const logs = { warn: [], info: [] };
+    curPrefStore = makePrefStore();
+    const RSreal = await loadRecordStore();
+    await RSreal.init({});
+    const commits = [];
+    const calls = { commit: 0 };
+    // commits = records actually stored (commitOnce true); the director offers on every RECAP tick and commitOnce dedupes by matchId.
+    const RSspy = { commitOnce: (snap, c) => { calls.commit++; const r = RSreal.commitOnce(snap, c); if (r) commits.push({ phase: snap.phase, at: clk.now, ...c }); return r; } };
+    const rnd = { n: 0 };
+    const MathSpy = Object.create(Math);
+    MathSpy.random = () => { rnd.n++; return Math.random(); };
+    const LoggerS = { info: (t, m) => logs.info.push(String(m)), warn: (t, m) => logs.warn.push(String(m)), error: (t, m) => logs.warn.push(String(m)), debug: () => {} };
+    const timeG = { ...clockStubs(clk), Math: MathSpy };
+    const b = await loadEtsBundle(root, ['common/MatchDirector'], {
+      'common/Logger': { Logger: LoggerS }, '@kit.AbilityKit': { common: {} },
+      '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: (u) => Buffer.from(u).toString('utf8') }) } } },
+      'persist/RecordStore': { RecordStore: RSspy }, 'harmony/LiveWindowAdapter': { LiveWindowAdapter: class {} }
+    }, timeG);
+    const CR = b['config/ConfigRepository'].ConfigRepository;
+    await CR.loadAll({ resourceManager: { getRawFileContent: async (p) => new Uint8Array(readFileSync(join(root, 'entry/src/main/resources/rawfile/', p))) } });
+    const Ph = b['engine/Phase'];
+    const DM = b['common/MatchDirector'];
+    const TD = b['ai/ThinkDelay'].ThinkDelay;
+    const td = { play: 0, challenge: 0 };
+    for (const k of ['play', 'challenge']) { const f = TD[k]; TD[k] = function (...a) { td[k]++; return f.apply(this, a); }; }
+    const en = new b['engine/MatchEngine'].MatchEngine();
+    const d = new DM.MatchDirector();
+    d.bind(en, null);
+    if (o.cap) d.ffMaxSteps = o.cap; // test-side injection only; product FF_MAX_STEPS untouched
+    // real TableAudio on the same clock (fades / pause timers advance with the match)
+    const fm = makeFakeMedia();
+    fm.clock = clk;
+    const TA = (await importFresh(taJs, {
+      media: fm, audio: { StreamUsage: { STREAM_USAGE_MUSIC: 1 }, AudioRendererRate: { RENDER_RATE_NORMAL: 0 } },
+      SfxIds: new Proxy({}, { get: (_, k) => String(k) }), PlayStyle: PlaySty || {},
+      AudioSettings: { sfx01: (v) => v, bgm01: (v) => v, voice01: (v) => v, addListener: () => {} },
+      Logger: { info: () => {}, warn: () => {}, error: () => {} }, ...clockStubs(clk)
+    })).TableAudio;
+    TA.bind({ resourceManager: { getRawFd: async () => ({ fd: 1, offset: 0, length: 10 }), closeRawFd: async () => {} } });
+    const au = { release: 0, page: [] };
+    const rel0 = TA.release;
+    TA.release = function release() { au.release++; return rel0.call(this); };
+    const TAspy = new Proxy(TA, { get: (t, k) => (typeof t[k] === 'function' ? (...a) => { au.page.push(String(k)); return t[k](...a); } : t[k]) });
+    const otherSfx = [];
+    const sfxStub = (nm) => new Proxy({}, { get: (_, k) => (...a) => { otherSfx.push(`${nm}.${String(k)}`); } });
+    const routes = [];
+    const SchJs = stripEts(sched, ['TimerEntry[]', 'TimerEntry | null', 'TimerEntry', 'number', 'boolean']);
+    const Sch = (await importFresh(SchJs, clockStubs(clk))).PausableScheduler;
+    const asks = { requestLeave: 0, openLeaveConfirm: 0 };
+    const TFF = (await importFresh(ffHarnessJs, {
+      __ret: { ranksOf: () => [], hudStamp: (s) => `${s.phase}|${s.roundIndex}|${s.playIndexInRound}|${s.currentSeatId}|${s.eventLog.length}`,
+        closePeek: () => Promise.resolve(), requestLeave: () => { asks.requestLeave++; }, openLeaveConfirm: () => { asks.openLeaveConfirm++; } },
+      AppRuntime: { director: d, engine: en }, PauseState: DM.PauseState, PauseReasons: DM.PauseReasons, FastForwardResult: DM.FastForwardResult,
+      FF_PAINT_MS: ffPaint, Phase: Ph.Phase, TurnWindow: Ph.TurnWindow, SeatStatus: Ph.SeatStatus, SeatRole: Ph.SeatRole,
+      TableAudio: TAspy, SoundPlayer: sfxStub('SoundPlayer'), DealAudio: sfxStub('DealAudio'),
+      LbRouter: { replaceReport: () => { routes.push({ at: clk.now, phase: en.current().phase }); } },
+      Logger: LoggerS, RecordStore: RSspy, TAG: 'Table', $r: (k) => k, ...clockStubs(clk)
+    })).TableFF;
+    const t = new TFF(Sch);
+    if (!en.startMatch({ nickname: '阿龙', playerCount: o.players || 4, silent: false })) throw new Error('startMatch rejected');
+    d.start();
+    t.bindPause();
+    await TA.prepare();
+    await drainMicrotasks(40);
+    for (const p of fm.pools) p.emitAll();
+    TA.startBgm(0);
+    await drainMicrotasks(40);
+    clk.advance(1);
+    const bgm = () => fm.players[0] || null;
+    const pausesSeen = [];
+    d.addPauseListener((st) => { pausesSeen.push(`${st}:${d.pauseReasonNow()}`); });
+    const TW = Ph.TurnWindow;
+    const humanId = en.current().seats.find((s) => s.role === Ph.SeatRole.HUMAN).seatId;
+    const humanAct = () => {
+      const s = en.current();
+      if (o.careful && s.turnWindow === TW.NORMAL && s.hasCards) {
+        // careful human: play a truthful card when holding one (else first card)
+        const claim = s.currentClaim ? s.currentClaim.rank : '';
+        const pick = s.selfHand.find((c) => c.rank === claim || c.rank === 'JOKER') || s.selfHand[0];
+        en.intentPlay();
+        if (!en.submitPlay([pick.cardId], PlaySty.SOFT, '', -1)) en.skip();
+        return;
+      }
+      if (s.turnWindow === TW.FORCE_CHALLENGE) { en.intentChallenge(); return; }
+      if (s.turnWindow === TW.EMPTY_SAFE) { en.chooseEmptyShangjia(); return; }
+      if (s.turnWindow === TW.CHALLENGE_ONLY || !s.hasCards) { en.skip(); return; }
+      en.intentPlay();
+      if (!en.submitPlay([s.selfHand[0].cardId], PlaySty.SOFT, '', -1)) en.skip();
+    };
+    /** One page frame: deal animation done / scripted human / poll pull — only while the page clock runs (paused = frozen). */
+    const frame = (ms = 100) => {
+      const s = en.current();
+      if (!t.timers.isPaused() && !t.ffOn) {
+        if (s.phase === Ph.Phase.DEAL) en.dealDone();
+        else if ((s.phase === Ph.Phase.TURN || s.phase === Ph.Phase.PLAY_REVEAL_SELF) && en.humanMustWait() && d.pauseStateNow() === DM.PauseState.RUNNING) humanAct();
+        t.pull();
+      }
+      clk.advance(ms);
+    };
+    const live = () => { const p = en.current().phase; return p !== Ph.Phase.RECAP && p !== Ph.Phase.END && p !== Ph.Phase.LOBBY; };
+    const runUntil = (pred, max = 40000) => { let n = 0; while (n++ < max && !pred()) frame(); return n < max; };
+    const sig = () => {
+      const s = en.current();
+      return { winner: s.winnerSeatId, ranks: s.recap.map((r) => `${r.seatId}:${r.aliveAtExit}`).join(','),
+        status: s.seats.map((x) => `${x.seatId}${x.status}`).join(','), playLog: JSON.stringify(en.recapPlayLog()), plays: en.recapPlayLog().length };
+    };
+    return { calls, clk, en, d, t, TA, fm, au, otherSfx, routes, commits, RSreal, logs, td, rnd, Ph, DM, frame, runUntil, live, sig, humanId, bgm, asks, pausesSeen };
+  };
+  const reachElim = (w) => w.runUntil(() => w.t.elimChoiceOn || !w.live());
+  const aliveNow = (w) => w.en.current().seats.filter((s) => s.status === w.Ph.SeatStatus.ALIVE).length;
+  const SEED_A = 1760000000000 + 1 * 7919; // 4 seats: human OUT with 3 still alive → popup
+  const SEED_B = 1760000000000 + 2 * 7919; // 3 seats: human OUT leaves 1 alive → straight to Report
+  const isPlay = (k) => /^(play|startBgm|resumeForGame)/.test(k);
+  // BGM resumes = paused → play() transitions (TableAudio.playIfIdle re-issues play() on every pull while already playing — same as before 2b)
+  const resumesOf = (pl) => { let n = 0; let paused = false; for (const a of pl.acts) { if (a === 'pause') paused = true; else if (a === 'play') { if (paused) n++; paused = false; } } return n; };
+  const pausedNow = (pl) => { const a = pl.acts.filter((x) => x === 'play' || x === 'pause'); return a[a.length - 1] === 'pause'; };
+  const recOf = async (w) => { await drainMicrotasks(40); const r = w.RSreal.recent(); return r.length > 0 ? r[0] : null; };
+  try {
+    // ── 策划 21:234 / S21-30：触发 = 人类 OUT + 熄烛序列放完 + alive ≥ 2 → PAUSED.ELIM_CHOICE；弹层期间 AI 不动、无新 SFX、BGM 150ms 淡出后 pause()
+    const wA = await ffWorld(SEED_A);
+    const reached = reachElim(wA);
+    const sA = wA.en.current();
+    const aliveAtElim = aliveNow(wA);
+    const pl0 = wA.en.recapPlayLog().length;
+    const bg0 = wA.bgm();
+    const pool0 = wA.fm.pools.reduce((a, p) => a + p.plays.length, 0);
+    const sfx0 = wA.otherSfx.length;
+    wA.clk.advance(3000);
+    const pool1 = wA.fm.pools.reduce((a, p) => a + p.plays.length, 0);
+    ok(reached && wA.t.elimChoiceOn && !wA.t.pauseLayerOn && wA.d.isPaused() && wA.d.pauseReasonNow() === wA.DM.PauseReasons.ELIM_CHOICE &&
+      sA.seats[wA.humanId].status === wA.Ph.SeatStatus.GHOST && aliveAtElim >= 2 &&
+      sA.phase !== wA.Ph.Phase.PENALTY && sA.phase !== wA.Ph.Phase.CHALLENGE_RITUAL && sA.phase !== wA.Ph.Phase.JUDGE &&
+      wA.en.recapPlayLog().length === pl0 && wA.commits.length === 0 && wA.routes.length === 0,
+      `2b trigger (21:234): human OUT, alive=${aliveAtElim} → PAUSED.${wA.d.pauseReasonNow()} after the candle sequence (phase ${sA.phase}; listener ${wA.pausesSeen.join('>')}); ` +
+      `3 s on the popup: playLog ${pl0} → ${wA.en.recapPlayLog().length} (AI frozen), records ${wA.commits.length}, pause layer ${wA.t.pauseLayerOn}`);
+    ok(bg0 !== null && wA.TA.isGamePaused() && bg0.pauses === 1 && !bg0.acts.some((a) => a === 'stop' || a === 'reset' || a.startsWith('seek')) && !bg0.released &&
+      wA.au.release === 0 && pool1 === pool0 && wA.otherSfx.length === sfx0,
+      `2b audio (21:395 #11/#12): popup = pause substate — BGM faded then pause() ×${bg0 && bg0.pauses} (no stop / seek / release), release ${wA.au.release}; SFX during popup: pool ${pool0}→${pool1}, other ${sfx0}→${wA.otherSfx.length}`);
+
+    // ── 策划 21:235 不触发：人类出局即终局（只剩 1 存活）→ 不弹、直接进结算；RECAP 写一条（非快进、非中退）
+    const wB = await ffWorld(SEED_B, { players: 3 });
+    reachElim(wB);
+    wB.frame(); wB.frame();
+    const sB = wB.en.current();
+    ok(!wB.t.elimChoiceOn && !wB.t.elimOffered && !wB.pausesSeen.some((x) => x.includes(wB.DM.PauseReasons.ELIM_CHOICE)) && sB.phase === wB.Ph.Phase.RECAP &&
+      sB.seats[wB.humanId].status === wB.Ph.SeatStatus.GHOST && wB.routes.length >= 1 && wB.routes.every((r) => r.phase === wB.Ph.Phase.RECAP) &&
+      wB.commits.length === 1 && wB.commits[0].phase === wB.Ph.Phase.RECAP && wB.commits[0].ff === false && wB.commits[0].quit === false,
+      `2b no trigger (21:235): human OUT leaving 1 alive → no popup (pause events ${wB.pausesSeen.length}), route Report ×${wB.routes.length} at ${wB.routes[0] && wB.routes[0].phase}; ` +
+      `record ×${wB.commits.length} ff=${wB.commits[0] && wB.commits[0].ff} quit=${wB.commits[0] && wB.commits[0].quit}`);
+
+    // ── 「直接看结算」快进（21:236 / 22 §5.1）：冻帧 + 一行「快进中」、返回键无动作、无 SFX / BGM 不起、到 RECAP 一处写战绩（ff=true）后直进结算
+    const gen0 = wA.TA.gen;
+    const bgPlays0 = bg0.plays;
+    const page0 = wA.au.page.length;
+    const td0 = wA.td.play + wA.td.challenge;
+    const pulse0 = wA.en.pulse.bind(wA.en);
+    let pulses = 0;
+    wA.en.pulse = (now) => { pulses++; if (pulses % 20 === 0) wA.t.pull(); return pulse0(now); }; // stray page callback during FF → must render / sound nothing
+    wA.t.onElimToReport();
+    const ffOnNow = wA.t.ffOn && !wA.t.elimChoiceOn;
+    const backRet = wA.t.onBackPress();
+    const backQuiet = backRet === true && wA.asks.requestLeave === 0 && !wA.t.spectating && wA.t.ffOn && wA.d.isPaused() && wA.d.pauseReasonNow() === wA.DM.PauseReasons.ELIM_CHOICE;
+    const commitsBefore = wA.commits.length;
+    wA.clk.advance(ffPaint);
+    const sF = wA.en.current();
+    const pageFF = wA.au.page.slice(page0);
+    const recF = await recOf(wA);
+    ok(ffOnNow && backQuiet && commitsBefore === 0 && wA.routes.length === 1 && wA.routes[0].phase === wA.Ph.Phase.RECAP && sF.phase === wA.Ph.Phase.RECAP &&
+      wA.commits.length === 1 && wA.commits[0].phase === wA.Ph.Phase.RECAP && wA.commits[0].ff === true && wA.commits[0].quit === false &&
+      wA.commits[0].at === wA.routes[0].at && wA.d.isFastForwardMatch() && wA.logs.info.some((m) => m.startsWith('fast-forward → RECAP')),
+      `2b FF (21:236): overlay on, back key during FF → ${backRet} with 0 actions (leave asks ${wA.asks.requestLeave}, spectate ${wA.t.spectating}); ` +
+      `records before RECAP ${commitsBefore} → ${wA.commits.length} at RECAP (ff=${wA.commits[0] && wA.commits[0].ff}, quit=${wA.commits[0] && wA.commits[0].quit}) at the routing instant; route Report ×${wA.routes.length}; ` +
+      `${(wA.logs.info.find((m) => m.startsWith('fast-forward')) || '').trim()}`);
+    ok(recF !== null && recF.ff === true && recF.quit === false && recF.result !== 'WIN' && recF.rank === aliveAtElim + 1,
+      `2b FF record (21:244): stored ff=${recF && recF.ff}, quit=${recF && recF.quit}, result=${recF && recF.result}, rank=${recF && recF.rank} = alive at exit incl. self (${aliveAtElim}+1)`);
+    ok(pageFF.join(',') === 'clearGamePause' && wA.otherSfx.length === sfx0 &&
+      wA.fm.pools.reduce((a, p) => a + p.plays.length, 0) === pool0 && bg0.plays === bgPlays0 && bg0.pauses === 1 && pausedNow(bg0) && wA.fm.players.length === 1 &&
+      wA.au.release === 0 && wA.TA.gen === gen0 && pulses > 20,
+      `2b FF audio (21:240③ · S22-30): ${pulses} pulses (stray pulls injected) → page TableAudio calls [${pageFF.join(',')}] (SFX / BGM ${pageFF.filter(isPlay).length}), ` +
+      `other SFX ${wA.otherSfx.length - sfx0}, pool plays +${wA.fm.pools.reduce((a, p) => a + p.plays.length, 0) - pool0}, BGM play() +${bg0.plays - bgPlays0} (stays paused), ` +
+      `players ${wA.fm.players.length}, TableAudio.release ${wA.au.release} (Report owns it), gen ${gen0}→${wA.TA.gen}`);
+
+    // ── 继续观战（返回键 = 继续观战，Q4）打到底：同种子同操作 → 胜者 / 名次 / playLog 与快进全等；ThinkDelay 抽数相同；局内 0 次 Math.random
+    const wS = await ffWorld(SEED_A);
+    reachElim(wS);
+    wS.clk.advance(1000); // the player reads the popup for 1 s (BGM 150 ms fade-out has completed → paused)
+    const bgS = wS.bgm();
+    const plS = bgS ? resumesOf(bgS) : -1;
+    const pausedS = bgS ? pausedNow(bgS) : false;
+    const genS = wS.TA.gen;
+    const backS = wS.t.onBackPress();
+    const resumedNow = wS.t.spectating && !wS.t.elimChoiceOn && wS.d.pauseStateNow() === wS.DM.PauseState.RUNNING && wS.asks.requestLeave === 0;
+    const v0S = bgS ? bgS.vols.length : 0;
+    wS.clk.advance(300);
+    const vol300 = bgS ? bgS.vols[bgS.vols.length - 1] : -1;
+    wS.clk.advance(400);
+    const volTop = bgS ? bgS.vols[bgS.vols.length - 1] : -1;
+    const fadeIn = bgS ? bgS.vols.slice(v0S) : [];
+    const monotonic = fadeIn.every((v, i) => i === 0 || v >= fadeIn[i - 1] - 1e-9);
+    let humanTurns = 0;
+    let playOn = 0;
+    let liveCommits = 0;
+    wS.runUntil(() => {
+      const s = wS.en.current();
+      if (s.currentSeatId === wS.humanId && s.phase === wS.Ph.Phase.TURN) humanTurns++;
+      if (wS.t.playEnabled || wS.t.skipEnabled) playOn++;
+      if (wS.live()) liveCommits = wS.commits.length;
+      return !wS.live();
+    });
+    wS.frame(); wS.frame();
+    const recS = await recOf(wS);
+    ok(backS === true && resumedNow && pausedS && bgS === wS.fm.players[0] && wS.fm.players.length === 1 && resumesOf(bgS) === plS + 1 && !pausedNow(bgS) && Math.abs(volTop - wS.TA.VOL_BGM) < 1e-6 && monotonic && fadeIn.length > 1 &&
+      !bgS.acts.some((a) => a === 'stop' || a === 'reset' || a.startsWith('seek')) && wS.TA.gen === genS,
+      `2b spectate (Q4 · S21-08/09): back key on the popup → spectate, RUNNING; same BGM player paused → play() resumes ${plS}→${bgS && resumesOf(bgS)}, fade-in monotonic ${monotonic} (${fadeIn.length} steps): ${vol300.toFixed(3)} at +300 ms, ${volTop} at +700 ms (VOL_BGM ${wS.TA.VOL_BGM}; resume's 300 ms fade is re-aimed by pull → setSilent → startBgm(600), pre-2b PR-B behaviour), ` +
+      `no stop / seek / reset, players ${wS.fm.players.length}, gen ${genS}→${wS.TA.gen}`);
+    ok(humanTurns === 0 && playOn === 0 && liveCommits === 0 && wS.commits.length === 1 && wS.commits[0].phase === wS.Ph.Phase.RECAP && wS.commits[0].ff === false &&
+      wS.commits[0].quit === false && wS.routes.length >= 1 && wS.routes.every((r) => r.phase === wS.Ph.Phase.RECAP) && recS !== null && recS.quit === false && recS.ff === false && recS.rank === aliveAtElim + 1,
+      `2b spectate terminal (21:298 RPT-11): human turns ${humanTurns}, play/skip entries on ${playOn}; records while live ${liveCommits} → ${wS.commits.length} at RECAP ` +
+      `(ff=${wS.commits[0] && wS.commits[0].ff}, quit=${wS.commits[0] && wS.commits[0].quit}, rank ${recS && recS.rank}); route Report ×${wS.routes.length}`);
+    const sigF = wA.sig();
+    const sigS = wS.sig();
+    const tdF = wA.td.play + wA.td.challenge;
+    const tdS = wS.td.play + wS.td.challenge;
+    ok(sigF.winner === sigS.winner && sigF.ranks === sigS.ranks && sigF.status === sigS.status && sigF.playLog === sigS.playLog && sigF.plays > pl0 &&
+      tdF === tdS && tdF > td0 && wA.rnd.n === 0 && wS.rnd.n === 0,
+      `2b S21-44 same seed + same actions: FF vs spectate-to-end → winner ${sigF.winner}/${sigS.winner}, ranks [${sigF.ranks}] / [${sigS.ranks}], ` +
+      `playLog ${sigF.plays}/${sigS.plays} entries ${sigF.playLog === sigS.playLog ? 'identical' : 'DIFFER'}; ThinkDelay draws ${tdF}/${tdS} (pre-elim ${td0}); Math.random ${wA.rnd.n}/${wS.rnd.n}`);
+
+    // ── 超步兜底（21:236）：测试侧注入 ffMaxSteps=5（产品 FF_MAX_STEPS 不动）→ ff_cap 日志、撤罩、按继续观战恢复 + 角标；同一 BGM 淡回、gen 不变
+    const wC = await ffWorld(SEED_A, { cap: 5 });
+    reachElim(wC);
+    wC.clk.advance(1000); // the player reads the popup for 1 s (BGM 150 ms fade-out has completed → paused)
+    const bgC = wC.bgm();
+    const plC = bgC ? resumesOf(bgC) : -1;
+    const genC = wC.TA.gen;
+    wC.t.onElimToReport();
+    wC.clk.advance(ffPaint);
+    const capNow = !wC.t.ffOn && wC.t.spectating && !wC.t.elimChoiceOn && wC.d.pauseStateNow() === wC.DM.PauseState.RUNNING && wC.routes.length === 0 &&
+      wC.commits.length === 0 && !wC.d.isFastForwardMatch() && wC.logs.warn.some((m) => m.startsWith('ff_cap'));
+    wC.runUntil(() => !wC.live());
+    wC.frame(); wC.frame();
+    ok(capNow && bgC === wC.fm.players[0] && wC.fm.players.length === 1 && resumesOf(bgC) === plC + 1 && wC.TA.gen === genC &&
+      wC.commits.length === 1 && wC.commits[0].phase === wC.Ph.Phase.RECAP && wC.commits[0].quit === false && wC.routes.length >= 1 && wC.d.ffMaxSteps === 5,
+      `2b ff cap (21:236, injected cap 5): ${(wC.logs.warn.find((m) => m.startsWith('ff_cap')) || 'no ff_cap log')}; overlay off, spectating ${wC.t.spectating}, RUNNING; ` +
+      `same BGM player resumes ${plC}→${bgC && resumesOf(bgC)}, gen ${genC}→${wC.TA.gen}; then plays on → 1 record at RECAP (ff=${wC.commits[0] && wC.commits[0].ff})`);
+
+    // ── 观战中离局（21:243 / §2.4）：按已定名次记负、不标中退（真 commitLeaveRecord）
+    const wL = await ffWorld(SEED_A);
+    reachElim(wL);
+    wL.clk.advance(1000); // the player reads the popup for 1 s (BGM 150 ms fade-out has completed → paused)
+    wL.t.onBackPress();
+    for (let i = 0; i < 30; i++) wL.frame();
+    wL.t.commitLeaveRecord();
+    const recL = await recOf(wL);
+    ok(wL.t.spectating && wL.live() && wL.commits.length === 1 && wL.commits[0].quit === false && wL.commits[0].ff === false && recL !== null &&
+      recL.quit === false && recL.result !== 'WIN' && recL.rank === aliveAtElim + 1,
+      `2b leave while spectating (21:243): record quit=${recL && recL.quit}, result=${recL && recL.result}, rank=${recL && recL.rank} (= determined rank ${aliveAtElim + 1}, not 中退)`);
+  } catch (e) {
+    fail(`2b ff/spectate sims did not run: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
+  }
+}
+RUN(false);
+{
+  const ecl = body(table, '  elimChoiceLayer() {');
+  const btns = [...ecl.matchAll(/Button\(\$r\('app\.string\.(\w+)'\)\)([\s\S]*?)\.onClick\(\(\) => \{\s*this\.(\w+)\(\);/g)].map((m) => ({ key: m[1], attrs: m[2], fn: m[3] }));
+  const btnH = Number((/"name": "btn_height", "value": "(\d+)vp"/.exec(src('entry/src/main/resources/base/element/float.json')) || [0, 0])[1]);
+  ok(count(ecl, /Button\(/) === 2 && btns.length === 2 && /Row\(\{ space: 12 \}\)/.test(ecl) &&
+    btns[0].key === 'lb_str_elim_spectate' && btns[0].fn === 'onElimSpectate' && btns[0].attrs.includes('.id(ControlIds.ELIM_SPECTATE)') &&
+    btns[0].attrs.includes('.backgroundColor(Color.Transparent)') && /\.border\(\{ width: [\d.]+, color:/.test(btns[0].attrs) &&
+    btns[1].key === 'lb_str_elim_to_report' && btns[1].fn === 'onElimToReport' && btns[1].attrs.includes('.id(ControlIds.ELIM_REPORT)') &&
+    btns[1].attrs.includes(".backgroundColor($r('app.color.tavern_accent'))") && !btns[1].attrs.includes('.border(') &&
+    btns.every((x) => x.attrs.includes('.layoutWeight(1)') && x.attrs.includes(".height($r('app.float.btn_height'))")) && btnH >= 44,
+    `2b elim panel (22:302-306): exactly 2 buttons, left ${btns[0] && btns[0].key} outlined → onElimSpectate, right ${btns[1] && btns[1].key} filled → onElimToReport; ` +
+    `equal width (layoutWeight 1) and height btn_height ${btnH}vp ≥ 44`);
+  const ffo = body(table, '  ffOverlay() {');
+  ok(count(ffo, /\bText\(/) === 1 && /Text\(\$r\('app\.string\.lb_str_ff_running'\)\)\s*\.id\(ControlIds\.FF_RUNNING\)/.test(ffo) &&
+    !/Progress|LoadingProgress|Image\(|animateTo|\.animation\(|SoundPlayer|TableAudio/.test(ffo) && ffo.includes('.id(ControlIds.FF_OVERLAY)') &&
+    /\.onClick\(\(\) => \{\s*\}\)/.test(code(ffo)),
+    '2b ff overlay (22:324-330): mask + one line lb_str_ff_running only — no progress / spinner / animation / sound; swallows taps; above home + pause (PAUSE_LAYER_Z)');
+  const hec = body(table, '  homeExitChrome() {');
+  ok(/Row\(\{ space: 8 \}\) \{\s*if \(this\.spectating\) \{\s*this\.spectateBadge\(\)\s*\}\s*Text\(\$r\('app\.string\.lb_str_home'\)\)\s*\.id\(ControlIds\.HOME\)/.test(hec),
+    '2b spectate badge in the right cluster, left of lb_btn_home (22:157/:162 right-to-left: home → pause → demo → spectate; pause / demo not mounted yet)');
+  const sbg = body(table, '  spectateBadge() {');
+  ok(/Text\(\$r\('app\.string\.lb_str_spectating'\)\)\s*\.id\(ControlIds\.SPECTATE_BADGE\)/.test(sbg) && /\? 20 : 22\)/.test(sbg) &&
+    sbg.includes("$r('app.color.tavern_ghost')") && sbg.includes('.hitTestBehavior(HitTestMode.None)'),
+    '2b spectate badge: lb_str_spectating, capsule ≤ 24vp (L-small 20vp, no fill), program fill tavern_ghost (23 #11b), not clickable');
+  const pl = code(body(table, '  private pull(): void {'));
+  ok(/^\s*private pull\(\): void \{\s*if \(this\.ffOn\) \{\s*return;\s*\}/.test(pl) &&
+    pl.indexOf('LbRouter.replaceReport()') < pl.indexOf('this.maybeOfferElimChoice(snap)') && count(tableCode, /this\.maybeOfferElimChoice\(/) === 1,
+    '2b pull: FF gate is the first statement (frozen frame, no render / SFX); elim offer only on live phases after the RECAP route');
+  const ffb = code(body(dir, '  fastForward(): string {'));
+  ok(/export const FF_MAX_STEPS: number = 4000;/.test(dir) && /ffMaxSteps: number = FF_MAX_STEPS;/.test(dir) && !/Math\.random|new SeededRng|turnRng/.test(ffb) &&
+    /this\.armIfNeeded\(\);\s*if \(this\.thinkUntilMs > 0\) \{\s*this\.thinkUntilMs = 0;\s*this\.runAi\(\);\s*\}/.test(ffb) && count(ffb, /this\.runAi\(\)/) === 1 &&
+    ffb.includes('engine.dealDone()') && ffb.includes('engine.skipRitual()') && ffb.includes('engine.penaltyDone()') && ffb.includes('steps < this.ffMaxSteps'),
+    '2b director FF (21:236/240): product FF_MAX_STEPS = 4000; same beat as tick — one runAi per arm (ThinkDelay drawn, thinkUntil zeroed, no wait, no retry); no new RNG / Math.random');
+  const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
+  ok(ksNow.length === 341 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
+    'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))),
+    `2b uses existing keys only (string.json ${ksNow.length} keys)`);
 }
 
 // ---------------------------------------------------------------- ⑦ strings (21 §6 keys, no PR-B temp keys)

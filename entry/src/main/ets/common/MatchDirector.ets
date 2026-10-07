@@ -27,6 +27,16 @@ export const RESUME_GRACE_MS: number = 600;
 /** 21 §3.1 P04：待停满此时长强停（防序列探针卡死，记日志）。 */
 export const PENDING_CAP_MS: number = 8000;
 
+/** 21 §1.7「直接看结算」快进步数上限；超限回落「继续观战」并记日志 ff_cap（负责人 2026-10-07）。 */
+export const FF_MAX_STEPS: number = 4000;
+
+/** fastForward() 结果：到 RECAP / 超步数回落观战 / 不在出局选择态（拒绝，什么都不动）。 */
+export class FastForwardResult {
+  static readonly RECAP: string = 'recap';
+  static readonly CAPPED: string = 'capped';
+  static readonly REFUSED: string = 'refused';
+}
+
 /** PR-B 局内暂停三态。PENDING = 开牌/燃烛序列中按了暂停，序列放完再停。 */
 export enum PauseState {
   RUNNING = 'RUNNING',
@@ -48,6 +58,8 @@ export class PauseReasons {
   static readonly USER: string = 'user';
   static readonly BACKGROUND: string = 'background';
   static readonly LEAVE_CONFIRM: string = 'leave_confirm';
+  /** 21 §1.7 / §3.1 P15：人类出局二选一（PAUSED 子态 ELIM_CHOICE）。 */
+  static readonly ELIM_CHOICE: string = 'elim_choice';
 }
 
 /**
@@ -78,6 +90,10 @@ export class MatchDirector {
   /** RESUME_GRACE_MS 窗口结束点；之前 tick 只 pulse 不动 AI。0 = 无缓冲。 */
   private resumeHoldUntilMs: number = 0;
   private pendingSinceMs: number = 0;
+  /** 本局是否走过「直接看结算」快进并到了 RECAP（战绩 ff=true / 战报快进附注同源）。start() 清。 */
+  private ffMatch: boolean = false;
+  /** 快进步数上限；产品值 = FF_MAX_STEPS（闸只在测试侧改实例字段触发超限）。 */
+  private ffMaxSteps: number = FF_MAX_STEPS;
 
   bind(engine: MatchEngine, live: LiveWindowAdapter): void {
     this.engine = engine;
@@ -93,6 +109,7 @@ export class MatchDirector {
     this.pauseReason = '';
     this.resumeHoldUntilMs = 0;
     this.pendingSinceMs = 0;
+    this.ffMatch = false;
     this.engine.pulse(Date.now());
     if (this.engine.humanMustWait()) {
       this.thinkUntilMs = 0;
@@ -307,15 +324,7 @@ export class MatchDirector {
         this.notifyPause(0);
       }
       if (snap.phase === Phase.RECAP) {
-        // PR-B 战绩：进 RECAP 写一次（21 §2.4，last_match_id 去重；演示局不写；时长扣暂停）。
-        // 离局确认的中退只在非 RECAP 阶段写，同键去重 → 两路不会都写。
-        const recapCommit: RecordCommit = {
-          quit: false,
-          isDemo: this.engine.isDemoMatch(),
-          ff: false,
-          pausedMs: this.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now())
-        };
-        RecordStore.commitOnce(snap, recapCommit);
+        this.commitRecap(snap);
       }
       return;
     }
@@ -350,6 +359,103 @@ export class MatchDirector {
       this.thinkUntilMs = 0;
       this.runAi();
     }
+  }
+
+  /**
+   * PR-B 战绩：进 RECAP 写一次（21 §2.4 / 21:298：正常 / 观战 / 快进终局同一处，last_match_id 去重；演示局不写；时长扣暂停）。
+   * 离局确认的中退只在非 RECAP 阶段写，同键去重 → 两路不会都写。快进局 ff=true（21 §1.7）。
+   */
+  private commitRecap(snap: MatchSnapshot): void {
+    if (this.engine === null) {
+      return;
+    }
+    const recapCommit: RecordCommit = {
+      quit: false,
+      isDemo: this.engine.isDemoMatch(),
+      ff: this.ffMatch,
+      pausedMs: this.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now())
+    };
+    RecordStore.commitOnce(snap, recapCommit);
+  }
+
+  /** 本局是否为快进结算（Report 读：战绩 ff 与 lb_txt_report_ff_note 同源）。 */
+  isFastForwardMatch(): boolean {
+    return this.ffMatch;
+  }
+
+  /**
+   * 21 §1.7「直接看结算」（D2）：只在 PAUSED.ELIM_CHOICE 下可调。导演用虚拟时钟连续 pulse()：
+   * DEAL → dealDone()、CHALLENGE_RITUAL → skipRitual()、PENALTY → penaltyDone()；AI 回合照常 armIfNeeded()（ThinkDelay 照常抽数算 thinkMs）
+   * 再 runAi()（同一路径、同一 turnRng；与 tick 同拍：每次臂只出手一次，没出成就照常等引擎超时托管），只是不等 thinkMs；没人能动时把虚拟时钟拨到引擎下一个 deadline 再 pulse（如真人座超时）。
+   * 无音频、无动画（页面冻帧，期间不 pull）。到 RECAP：同一处 commitRecap（ff=true）→ 返回 RECAP，由页面直接路由结算。
+   * 满 ffMaxSteps 仍未到 RECAP：记日志 ff_cap，按「继续观战」恢复对局（RUNNING + RESUME_GRACE_MS 缓冲，通知页面），返回 CAPPED。
+   * ELIM_CHOICE 期间的等待照常算暂停（resumeClock 记入 pausedTotal）。
+   */
+  fastForward(): string {
+    if (this.engine === null || this.pauseState !== PauseState.PAUSED || this.pauseReason !== PauseReasons.ELIM_CHOICE) {
+      return FastForwardResult.REFUSED;
+    }
+    const engine: MatchEngine = this.engine;
+    const startMs: number = Date.now();
+    engine.resumeClock(startMs, 0);
+    this.ffMatch = true;
+    this.playBusy = false;
+    let vt: number = startMs;
+    let steps: number = 0;
+    let snap: MatchSnapshot | null = engine.current();
+    while (snap !== null && this.isLivePhase(snap.phase) && steps < this.ffMaxSteps) {
+      steps++;
+      const before: string = this.ffProgressKey(snap);
+      engine.pulse(vt);
+      snap = engine.current();
+      if (snap === null || !this.isLivePhase(snap.phase)) {
+        break;
+      }
+      if (this.ffProgressKey(snap) !== before) {
+        continue;
+      }
+      if (snap.phase === Phase.DEAL) {
+        engine.dealDone();
+      } else if (snap.phase === Phase.CHALLENGE_RITUAL) {
+        engine.skipRitual();
+      } else if (snap.phase === Phase.PENALTY) {
+        engine.penaltyDone();
+      } else if (snap.phase === Phase.TURN && this.isAiSeat(snap, snap.currentSeatId)) {
+        // 与 tick 同一节拍：每次臂（ThinkDelay 抽数）只出手一次；不等 thinkMs。没出成（如出牌被拒）照常等引擎超时托管，不重试。
+        this.armIfNeeded();
+        if (this.thinkUntilMs > 0) {
+          this.thinkUntilMs = 0;
+          this.runAi();
+        }
+      }
+      snap = engine.current();
+      if (snap !== null && this.ffProgressKey(snap) === before) {
+        const due: number = engine.earliestDeadline();
+        vt = due > vt ? due : vt + 1000;
+      }
+    }
+    if (snap !== null && snap.phase === Phase.RECAP) {
+      this.pauseState = PauseState.RUNNING;
+      this.pauseReason = '';
+      this.pendingSinceMs = 0;
+      this.commitRecap(snap);
+      Logger.info(TAG, `fast-forward → RECAP in ${steps} steps`);
+      return FastForwardResult.RECAP;
+    }
+    Logger.warn(TAG, `ff_cap: ${steps} steps without RECAP (cap ${this.ffMaxSteps}) → fall back to spectate`);
+    this.ffMatch = false;
+    this.armedSeat = -1;
+    this.resumeHoldUntilMs = Date.now() + RESUME_GRACE_MS;
+    this.pauseState = PauseState.RUNNING;
+    this.pauseReason = '';
+    this.pendingSinceMs = 0;
+    this.notifyPause(0);
+    return FastForwardResult.CAPPED;
+  }
+
+  /** 快进「这一步有没有推进」：阶段 / 轮 / 手 / 当前座 / 窗口 / 仪式拍 / 事件条数任一变化即推进。 */
+  private ffProgressKey(snap: MatchSnapshot): string {
+    return `${snap.phase}|${snap.roundIndex}|${snap.playIndexInRound}|${snap.currentSeatId}|${snap.turnWindow}|${snap.ritualBeat}|${snap.eventLog.length}`;
   }
 
   private stopTimerOnly(): void {

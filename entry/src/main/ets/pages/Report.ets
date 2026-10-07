@@ -41,12 +41,14 @@ struct Report {
     this.recordsMode = false;
     // 2b：暂停总时长只取一次，战绩与战报同一个值（不各算一遍）。
     const pausedMs: number = AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now());
+    // 21 §1.7：快进局 ff=true（导演记的本局标记），战绩与战报快进附注同源。
+    const ff: boolean = AppRuntime.director.isFastForwardMatch();
     if (snap.phase === Phase.RECAP) {
       // RPT-11：结算页一出现就写（不等玩家点任何键）；与导演 RECAP 回调同一口径，commitOnce 按 last_match_id 幂等。
       const recapCommit: RecordCommit = {
         quit: false,
         isDemo: AppRuntime.engine.isDemoMatch(),
-        ff: false,
+        ff: ff,
         pausedMs: pausedMs
       };
       RecordStore.commitOnce(snap, recapCommit);
@@ -63,7 +65,7 @@ struct Report {
       pausedMs: pausedMs,
       livesDefault: snap.config.lives_default > 0 ? snap.config.lives_default : 3,
       quit: false,
-      ff: false
+      ff: ff
     };
     this.view = ReportModel.build(input, this.readTexts());
     let nick: string = '';

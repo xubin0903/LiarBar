@@ -160,6 +160,15 @@ export class ControlIds {
   static readonly PAUSE_LAYER: string = 'lb_cmp_pause_layer';
   static readonly PAUSE_RESUME: string = 'lb_btn_pause_resume';
   static readonly PAUSE_BG_NOTE: string = 'lb_txt_pause_bg_note';
+  /** 2b · 21 §1.7 / 22 §5：人类出局二选一面板 + 两键（右主「直接看结算」/ 左次「继续观战」）。02:329 已登记。 */
+  static readonly ELIM_CHOICE: string = 'lb_cmp_elim_choice';
+  static readonly ELIM_REPORT: string = 'lb_btn_elim_report';
+  static readonly ELIM_SPECTATE: string = 'lb_btn_elim_spectate';
+  /** 2b · 22 §5.1：快进罩 + 唯一一行「快进中」。02:330 已登记。 */
+  static readonly FF_OVERLAY: string = 'lb_cmp_ff_overlay';
+  static readonly FF_RUNNING: string = 'lb_txt_ff_running';
+  /** 2b · 22 §3.2：「观战中」角标（不吃点击）。02:331 已登记。 */
+  static readonly SPECTATE_BADGE: string = 'lb_cmp_spectate_badge';
   static readonly KNOCK: string = 'lb_cmp_table_hit';
   static readonly SIGN_OK: string = 'lb_btn_sign_ok';
   static readonly SIGN_NO: string = 'lb_btn_sign_no';

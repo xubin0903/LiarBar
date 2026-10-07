@@ -3,7 +3,7 @@ import { window } from '@kit.ArkUI';
 import { AppRuntime } from '../common/AppRuntime';
 import { ControlIds, ScreenIds, SfxIds } from '../common/Ids';
 import { LbRouter } from '../common/LbRouter';
-import { PENDING_CAP_MS, PauseListener, PauseReasons, PauseState } from '../common/MatchDirector';
+import { FastForwardResult, PENDING_CAP_MS, PauseListener, PauseReasons, PauseState } from '../common/MatchDirector';
 import { PausableScheduler } from '../common/PausableScheduler';
 import { Logger } from '../common/Logger';
 import { CardFace } from '../features/table/CardFace';
@@ -44,6 +44,8 @@ const SNAP_POLL_MS: number = 800;
  * 暂停层只在 pauseLayerOn 时挂载，非暂停时层序与布局不变。
  */
 const PAUSE_LAYER_Z: number = 9000;
+/** 2b · 22 §5.1：点「直接看结算」后先让快进罩（压暗 +「快进中」）出一帧，再同步跑完快进（期间不重绘、不出声）。 */
+const FF_PAINT_MS: number = 50;
 
 /**
  * lb_scr_table landscape ring (docs 11/12 R-LAND-1～5). Lobby stays portrait.
@@ -169,6 +171,12 @@ struct Table {
   @State pauseLayerOn: boolean = false;
   /** 21 §3.6 BG_RESUME：切后台进的暂停，层上加 lb_str_pause_bg_note。 */
   @State pauseFromBackground: boolean = false;
+  /** 2b · 21 §1.7：PAUSED.ELIM_CHOICE → 出局二选一面板（lb_cmp_elim_choice）。 */
+  @State elimChoiceOn: boolean = false;
+  /** 2b · 22 §5.1：快进罩（lb_cmp_ff_overlay）；期间页面冻帧，pull() 不走。 */
+  @State ffOn: boolean = false;
+  /** 2b · 22 §3.2：「继续观战」后（或快进超步回落）顶栏右簇出 lb_cmp_spectate_badge。 */
+  @State spectating: boolean = false;
   /** EXP 3: debug panel renderer vs SoundPool A/B. */
   @State debugSfxRenderer: boolean = true;
   /** EXP 5: debug panel touch-down earlier arm vs playFlip-only. */
@@ -287,6 +295,8 @@ struct Table {
   /** PR-B: every page one-shot timer goes through here so pause can freeze/resume them. */
   private timers: PausableScheduler = new PausableScheduler();
   private pauseListener: PauseListener | null = null;
+  /** 2b · 21 §1.7：本局出局二选一已发起（导演已收下 ELIM_CHOICE 暂停）——只弹一次。 */
+  private elimOffered: boolean = false;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -602,6 +612,13 @@ struct Table {
       // PeekMaskOverlay、出牌面板与飞牌；zIndex 只在同一父容器内比，所以必须挂在这里而不是桌面 Stack 里。
       if (this.pauseLayerOn) {
         this.pauseLayer()
+      }
+      // 2b · 22 §5 / §5.1：出局二选一与快进罩同挂根 Stack 末尾（同暂停层层序），压过回大厅键 / 暂停入口。
+      if (this.elimChoiceOn) {
+        this.elimChoiceLayer()
+      }
+      if (this.ffOn) {
+        this.ffOverlay()
       }
     }
     .id(ScreenIds.TABLE)
@@ -1044,20 +1061,27 @@ struct Table {
   @Builder
   homeExitChrome() {
     Stack({ alignContent: Alignment.TopEnd }) {
-      Text($r('app.string.lb_str_home'))
-        .id(ControlIds.HOME)
-        .fontColor($r('app.color.tavern_mute'))
-        .fontSize($r('app.float.caption_text_size'))
-        .padding({
-          left: 12,
-          right: 12,
-          top: 8,
-          bottom: 8
-        })
-        .margin({ top: 2, right: 4 })
-        .onClick(() => {
-          this.requestLeave();
-        })
+      // 22 §3.2 右簇从右到左：lb_btn_home → (lb_btn_pause) → (lb_cmp_demo_badge) → lb_cmp_spectate_badge；暂停键 / 演示角标未挂时角标紧贴 home 左侧。
+      Row({ space: 8 }) {
+        if (this.spectating) {
+          this.spectateBadge()
+        }
+        Text($r('app.string.lb_str_home'))
+          .id(ControlIds.HOME)
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+          .padding({
+            left: 12,
+            right: 12,
+            top: 8,
+            bottom: 8
+          })
+          .onClick(() => {
+            this.requestLeave();
+          })
+      }
+      .alignItems(VerticalAlign.Center)
+      .margin({ top: 2, right: 4 })
     }
     .width('100%')
     .height(44)
@@ -1621,6 +1645,15 @@ struct Table {
       // 离局锁：已确认离开、正在锁竖屏/路由，返回键吞掉不动作。
       return true;
     }
+    if (this.ffOn) {
+      // 21 §1.7「快进中返回键」：无动作（不打断、不弹框、不离局），跑到 RECAP 照常进结算。
+      return true;
+    }
+    if (this.elimChoiceOn) {
+      // 21 §1.7 Q4：出局选择弹层上返回键 = 「继续观战」。
+      this.onElimSpectate();
+      return true;
+    }
     if (this.pauseLayerOn) {
       // 21 §3.1 P08 / §3.5：暂停层内返回键 = 继续（常规恢复，含 RESUME_GRACE_MS）。
       this.resumeFromPauseLayer();
@@ -1799,6 +1832,7 @@ struct Table {
     AppRuntime.director.setPendingDeadlineProbe(null);
     TableAudio.clearGamePause();
     this.pauseLayerOn = false;
+    this.elimChoiceOn = false;
     this.leavePending = false;
   }
 
@@ -1819,7 +1853,8 @@ struct Table {
       }
       // Leave-confirm pause shows the dialog only; user/background pause shows the layer.
       const reason: string = AppRuntime.director.pauseReasonNow();
-      this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM;
+      this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM && reason !== PauseReasons.ELIM_CHOICE;
+      this.elimChoiceOn = reason === PauseReasons.ELIM_CHOICE;
       this.pauseFromBackground = reason === PauseReasons.BACKGROUND;
       if (this.leavePending) {
         // 21 §3.1 P06：序列放完（或 PENDING_CAP_MS 兜底强停）→ 此刻才弹离局确认。
@@ -1847,6 +1882,7 @@ struct Table {
     TableAudio.resumeForGame();
     this.pauseLayerOn = false;
     this.pauseFromBackground = false;
+    this.elimChoiceOn = false;
     this.lastHudStamp = '';
     this.pull();
   }
@@ -2037,6 +2073,180 @@ struct Table {
     void this.lockTableWindow();
   }
 
+  /**
+   * 2b · 21 §1.7 触发：人类座熄尽（GHOST）且仍有 ≥2 座存活 → 请导演进 PAUSED.ELIM_CHOICE。
+   * 熄烛序列还在放（PENALTY / 页面序列探针）→ 导演先 PENDING，放完才 PAUSED，面板此刻才出（「熄烛序列放完」）。
+   * 只剩 1 座存活 = 人类出局即终局 → 不请求，collectRedeal 直接 RECAP → 结算。
+   * 别的暂停 / 离局确认正在进行 → 导演忽略本次请求，不记已弹，恢复后下一次 pull 再请求。
+   */
+  private maybeOfferElimChoice(snap: MatchSnapshot): void {
+    if (this.elimOffered || this.leaving || this.leaveConfirmOpen || this.leavePending || !this.humanIsGhost(snap)) {
+      return;
+    }
+    let alive: number = 0;
+    for (let i = 0; i < snap.seats.length; i++) {
+      if (snap.seats[i].status === SeatStatus.ALIVE) {
+        alive++;
+      }
+    }
+    if (alive < 2) {
+      return;
+    }
+    AppRuntime.director.requestPause(PauseReasons.ELIM_CHOICE);
+    if (AppRuntime.director.pauseReasonNow() === PauseReasons.ELIM_CHOICE) {
+      this.elimOffered = true;
+      Logger.info(TAG, `elim choice requested (alive=${alive}, state=${AppRuntime.director.pauseStateNow()})`);
+    }
+  }
+
+  /** 21 §1.7「继续观战」（左键 / 系统返回键）：常规恢复（含 RESUME_GRACE_MS），出观战角标。 */
+  private onElimSpectate(): void {
+    if (!this.elimChoiceOn || this.ffOn) {
+      return;
+    }
+    this.spectating = true;
+    AppRuntime.director.resumeFromPause();
+  }
+
+  /** 21 §1.7「直接看结算」（右主键）：收面板 → 快进罩出一帧 → 导演快进。 */
+  private onElimToReport(): void {
+    if (!this.elimChoiceOn || this.ffOn) {
+      return;
+    }
+    this.elimChoiceOn = false;
+    this.ffOn = true;
+    this.timers.scheduleAtomic((): void => {
+      this.runFastForward();
+    }, FF_PAINT_MS);
+  }
+
+  private runFastForward(): void {
+    if (!this.ffOn) {
+      return;
+    }
+    const res: string = AppRuntime.director.fastForward();
+    if (res === FastForwardResult.RECAP) {
+      // 22 §5.1：到 RECAP 直接路由结算，结算页照常播自己的结算音 —— 只撤桌面暂停闸，不 resumeForGame（BGM 不起）。
+      TableAudio.clearGamePause();
+      LbRouter.replaceReport();
+      return;
+    }
+    this.ffOn = false;
+    if (res === FastForwardResult.CAPPED) {
+      // 21 §1.7 超步兜底：导演已按「继续观战」恢复（RUNNING 已通知本页）→ 撤罩、出观战角标。
+      this.spectating = true;
+      this.lastHudStamp = '';
+      this.pull();
+      return;
+    }
+    // REFUSED：导演不在出局选择态（不该发生）→ 面板按导演现状复原。
+    this.elimChoiceOn = AppRuntime.director.isPaused() && AppRuntime.director.pauseReasonNow() === PauseReasons.ELIM_CHOICE;
+  }
+
+  /**
+   * 22 §5 出局二选一：遮罩吃掉全部点击；面板宽 40%（36%～44%），标题 + 正文 + 恰好两键（等宽同高 ≥44vp）：
+   * 左 = 继续观战（次，描边）· 右 = 直接看结算（主，实心）。面板底 art_panel_base 未交付 → 暂用 tavern_panel 程序底（同临时暂停层）。
+   */
+  @Builder
+  elimChoiceLayer() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.tavern_bg'))
+        .opacity(0.6)
+        .onClick(() => {
+          // 遮罩吃掉点击（不等于选观战）。
+        })
+      Column({ space: 12 }) {
+        Text($r('app.string.lb_str_elim_title'))
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+        Text($r('app.string.lb_str_elim_body'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.subtitle_text_size'))
+          .textAlign(TextAlign.Center)
+        Row({ space: 12 }) {
+          Button($r('app.string.lb_str_elim_spectate'))
+            .id(ControlIds.ELIM_SPECTATE)
+            .layoutWeight(1)
+            .height($r('app.float.btn_height'))
+            .backgroundColor(Color.Transparent)
+            .border({ width: 1.5, color: $r('app.color.tavern_brass') })
+            .fontColor($r('app.color.tavern_paper'))
+            .onClick(() => {
+              this.onElimSpectate();
+            })
+          Button($r('app.string.lb_str_elim_to_report'))
+            .id(ControlIds.ELIM_REPORT)
+            .layoutWeight(1)
+            .height($r('app.float.btn_height'))
+            .backgroundColor($r('app.color.tavern_accent'))
+            .fontColor($r('app.color.tavern_bg'))
+            .onClick(() => {
+              this.onElimToReport();
+            })
+        }
+        .width('100%')
+      }
+      .id(ControlIds.ELIM_CHOICE)
+      .width('40%')
+      .padding(20)
+      .backgroundColor($r('app.color.tavern_panel'))
+      .borderRadius(12)
+    }
+    .width('100%')
+    .height('100%')
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+    .hitTestBehavior(HitTestMode.Default)
+    .zIndex(PAUSE_LAYER_Z)
+  }
+
+  /** 22 §5.1 快进罩：冻帧 + 压暗 + 吃掉全部点击；正中只一行「快进中」小条。无进度 / 转圈 / 音效。 */
+  @Builder
+  ffOverlay() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.tavern_bg'))
+        .opacity(0.6)
+        .onClick(() => {
+          // 快进不可中断：点击一律吃掉。
+        })
+      Text($r('app.string.lb_str_ff_running'))
+        .id(ControlIds.FF_RUNNING)
+        .fontColor($r('app.color.tavern_paper'))
+        .fontSize($r('app.float.subtitle_text_size'))
+        .padding({ left: 20, right: 20, top: 10, bottom: 10 })
+        .backgroundColor($r('app.color.tavern_panel'))
+        .borderRadius(8)
+    }
+    .width('100%')
+    .height('100%')
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+    .hitTestBehavior(HitTestMode.Default)
+    .zIndex(PAUSE_LAYER_Z)
+    .id(ControlIds.FF_OVERLAY)
+  }
+
+  /** 22 §3.2 观战角标：胶囊高 ≤24vp（L-small 只字无底、≤20vp），程序底 tavern_ghost（23 #11b），不吃点击。 */
+  @Builder
+  spectateBadge() {
+    Text($r('app.string.lb_str_spectating'))
+      .id(ControlIds.SPECTATE_BADGE)
+      .fontColor($r('app.color.tavern_paper'))
+      .fontSize($r('app.float.caption_text_size'))
+      .height(Math.min(this.stackW, this.stackH) > 0 && Math.min(this.stackW, this.stackH) < 320 ? 20 : 22)
+      .padding({ left: 8, right: 8 })
+      .backgroundColor(Math.min(this.stackW, this.stackH) > 0 && Math.min(this.stackW, this.stackH) < 320 ?
+        Color.Transparent : $r('app.color.tavern_ghost'))
+      .borderRadius(11)
+      .hitTestBehavior(HitTestMode.None)
+  }
+
   private cancelPlaySheet(): void {
     AppRuntime.engine.cancelPlay();
     this.showPlay = false;
@@ -2052,6 +2262,10 @@ struct Table {
   }
 
   private pull(): void {
+    if (this.ffOn) {
+      // 22 §5.1：快进中桌面冻在点按那一帧，不逐步渲染（也就不出任何声）；到 RECAP 由 runFastForward 直接路由。
+      return;
+    }
     const snap: MatchSnapshot | null = AppRuntime.engine.current();
     if (snap === null || snap.phase === Phase.LOBBY) {
       return;
@@ -2071,6 +2285,7 @@ struct Table {
       LbRouter.replaceReport();
       return;
     }
+    this.maybeOfferElimChoice(snap);
     this.pushedChallenge = false;
     const stamp: string = this.hudStamp(snap);
     DealAudio.setSilent(snap.silentMode);
