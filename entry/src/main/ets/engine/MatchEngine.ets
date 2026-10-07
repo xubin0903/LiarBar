@@ -17,13 +17,14 @@ import {
   AiRevealRec
 } from '../ai/AiTypes';
 import { isChallengeSuccess, isLegal } from './Judge';
-import { lineForKey, pickTurnDealerKey } from './DealerLines';
+import { highlightLineFor, lineForKey, pickTurnDealerKey } from './DealerLines';
 import { dealRound, DealResult, isFakeRank, repairDemoHands } from './DeckDeal';
 import {
   CardModel,
   ChallengeModel,
   ClaimModel,
   FaceBet,
+  HighlightPick,
   MatchEvent,
   MatchSnapshot,
   PlayModel,
@@ -102,6 +103,10 @@ export class MatchEngine {
   private dealerKey: string = '';
   private dealerLine: string = '';
   private highlightLine: string = '';
+  /** PR-A: highlight snapshots captured before collectRedeal clears challenge/lastPlay. */
+  private hlSlamCaught: HighlightPick | null = null;
+  private hlFail: HighlightPick | null = null;
+  private hlLast: HighlightPick | null = null;
   private demoOn: boolean = false;
   private forceClaimUsed: boolean = false;
   private forcePlayUsed: boolean = false;
@@ -250,6 +255,9 @@ export class MatchEngine {
     this.hesitateUsed = 0;
     this.lastClaimRank = '';
     this.highlightLine = '';
+    this.hlSlamCaught = null;
+    this.hlFail = null;
+    this.hlLast = null;
     this.viewerSeatId = 0;
     this.skipDepth = 0;
     this.clearEmptyGate();
@@ -638,6 +646,9 @@ export class MatchEngine {
 
   /** CollectRedeal: after PenaltyExtinguish1 or RoundSafeWait settle → redeal (不绑枪). */
   collectRedeal(): boolean {
+    // PR-A: snapshot judged challenge + lastPlay BEFORE they are cleared below,
+    // so recap highlight never reads null challenge/lastPlay (结算高光句半空).
+    this.captureHighlightBeforeClear();
     this.clearEmptyGate();
     this.roundSafeWaitSeats = [];
     this.roundWinPending = false;
@@ -1380,31 +1391,55 @@ export class MatchEngine {
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
   }
 
+  /** PR-A: called at the top of collectRedeal, before lastPlay/challenge = null. */
+  private captureHighlightBeforeClear(): void {
+    const ch: ChallengeModel | null = this.challenge;
+    const lp: PlayModel | null = this.lastPlay;
+    if (ch === null || lp === null || ch.result.length === 0 || ch.targetPlayId !== lp.playId) {
+      return;
+    }
+    const success: boolean = ch.result === ChallengeResult.SUCCESS;
+    const pick: HighlightPick = {
+      challengerSeatId: ch.challengerSeatId,
+      accusedSeatId: lp.actorSeatId,
+      handNo: this.matchHandNo(),
+      style: lp.style,
+      success: success
+    };
+    this.hlLast = pick;
+    if (success && lp.style === PlayStyle.SLAM) {
+      this.hlSlamCaught = pick;
+    }
+    if (!success) {
+      this.hlFail = pick;
+    }
+  }
+
+  /** 本局已落定的手数（commitPicked +1，rollbackLastPlay −1）。 */
+  private matchHandNo(): number {
+    let n: number = 0;
+    for (let i = 0; i < this.playCounts.length; i++) {
+      n = n + this.playCounts[i];
+    }
+    return n;
+  }
+
+  /** Priority unchanged: SLAM 被拆穿 > 开错 > 兜底（取本局最后一次判定的质疑）。 */
   private buildHighlight(): string {
-    let slamThenSuccess: boolean = false;
-    let fail: boolean = false;
-    let lastPlayStyle: string = '';
-    for (let i = 0; i < this.eventLog.length; i++) {
-      const ev = this.eventLog[i];
-      if (ev.kind === EventKind.PLAY) {
-        lastPlayStyle = ev.detail;
-      }
-      if (ev.kind === EventKind.JUDGE && ev.detail.indexOf(ChallengeResult.SUCCESS) >= 0) {
-        if (lastPlayStyle.indexOf('SLAM') >= 0) {
-          slamThenSuccess = true;
-        }
-      }
-      if (ev.kind === EventKind.JUDGE && ev.detail.indexOf(ChallengeResult.FAIL) >= 0) {
-        fail = true;
-      }
+    if (this.hlSlamCaught !== null) {
+      return this.lineForPick('lb_str_dlr_hl_slam_caught', this.hlSlamCaught);
     }
-    if (slamThenSuccess) {
-      return lineForKey('lb_str_dlr_hl_slam_caught', this.buildSnapshot());
+    if (this.hlFail !== null) {
+      return this.lineForPick('lb_str_dlr_hl_fail', this.hlFail);
     }
-    if (fail) {
-      return lineForKey('lb_str_dlr_hl_fail', this.buildSnapshot());
+    if (this.hlLast !== null) {
+      return this.lineForPick('lb_str_dlr_hl_fallback', this.hlLast);
     }
-    return lineForKey('lb_str_dlr_hl_fallback', this.buildSnapshot());
+    return '';
+  }
+
+  private lineForPick(key: string, pick: HighlightPick): string {
+    return highlightLineFor(key, this.seats, pick.challengerSeatId, pick.accusedSeatId, pick.handNo);
   }
 
   private refreshTurnBanner(): void {

@@ -256,6 +256,8 @@ struct Table {
   private flushHandH: number = 0;
   private flushHandGY: number = 0;
   private hintTimer: number = -1;
+  /** PR-A 离局二次确认：弹窗挂起期间系统返回键/回开桌键不重复弹、不直接离局。 */
+  private leaveConfirmOpen: boolean = false;
 
   aboutToAppear(): void {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
@@ -1009,7 +1011,7 @@ struct Table {
         })
         .margin({ top: 2, right: 4 })
         .onClick(() => {
-          this.goHome();
+          this.requestLeave();
         })
     }
     .width('100%')
@@ -1549,10 +1551,61 @@ struct Table {
     this.pull();
   }
 
-  /** F3: system back → same as lb_btn_home. */
+  /** F3: system back → same as lb_btn_home (PR-A: via leave confirm). Always consume. */
   onBackPress(): boolean {
-    this.goHome();
+    this.requestLeave();
     return true;
+  }
+
+  /**
+   * PR-A 离局二次确认（lb_btn_home 与系统返回键共用）。文案为临时串，策划 21 交稿后替换。
+   * 确认才 goHome；取消/点遮罩/返回键关窗 = 留在桌上。
+   */
+  private requestLeave(): void {
+    if (this.leaveConfirmOpen) {
+      return;
+    }
+    this.leaveConfirmOpen = true;
+    const opts: AlertDialogParamWithButtons = {
+      title: $r('app.string.lb_str_leave_confirm_title'),
+      message: $r('app.string.lb_str_leave_confirm_body'),
+      autoCancel: false,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: $r('app.string.lb_str_leave_confirm_cancel'),
+        action: (): void => {
+          this.onLeaveCancel();
+        }
+      },
+      secondaryButton: {
+        value: $r('app.string.lb_str_leave_confirm_ok'),
+        fontColor: $r('app.color.tavern_accent'),
+        action: (): void => {
+          this.onLeaveConfirmed();
+        }
+      },
+      cancel: (): void => {
+        this.onLeaveCancel();
+      }
+    };
+    try {
+      this.getUIContext().showAlertDialog(opts);
+    } catch (err) {
+      // Dialog failed to show: stay on table (never leave without confirm).
+      this.leaveConfirmOpen = false;
+      Logger.warn(TAG, 'leave confirm dialog fail-soft — stay on table');
+    }
+  }
+
+  private onLeaveCancel(): void {
+    this.leaveConfirmOpen = false;
+    Logger.info(TAG, 'leave confirm → cancel, stay on table');
+  }
+
+  private onLeaveConfirmed(): void {
+    this.leaveConfirmOpen = false;
+    Logger.info(TAG, 'leave confirm → ok, goHome');
+    this.goHome();
   }
 
   private goHome(): void {
