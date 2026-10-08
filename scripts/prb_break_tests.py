@@ -486,6 +486,8 @@ M = [
 ('B178 elim popup also mounts the pause layer', T,
  "this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM && reason !== PauseReasons.ELIM_CHOICE;",
  "this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM;", '2b trigger (21:234)'),
+('B179 ff cap fallback keeps the virtual-clock deadlines (no rebaseClock)', MD,
+ "    engine.rebaseClock(vt, Date.now());\n", "", '2b ff cap rebase'),
 ]
 
 

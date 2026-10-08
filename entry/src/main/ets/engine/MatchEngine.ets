@@ -219,6 +219,26 @@ export class MatchEngine {
     return shift;
   }
 
+  /**
+   * 2b 快进超步回落（21 §1.7 · 21:236）：快进按虚拟时钟 virtualMs 推进，跑在墙钟前面；回落「继续观战」时把引擎时间轴
+   * 拉回墙钟——每个已武装（>0）的 deadline 平移同一个 (wallMs − virtualMs)（= −(vt − now)），nowMs = wallMs。
+   * 各项剩余时长与到期顺序不变；不改规则 / 质疑结果，不计暂停时长。不复用 resumeClock：它的 shift 下限 ≥ 暂停时长 Δ（只会往后推）。
+   * 返回实际平移量（ms，≤ 0）；时钟暂停中不动（返回 0）。
+   */
+  rebaseClock(virtualMs: number, wallMs: number): number {
+    if (this.clockPausedAt > 0) {
+      return 0;
+    }
+    const shift: number = wallMs - virtualMs;
+    this.turnEndsAtMs = this.turnEndsAtMs > 0 ? this.turnEndsAtMs + shift : 0;
+    this.ritualEndsAtMs = this.ritualEndsAtMs > 0 ? this.ritualEndsAtMs + shift : 0;
+    this.beatEndsAtMs = this.beatEndsAtMs > 0 ? this.beatEndsAtMs + shift : 0;
+    this.penaltyEndsAtMs = this.penaltyEndsAtMs > 0 ? this.penaltyEndsAtMs + shift : 0;
+    this.nowMs = wallMs;
+    Logger.info(TAG, `rebaseClock virtual=${virtualMs} wall=${wallMs} shift=${shift}ms`);
+    return shift;
+  }
+
   /** 暂停开始的墙钟（未暂停 = 0）。 */
   clockPausedAtMs(): number {
     return this.clockPausedAt;

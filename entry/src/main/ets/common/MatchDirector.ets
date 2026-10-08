@@ -443,6 +443,8 @@ export class MatchDirector {
       return FastForwardResult.RECAP;
     }
     Logger.warn(TAG, `ff_cap: ${steps} steps without RECAP (cap ${this.ffMaxSteps}) → fall back to spectate`);
+    // 虚拟时钟 vt 跑在墙钟前面：已武装的 deadline 一律平移 −(vt − now)、引擎 nowMs = now，观战按真实时间接着走（剩余时长不变）。
+    engine.rebaseClock(vt, Date.now());
     this.ffMatch = false;
     this.armedSeat = -1;
     this.resumeHoldUntilMs = Date.now() + RESUME_GRACE_MS;

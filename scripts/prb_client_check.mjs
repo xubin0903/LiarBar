@@ -3056,8 +3056,8 @@ ok(plz !== null && Number(plz[1]) > Math.max(flyMax, ...zNums) && /\.zIndex\(PAU
   `PAUSE_LAYER_Z=${plz && plz[1]} > every other zIndex (fly max ${flyMax} = ${flyBase && flyBase[1]} + ${md.max_players}×${md.hand_size_default}; literals ${zNums.join('/')})`);
 ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
   'pause layer only mounted while pauseLayerOn (no layout / hit-test change when not paused)');
-// ⑮ 补丁轮 2 第 1 段（UI 22 S22-32 / 22:106）：zIndex 只在同一父容器里比，所以按父容器查挂载位置——暂停层必须是根 Stack 的
-// 最后一个直接子节点，排在桌面 Stack（含桌槌 choiceActLayer / 回大厅键）、PeekMaskOverlay、出牌面板、飞牌之后；全屏盖安全区、遮罩吃点击。
+// ⑮ 补丁轮 2 第 1 段（UI 22 S22-32 / 22:106）：zIndex 只在同一父容器里比，所以按父容器查挂载位置——暂停层必须是根 Stack 的直接子节点
+// （2b 起其后只挂淘汰弹层、快进罩，快进罩为最后一个），排在桌面 Stack（含桌槌 choiceActLayer / 回大厅键）、PeekMaskOverlay、出牌面板、飞牌之后；全屏盖安全区、遮罩吃点击。
 {
   const bld = body(table, '  build() {');
   const lines = bld.split('\n');
@@ -3080,8 +3080,8 @@ ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
     !deskBody.includes('this.elimChoiceLayer()') && !deskBody.includes('this.ffOverlay()') &&
     !deskBody.includes('this.pauseLayer()') && deskBody.includes('this.choiceActLayer()') && deskBody.includes('this.homeExitChrome()') &&
     count(tableCode, /this\.pauseLayer\(\)/) === 1,
-    `pause layer mount (by parent): last child of the root Stack (root children lines desk ${desk}-${deskEnd} [mallet + home inside], ` +
-    `PeekMaskOverlay ${peek}, play sheet ${sheet}, fly card ${fly}, pause layer ${pause}, 2b elim choice ${elim}, 2b ff overlay ${ffo}; last root child ${last}); not inside the desk Stack`);
+    `pause layer mount (by parent): root Stack child after desk ${desk}-${deskEnd} [mallet + home inside], PeekMaskOverlay ${peek}, play sheet ${sheet}, fly card ${fly} → pause layer ${pause}; ` +
+    `followed by 2b elim choice ${elim} then 2b ff overlay ${ffo} (ff overlay = last root child ${last}); pause / elim / ff not inside the desk Stack; pauseLayer() mounted once`);
   const plb = body(table, '  pauseLayer() {');
   ok(/\.expandSafeArea\(\[SafeAreaType\.SYSTEM, SafeAreaType\.CUTOUT\],\s*\[SafeAreaEdge\.TOP, SafeAreaEdge\.BOTTOM, SafeAreaEdge\.START, SafeAreaEdge\.END\]\)/.test(plb) &&
     /\.hitTestBehavior\(HitTestMode\.Default\)/.test(plb) && /\.opacity\(0\.72\)\s*\.onClick\(/.test(plb) &&
@@ -3906,6 +3906,51 @@ ${stubs}`) + '\nexport { TableFF };';
       wC.commits.length === 1 && wC.commits[0].phase === wC.Ph.Phase.RECAP && wC.commits[0].quit === false && wC.routes.length >= 1 && wC.d.ffMaxSteps === 5,
       `2b ff cap (21:236, injected cap 5): ${(wC.logs.warn.find((m) => m.startsWith('ff_cap')) || 'no ff_cap log')}; overlay off, spectating ${wC.t.spectating}, RUNNING; ` +
       `same BGM player resumes ${plC}→${bgC && resumesOf(bgC)}, gen ${genC}→${wC.TA.gen}; then plays on → 1 record at RECAP (ff=${wC.commits[0] && wC.commits[0].ff})`);
+
+    // ── 超步回落对齐墙钟（打回修正 · 21:236）：注入 cap 26——快进先走一次超时代打，虚拟时钟 vt 领先真实 now ≥ 10 s 时触发 cap；
+    //    回落后 MatchEngine.rebaseClock 把已武装 deadline 平移 −(vt−now)：当前阶段 deadline−now ∈ (0, max(turn/仪式/押注秒)]，观战按真实时间推进到 RECAP，记 1 条 ff=false
+    const wR = await ffWorld(SEED_A, { cap: 26 });
+    reachElim(wR);
+    wR.clk.advance(1000); // the player reads the popup for 1 s
+    let inFfR = false;
+    let vtR = 0;
+    let toR = 0;
+    const pulseR = wR.en.pulse.bind(wR.en);
+    wR.en.pulse = (n) => { if (inFfR) vtR = n; return pulseR(n); };
+    const timeoutR = wR.en.timeout.bind(wR.en);
+    wR.en.timeout = () => { if (inFfR) toR++; return timeoutR(); };
+    wR.t.onElimToReport();
+    inFfR = true;
+    wR.clk.advance(ffPaint); // FF runs synchronously inside the scheduled paint callback (virtual clock only)
+    inFfR = false;
+    const nowR = wR.clk.now;
+    const cfgR = wR.en.cfg;
+    const capWinR = Math.max(cfgR.turn_seconds, cfgR.challenge_ritual_max_seconds, cfgR.challenge_bet_seconds) * 1000;
+    const PR = wR.Ph.Phase;
+    const phaseDl = (w) => { // the deadline pulse() acts on in the current phase (finished ritual/beat/penalty deadlines stay armed but are phase-gated)
+      const ph = w.en.phase;
+      if (ph === PR.TURN || ph === PR.PLAY_REVEAL_SELF) return w.en.turnEndsAtMs;
+      if (ph === PR.CHALLENGE_RITUAL) return [w.en.ritualEndsAtMs, w.en.beatEndsAtMs].filter((x) => x > 0).reduce((m, x) => (m === 0 || x < m ? x : m), 0);
+      if (ph === PR.PENALTY) return w.en.penaltyEndsAtMs;
+      return 0;
+    };
+    const phR = wR.en.phase;
+    const capNowMsR = wR.en.nowMs;
+    const seatR = wR.en.current().currentSeatId;
+    const gapR = phaseDl(wR) - nowR;
+    const rawGapR = wR.en.earliestDeadline() - nowR;
+    const capR = !wR.t.ffOn && wR.t.spectating && wR.d.pauseStateNow() === wR.DM.PauseState.RUNNING && wR.commits.length === 0 && wR.routes.length === 0 &&
+      !wR.d.isFastForwardMatch() && wR.logs.warn.some((m) => m.startsWith('ff_cap'));
+    let stepR = 0;
+    wR.runUntil(() => { stepR++; return wR.en.phase !== phR || wR.en.current().currentSeatId !== seatR || !wR.live(); });
+    const movedMsR = wR.clk.now - nowR;
+    wR.runUntil(() => !wR.live());
+    wR.frame(); wR.frame();
+    ok(capR && capNowMsR === nowR && vtR - nowR >= 10000 && toR >= 1 && gapR > 0 && gapR <= capWinR && movedMsR <= gapR + 100 &&
+      wR.commits.length === 1 && wR.commits[0].phase === PR.RECAP && wR.commits[0].ff === false && wR.commits[0].quit === false && wR.routes.length >= 1 && wR.d.ffMaxSteps === 26,
+      `2b ff cap rebase (21:236, cap 26): after fallback ${phR} deadline−now ${gapR} ms ∈ (0, ${capWinR}], engine nowMs−now ${capNowMsR - nowR}; ` +
+      `FF auto-played ${toR} timeout(s), vt led real now by ${vtR - nowR} ms at ff_cap (raw earliestDeadline−now ${rawGapR}: finished ritual/penalty deadlines stay armed, phase-gated); ` +
+      `spectate moved on after ${movedMsR} ms real time; then RECAP → ${wR.commits.length} record (ff=${wR.commits[0] && wR.commits[0].ff}, quit=${wR.commits[0] && wR.commits[0].quit}), route Report ×${wR.routes.length}`);
 
     // ── 观战中离局（21:243 / §2.4）：按已定名次记负、不标中退（真 commitLeaveRecord）
     const wL = await ffWorld(SEED_A);
