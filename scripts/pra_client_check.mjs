@@ -211,11 +211,11 @@ if (homeChrome.includes('this.requestLeave()') && !homeChrome.includes('this.goH
 // EXACTLY (no extra path, no missing path, same count per path). Each allowed goHome path must set the
 // leaving lock (`this.leaving = true`) before calling goHome, and goHome itself must be idempotent.
 // Report → lobby does NOT go through Table.goHome: Report.ets routes on its own (checked in ③ above).
-// TODO(UI 22): 暂停层「结束游戏 / 回大厅」接进来后会新增 goHome 路径 —— 在 GOHOME_EXIT_PATHS 登记
+// 暂停层「回大厅」走 confirmLobbyLayer → onLeaveConfirmed → goHome；「结束游戏」走 onConfirmEndOk → replaceReport（不经 goHome）
 // 新方法名与次数，并给新路径同样补离局锁 / 中退一次的断言；不许删表或放宽成计数≥1。
 const GOHOME_EXIT_PATHS = { onLeaveConfirmed: 1 };
 // PR-B 离局待停（21 §3.1 P06）：弹框从 requestLeave 拆到 openLeaveConfirm（requestLeave 直弹 / 待停结束由 onPauseState 调）。
-const LEAVE_OK_PATHS = { openLeaveConfirm: 1 };
+const LEAVE_OK_PATHS = { confirmLobbyLayer: 1 };
 const LEAVE_REQUEST_PATHS = { homeExitChrome: 1, onBackPress: 1 };
 const tableCode = stripCommentsAndStrings(table);
 function callSitesByMethod(code, callRe) {
@@ -253,11 +253,11 @@ if (sameMap(goHomeSites, GOHOME_EXIT_PATHS)) {
   fail(`goHome exit paths ${show(goHomeSites)} != allowlist ${show(GOHOME_EXIT_PATHS)}`);
 }
 const okSites = callSitesByMethod(tableCode, /this\.onLeaveConfirmed\(\)/);
-const reqBody = methodBody(table, '  private openLeaveConfirm(): void {');
-if (sameMap(okSites, LEAVE_OK_PATHS) && /secondaryButton:[\s\S]*?this\.onLeaveConfirmed\(\)/.test(reqBody)) {
-  pass('onLeaveConfirmed only from the leave dialog OK (secondaryButton) in openLeaveConfirm');
+const lobbyLayer = methodBody(table, '  confirmLobbyLayer() {');
+if (sameMap(okSites, LEAVE_OK_PATHS) && /ControlIds\.CONFIRM_LOBBY_OK[\s\S]*?this\.onLeaveConfirmed\(\)/.test(lobbyLayer)) {
+  pass('onLeaveConfirmed only from confirmLobbyLayer OK (lb_btn_confirm_lobby_ok; 22 §6.4 custom panel)');
 } else {
-  fail(`onLeaveConfirmed call sites ${show(okSites)} (expected dialog OK only)`);
+  fail(`onLeaveConfirmed call sites ${show(okSites)} (expected confirmLobbyLayer OK only)`);
 }
 const reqSites = callSitesByMethod(tableCode, /this\.requestLeave\(\)/);
 if (sameMap(reqSites, LEAVE_REQUEST_PATHS)) {
@@ -295,10 +295,13 @@ if (!/goHome\(/.test(stripCommentsAndStrings(report))) {
   fail('Report references goHome');
 }
 const req = methodBody(table, '  private requestLeave(): void {') + methodBody(table, '  private openLeaveConfirm(): void {');
-if (req.includes('if (this.leaveConfirmOpen || this.leavePending)') && req.includes('if (this.leaving || this.leaveConfirmOpen)') && req.includes('showAlertDialog(') &&
-  req.includes('lb_str_leave_confirm_title') && req.includes('lb_str_leave_confirm_body') &&
-  req.includes('lb_str_leave_confirm_ok') && req.includes('lb_str_leave_confirm_cancel')) {
-  pass('requestLeave/openLeaveConfirm: AlertDialog with 4 lb_str_leave_confirm_* keys; re-entry guarded (open / pending)');
+const lobbyLayerSrc = methodBody(table, '  confirmLobbyLayer() {');
+if (req.includes('if (this.leaveConfirmOpen || this.leavePending)') && req.includes('if (this.leaving || this.leaveConfirmOpen)') &&
+  !req.includes('showAlertDialog(') && /confirmLobbyLayer\(\)/.test(table) &&
+  lobbyLayerSrc.includes('lb_str_leave_confirm_title') && lobbyLayerSrc.includes('lb_str_leave_confirm_body') &&
+  lobbyLayerSrc.includes('lb_str_leave_confirm_ok') && lobbyLayerSrc.includes('lb_str_leave_confirm_cancel') &&
+  lobbyLayerSrc.includes('ControlIds.CONFIRM_LOBBY')) {
+  pass('requestLeave/openLeaveConfirm: custom lb_cmp_confirm_lobby with 4 lb_str_leave_confirm_* keys; re-entry guarded (open / pending); no AlertDialog');
 } else {
   fail('requestLeave dialog incomplete');
 }

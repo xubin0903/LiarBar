@@ -190,11 +190,13 @@ ok(req.indexOf('if (this.leaving)') >= 0 && req.indexOf('if (this.leaveConfirmOp
   'requestLeave: leaving lock + open/pending guard before anything (repeat presses count once)');
 ok(pauseAt > 0 && /if \(st === PauseState\.PENDING\) \{\s*this\.leavePending = true;[\s\S]*?return;\s*\}\s*this\.openLeaveConfirm\(\);/.test(req) &&
   !req.includes('showAlertDialog('), 'leave → director.requestPause(LEAVE_CONFIRM) first; PENDING records intent only, dialog later (21 §3.1 P06 / S21-45)');
-ok(/if \(this\.leaving \|\| this\.leaveConfirmOpen\) \{\s*return;/.test(oc) && oc.indexOf('this.leaveConfirmOpen = true') < oc.indexOf('showAlertDialog('),
-  'openLeaveConfirm: single dialog guard, then showAlertDialog');
-ok(/primaryButton:[\s\S]*?this\.onLeaveCancel\(\)/.test(oc) && /cancel: \(\): void => \{\s*this\.onLeaveCancel\(\);/.test(oc),
-  'dialog 取消 button and back/dismiss (cancel) → onLeaveCancel');
-ok(/catch \(err\) \{[\s\S]*?this\.resumeIfLeavePause\(\)/.test(oc), 'dialog show failure → resume (never stuck paused)');
+ok(/if \(this\.leaving \|\| this\.leaveConfirmOpen\) \{\s*return;/.test(oc) && oc.includes('this.leaveConfirmOpen = true') &&
+  !oc.includes('showAlertDialog('),
+  'openLeaveConfirm: single panel guard, sets leaveConfirmOpen (22 §6.4 custom lb_cmp_confirm_lobby, no AlertDialog)');
+ok(/confirmLobbyLayer\(\)/.test(tableCode) && /ControlIds\.CONFIRM_LOBBY/.test(tableCode),
+  'leave confirm custom panel lb_cmp_confirm_lobby mounted from Table');
+ok(/onLeaveCancel\(\)/.test(tableCode) && /CONFIRM_LOBBY_CANCEL/.test(src(E + 'common/Ids.ets')),
+  'confirm lobby cancel id + onLeaveCancel wired');
 const opsAll = code(body(table, '  private onPauseState(state: PauseState, shiftMs: number): void {'));
 ok(/if \(this\.leavePending\) \{\s*this\.leavePending = false;\s*this\.openLeaveConfirm\(\);/.test(opsAll.slice(0, opsAll.indexOf('PauseState.PENDING'))),
   'PAUSED (sequence ended or PENDING_CAP_MS) opens the deferred leave dialog exactly once');
@@ -214,8 +216,9 @@ ok(!conf.includes('this.leaveConfirmOpen = false'), 'confirm path never resets t
 const back = code(body(table, '  onBackPress(): boolean {'));
 ok(/if \(this\.leaving\) \{\s*return true;\s*\}/.test(back) && back.indexOf('if (this.leaving)') < back.indexOf('this.requestLeave()'),
   'onBackPress while leaving: consumed, does nothing');
-ok(/if \(this\.pauseLayerOn\) \{\s*this\.resumeFromPauseLayer\(\);\s*return true;/.test(back) &&
-  back.indexOf('this.pauseLayerOn') < back.indexOf('this.requestLeave()'), 'onBackPress on pause layer = 继续 (21 P08)');
+ok(/if \(this\.pauseLayerOn\)/.test(back) && /this\.resumeFromPauseLayer\(\)/.test(back) &&
+  back.indexOf('this.pauseLayerOn') < back.indexOf('this.requestLeave()') && /leaveConfirmOpen/.test(back),
+  'onBackPress: leave confirm = cancel; pause sublayer = menu; menu/BG = 继续 (21 P08 / §3.5)');
 const gh = code(body(table, '  private goHome(): void {'));
 ok(/^[^{]*\{\s*if \(this\.homeRouting\) \{\s*return;\s*\}\s*this\.homeRouting = true;/.test(gh), 'goHome idempotent (homeRouting guard first)');
 ok(!/toLobby\(\)|director\.stop\(\)|cancelAll\(\)|resetPlayFlyUi/.test(gh) && gh.includes('void this.unlockLobbyThenRoute()'),
@@ -304,9 +307,10 @@ ok(/snap\.phase === Phase\.LOBBY/.test(clrRaw) && /if \(snap\.matchId === Record
 
 // ---------------------------------------------------------------- ② records
 const clr = code(body(table, '  private commitLeaveRecord(): void {'));
-ok(count(tableCode, /RecordStore\.commitOnce\(/) === 1 && clr.includes('RecordStore.commitOnce(snap, leaveCommit)') &&
-  /isDemo: AppRuntime\.engine\.isDemoMatch\(\),\s*ff: false,\s*pausedMs: AppRuntime\.engine\.pausedTotalAt\(Date\.now\(\)\)/.test(clr),
-  'Table writes the leave record at exactly one call site (isDemo + pausedMs incl. the open dialog)');
+ok(count(tableCode, /RecordStore\.commitOnce\(/) === 2 && clr.includes('RecordStore.commitOnce(snap, leaveCommit)') &&
+  /isDemo: AppRuntime\.engine\.isDemoMatch\(\),\s*ff: false,\s*pausedMs: AppRuntime\.engine\.pausedTotalAt\(Date\.now\(\)\)/.test(clr) &&
+  /onConfirmEndOk/.test(tableCode),
+  'Table writes records at leave confirm + 结束游戏 (isDemo + pausedMs; both commitOnce)');
 ok(/snap\.phase === Phase\.RECAP \|\| snap\.phase === Phase\.END/.test(clr) && clr.includes('return;'),
   'leave record skipped once RECAP/END (director owns that write) → paths cannot both write');
 ok(clr.includes('quit: !this.humanIsGhost(snap)'), '在局离开 = 中退; 观战离开 = 非中退 (21 §2.4)');
@@ -559,9 +563,9 @@ ok(/const ff: boolean = AppRuntime\.director\.isFastForwardMatch\(\);[\s\S]*?if 
   count(rpa, /AppRuntime\.engine\.pausedTotalAt\(/) === 1 &&
   rpa.includes('RecordStore.commitOnce(snap, recapCommit)') && count(code(reportSrc), /RecordStore\.commitOnce\(/) === 1,
   'Report.aboutToAppear backstop: RECAP → commitOnce with the director\'s shape (idempotent via last_match_id)');
-ok(count(code(dir), /RecordStore\.commitOnce\(/) === 1 && count(code(table), /RecordStore\.commitOnce\(/) === 1 &&
+ok(count(code(dir), /RecordStore\.commitOnce\(/) === 1 && count(code(table), /RecordStore\.commitOnce\(/) === 2 &&
   count(code(records), /store\.put\(/) === 3 && count(code(body(records, '  private static async persist(): Promise<void> {')), /store\.put\(/) === 3,
-  'S21-17: RECAP (director) + Report backstop + leave (Table) are the only writers, all via commitOnce; only persist() puts');
+  'S21-17: RECAP (director) + Report backstop + leave/end (Table×2) are the only writers, all via commitOnce; only persist() puts');
 const co = code(body(records, '  static commitOnce(snap: MatchSnapshot, opts: RecordCommit): boolean {'));
 ok(/if \(snap\.matchId === RecordStore\.lastMatchId \|\| snap\.matchId === RecordStore\.demoClaim\) \{\s*return false;/.test(co),
   'commitOnce dedups via last_match_id before anything else (S21-17)');
@@ -942,7 +946,9 @@ const TABLE_SIGS = ['  private requestLeave(): void {', '  private openLeaveConf
   '  private resumeFromPauseLayer(): void {', '  private goHome(): void {', '  private teardownAfterRoute(): void {',
   '  private async unlockLobbyThenRoute(): Promise<void> {', '  private releaseLeaveLock(): void {', '  aboutToDisappear(): void {',
   '  private finishLeaveIfRouted(): void {', '  private finishLeaveOnce(why: string): boolean {', '  private cancelPlaySheet(): void {',
-  '  private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {', '  private async closePeek(): Promise<void> {'];
+  '  private beginHumanPlay(style: PlayStyle, namedSeatId: number): void {', '  private async closePeek(): Promise<void> {',
+  '  private armPendingBar(): void {', '  private clearPendingBar(): void {', '  private requestPauseFromButton(): void {',
+  '  private openLeaveConfirmFromPauseMenu(): void {', '  private onConfirmEndOk(): void {'];
 const missingSigs = TABLE_SIGS.filter((sg) => body(table, sg).length === 0);
 ok(missingSigs.length === 0, `Table harness: all ${TABLE_SIGS.length} methods found (${missingSigs.join(' | ') || 'ok'})`);
 const TABLE_TYPES = ['AlertDialogParamWithButtons', 'MatchSnapshot | null', 'RecordCommit', 'PauseListener', 'PauseState', 'common.UIAbilityContext',
@@ -950,8 +956,9 @@ const TABLE_TYPES = ['AlertDialogParamWithButtons', 'MatchSnapshot | null', 'Rec
 const tableMethodsJs = stripEts(TABLE_SIGS.map((sg) => body(table, sg) + '\n  }\n').join('\n'), TABLE_TYPES, ['common.UIAbilityContext']);
 const harnessJs = `class TableHarness {
   constructor() {
-    this.leaving = false; this.leaveConfirmOpen = false; this.leavePending = false; this.homeRouting = false;
-    this.pauseLayerOn = false; this.pauseFromBackground = false; this.lastHudStamp = ''; this.debugPauseOn = false;
+    this.leaving = false; this.leaveConfirmOpen = false; this.leaveConfirmAt = 0; this.leavePending = false; this.homeRouting = false;
+    this.pauseLayerOn = false; this.pauseFromBackground = false; this.pauseSub = 'menu'; this.pausePendingOn = false;
+    this.pausePendingBarOn = false; this.pausePendingBarTimer = -1; this.lastHudStamp = ''; this.debugPauseOn = false;
     this.challengeTickId = -1; this.challengeDeadlineMs = 0; this.pauseListener = null; this.revealTimer = -1; this.choiceActTimer = -1;
     this.revealForChallengeId = ''; this.choiceActForChallengeId = ''; this.leaveRouteIssued = false; this.leaveFinished = false; this.pollId = -1; this.hintTimer = -1;
     this.timers = new PausableScheduler(); this.dialogs = []; this.calls = [];
@@ -1096,26 +1103,27 @@ if (RSh && PSched && MR) {
     {
       const { t, director } = await makeWorld();
       t.requestLeave();
-      ok(t.dialogs.length === 1 && director.state === PSt.PAUSED && director.reason === PRs.LEAVE_CONFIRM && audio.paused === 1 && t.timers.isPaused(),
-        `leave-idle: dialog shown immediately, director PAUSED(${director.reason}), timers + BGM frozen`);
+      ok(t.leaveConfirmOpen === true && director.state === PSt.PAUSED && director.reason === PRs.LEAVE_CONFIRM && audio.paused === 1 && t.timers.isPaused(),
+        `leave-idle: confirm panel open, director PAUSED(${director.reason}), timers + BGM frozen`);
     }
     // (a) entry A — not pending yet, sequence (reveal / candle) running: press home → intent recorded, PENDING, no dialog until it ends.
     {
       const { t, director, clk: c } = await makeWorld();
       director.busy = true;
       t.requestLeave();
-      const mid = t.dialogs.length;
+      const mid = t.leaveConfirmOpen;
       for (let i = 0; i < 4; i++) { c.advance(300); t.requestLeave(); director.tick(); }
-      const stillMid = t.dialogs.length;
+      const stillMid = t.leaveConfirmOpen;
       c.advance(500);
       director.busy = false;
       const endAt = c.now;
       director.tick();
       director.tick();
-      const afterEnd = t.dialogs.length; // opened by the sequence end itself, not by a new press
-      t.requestLeave(); // a press while the dialog is open does not add a second one
-      ok(mid === 0 && stillMid === 0 && afterEnd === 1 && t.dialogs.length === 1 && t.dialogs[0].busy === false && t.dialogs[0].at === endAt && director.state === PSt.PAUSED,
-        `leave-pending-entryA (not yet pending, sequence busy): 0 dialogs during the sequence (5 presses), exactly ${t.dialogs.length} after it ended (busy=${t.dialogs[0] && t.dialogs[0].busy})`);
+      const afterEnd = t.leaveConfirmOpen;
+      const openedAt = t.leaveConfirmAt;
+      t.requestLeave(); // a press while the panel is open does not re-open
+      ok(mid === false && stillMid === false && afterEnd === true && t.leaveConfirmOpen === true && openedAt === endAt && director.state === PSt.PAUSED,
+        `leave-pending-entryA (not yet pending, sequence busy): no panel during the sequence (5 presses), exactly 1 after it ended (at=${openedAt})`);
     }
     // (b) entry B — already PENDING (another pause request waiting on the same sequence) when home is pressed, then pressed again.
     {
@@ -1124,11 +1132,11 @@ if (RSh && PSched && MR) {
       director.requestPause(PRs.USER);
       t.requestLeave();
       t.requestLeave();
-      const mid = t.dialogs.length;
+      const mid = t.leaveConfirmOpen;
       director.busy = false;
       director.tick();
-      ok(mid === 0 && t.leavePending === false && t.dialogs.length === 1 && t.dialogs[0].busy === false,
-        `leave-pending-entryB (already PENDING): 0 dialogs mid-sequence, exactly ${t.dialogs.length} after it ended`);
+      ok(mid === false && t.leavePending === false && t.leaveConfirmOpen === true,
+        `leave-pending-entryB (already PENDING): no panel mid-sequence, panel after it ended`);
       // and the variant where the pending one is our own first press
       const w2 = await makeWorld();
       w2.director.busy = true;
@@ -1138,7 +1146,7 @@ if (RSh && PSched && MR) {
       w2.t.requestLeave();
       w2.director.busy = false;
       w2.director.tick();
-      ok(pend1 === PSt.PENDING && w2.t.dialogs.length === 1, `leave-pending-entryB' (own press already pending, pressed twice more): ${w2.t.dialogs.length} dialog after the sequence`);
+      ok(pend1 === PSt.PENDING && w2.t.leaveConfirmOpen === true, `leave-pending-entryB' (own press already pending, pressed twice more): panel after the sequence`);
     }
     // (c) PENDING_CAP_MS: sequence never ends → forced pause at the cap opens the one dialog (logged).
     {
@@ -1146,11 +1154,11 @@ if (RSh && PSched && MR) {
       director.busy = true;
       t.requestLeave();
       for (let i = 0; i < 5; i++) { c.advance(1000); t.requestLeave(); director.tick(); }
-      const before = t.dialogs.length;
+      const before = t.leaveConfirmOpen;
       c.advance(capMs - 5000);
       director.tick();
-      ok(before === 0 && t.dialogs.length === 1 && director.capLogs === 1 && t.dialogs[0].at - (50000) === capMs,
-        `leave-pending-cap: mash 5×, no dialog before ${capMs} ms; forced stop at +${t.dialogs[0] && t.dialogs[0].at - 50000} ms opens exactly 1 (cap logged)`);
+      ok(before === false && t.leaveConfirmOpen === true && director.capLogs === 1 && t.leaveConfirmAt - (50000) === capMs,
+        `leave-pending-cap: mash 5×, no panel before ${capMs} ms; forced stop at +${t.leaveConfirmAt - 50000} ms opens exactly 1 (cap logged)`);
     }
     // (d) the sequence ended the match → pending dropped, no dialog, no 中退.
     {
@@ -1158,7 +1166,7 @@ if (RSh && PSched && MR) {
       director.busy = true;
       t.requestLeave();
       director.endMatchDuringSequence();
-      ok(t.dialogs.length === 0 && t.leavePending === false && curPrefStore.writes().length === 0, 'leave-pending-match-ended: request dropped, no dialog, no record');
+      ok(t.leaveConfirmOpen === false && t.leavePending === false && curPrefStore.writes().length === 0, 'leave-pending-match-ended: request dropped, no panel, no record');
     }
     // (e) cancel → normal resume (uniform shift ≥ grace), timers resume.
     {
@@ -1169,7 +1177,7 @@ if (RSh && PSched && MR) {
       t.requestLeave();
       c.advance(4000);
       const resumeAt = c.now;
-      t.dialogs[0].opts.primaryButton.action();
+      t.onLeaveCancel();
       c.advance(2000);
       ok(director.state === PSt.RUNNING && director.resumes === 1 && fired.length === 1 && fired[0] - resumeAt === graceMs && audio.resumed === 1 && !t.leaveConfirmOpen,
         `leave-cancel: resumed via director, held page timer fired ${fired[0] - resumeAt} ms after resume (= RESUME_GRACE_MS), BGM resumed`);
@@ -1191,18 +1199,18 @@ if (RSh && PSched && MR) {
       const { t, director, engine, clk: c, RSx } = await makeWorld();
       routeMode = 'reject'; stackLen = 1; routerLog.back = 0;
       t.requestLeave();
-      t.dialogs[0].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
       const kept = engine.toLobbyCalls === 0 && director.stopped === 0 && !t.calls.includes('teardown') && engine.snap.phase === PhaseE.TURN;
       ok(kept && !t.leaving && !t.homeRouting && !t.leaveConfirmOpen && director.state === PSt.RUNNING && RSx.recent().length === 1 && RSx.recent()[0].quit === true,
         `route-double-fail: replace ✗ + back ✗ → match kept (no teardown / no LOBBY), locks released, director ${director.state}; 中退 records=${RSx.recent().length}`);
       t.requestLeave();
-      t.dialogs[1].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
-      ok(t.dialogs.length === 2 && RSx.recent().length === 1 && RSx.summaryNow().quits === 1, `route-double-fail retry: second confirm still ${RSx.recent().length} 中退 record (commitOnce dedup)`);
+      ok(t.leaveConfirmOpen === false && RSx.recent().length === 1 && RSx.summaryNow().quits === 1, `route-double-fail retry: second confirm still ${RSx.recent().length} 中退 record (commitOnce dedup)`);
       routeMode = 'ok'; stackLen = 2;
       t.requestLeave();
-      t.dialogs[2].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
       ok(engine.toLobbyCalls === 1 && director.stopped === 1 && t.calls.includes('teardown') && t.leaving === true && RSx.recent().length === 1,
         'route-success after failures: teardown once (director stop, engine LOBBY), lock held, still 1 record');
@@ -1213,7 +1221,7 @@ if (RSh && PSched && MR) {
       const { t, director, engine, clk: c } = await makeWorld();
       routeMode = 'lateReject'; stackLen = 2; routerLog.back = 0;
       t.requestLeave();
-      t.dialogs[0].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
       c.advance(2999);
       await drainMicrotasks();
@@ -1232,7 +1240,7 @@ if (RSh && PSched && MR) {
       const { t, director, engine, clk: c, RSx } = await makeWorld();
       routeMode = 'lateResolve'; stackLen = 2; routerLog.back = 0;
       t.requestLeave();
-      t.dialogs[0].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
       c.advance(3000);
       await drainMicrotasks();
@@ -1244,10 +1252,10 @@ if (RSh && PSched && MR) {
       t.aboutToDisappear(); // the page is being removed by that late navigation
       await tickIo();
       ok(timedOut && lateIgnored && director.stopped === 1 && engine.toLobbyCalls === 1 && engine.snap.phase === PhaseE.LOBBY &&
-        RSx.recent().length === 1 && RSx.recent()[0].quit === true && RSx.summaryNow().quits === 1 && t.dialogs.length === 1 &&
+        RSx.recent().length === 1 && RSx.recent()[0].quit === true && RSx.summaryNow().quits === 1 && t.leaveConfirmOpen === false &&
         director.listeners.length === 0,
         `route-late-success: timeout unlock → late success → aboutToDisappear: director stopped=${director.stopped}, engine ${engine.snap.phase}, ` +
-        `中退 records=${RSx.recent().length}, dialogs=${t.dialogs.length}`);
+        `中退 records=${RSx.recent().length}, leaveConfirmOpen=${t.leaveConfirmOpen}`);
       routeMode = 'ok';
     }
     // Controls: page removed without any leave route → untouched; RECAP → Report after a timed-out leave → untouched.
@@ -1257,7 +1265,7 @@ if (RSh && PSched && MR) {
       const n2 = await makeWorld();
       routeMode = 'hang';
       n2.t.requestLeave();
-      n2.t.dialogs[0].opts.secondaryButton.action();
+      n2.t.onLeaveConfirmed();
       await drainMicrotasks();
       n2.clk.advance(3000);
       await drainMicrotasks();
@@ -1387,7 +1395,7 @@ export { LobbyHarness };`;
     const bgmOf = (fm) => fm.players[0];
     const poolsPlayers = (fm) => ({ pools: fm.pools.length, players: fm.players.length,
       livePools: fm.pools.filter((p) => !p.released).length, livePlayers: fm.players.filter((p) => !p.released).length });
-    const confirmLeave = async (t, n) => { t.requestLeave(); t.dialogs[n].opts.secondaryButton.action(); await drainMicrotasks(); };
+    const confirmLeave = async (t, n) => { t.requestLeave(); t.onLeaveConfirmed(); await drainMicrotasks(); };
     const isPlaying = (p) => !p.released && p.acts.filter((a) => !a.startsWith('vol:')).pop() === 'play';
     // 进桌后大厅 BGM 淡出票：acts 从 from 起（大厅页 onPageHide 之后）有没有再 play()、送过的音量是不是全 0、最后停在 pause。
     const silentSince = (p, from) => {
@@ -2448,7 +2456,7 @@ export { LobbyHarness };`;
       const { t, director, clk: c } = await makeWorld();
       routeMode = 'lateResolve'; stackLen = 2;
       t.requestLeave();
-      t.dialogs[0].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
       c.advance(3000);
       await drainMicrotasks(); // timeout → resumed (BGM back in: game goes on)
@@ -2505,13 +2513,13 @@ export { LobbyHarness };`;
       const { t, engine } = await makeWorld();
       routeMode = 'reject'; stackLen = 2; routerLog.back = 0;
       t.requestLeave();
-      t.dialogs[0].opts.secondaryButton.action();
+      t.onLeaveConfirmed();
       await drainMicrotasks();
       ok(routerLog.back === 1 && engine.toLobbyCalls === 1 && t.leaving, 'route-back-fallback: replace ✗ → back() ✓ → teardown');
       routeMode = 'throw'; stackLen = 1;
       const w3 = await makeWorld();
       w3.t.requestLeave();
-      w3.t.dialogs[0].opts.secondaryButton.action();
+      w3.t.onLeaveConfirmed();
       await drainMicrotasks();
       ok(!w3.t.leaving && w3.engine.toLobbyCalls === 0, 'route-sync-throw + no back page → failure → unlocked, state kept');
       routeMode = 'ok';
@@ -3068,13 +3076,21 @@ ok(pauseBtn > 0 && panel.lastIndexOf('if (this.debugPauseOn)', pauseBtn) > 0 && 
 const ata = code(body(table, '  aboutToAppear(): void {'));
 ok(count(tableCode, /DebugBuild\.debugPauseShown\(\)/) === 1 && ata.includes('this.debugPauseOn = DebugBuild.debugPauseShown()') &&
   /private debugPauseOn: boolean = false;/.test(table), 'DebugBuild.debugPauseShown() read once in aboutToAppear into a private field (fail-closed default false)');
-ok(count(tableCode, /PauseReasons\.USER/) === 1 &&
-  /requestUserPause\(\): void \{\s*if \(!this\.debugPauseOn/.test(tableCode), 'USER pause only via guarded debug entry');
+ok(count(tableCode, /PauseReasons\.USER/) === 2 &&
+  /requestUserPause\(\): void \{\s*if \(!this\.debugPauseOn/.test(tableCode) &&
+  /requestPauseFromButton\(\): void/.test(tableCode),
+  'USER pause via debug entry + production lb_btn_pause');
 const ctlIds = src(E + 'common/Ids.ets');
-const ID4 = { DEBUG_PAUSE: 'lb_btn_debug_pause', PAUSE_LAYER: 'lb_cmp_pause_layer', PAUSE_RESUME: 'lb_btn_pause_resume', PAUSE_BG_NOTE: 'lb_txt_pause_bg_note' };
+const ID4 = { DEBUG_PAUSE: 'lb_btn_debug_pause', PAUSE: 'lb_btn_pause', PAUSE_LAYER: 'lb_cmp_pause_layer',
+  PAUSE_RESUME: 'lb_btn_pause_resume', PAUSE_SETTINGS: 'lb_btn_pause_settings', PAUSE_RULES: 'lb_btn_pause_rules',
+  PAUSE_END: 'lb_btn_pause_end', PAUSE_LOBBY: 'lb_btn_pause_lobby', PAUSE_BG_NOTE: 'lb_txt_pause_bg_note',
+  PAUSE_PENDING: 'lb_txt_pause_pending' };
+const pausePanelSrc = src(E + 'features/table/PausePanel.ets');
+const pauseUiCode = tableCode + pausePanelSrc;
 for (const [k, v] of Object.entries(ID4)) {
-  ok(ctlIds.includes(`static readonly ${k}: string = '${v}';`) && count(tableCode, new RegExp(`\\.id\\(ControlIds\\.${k}\\)`)) === 1,
-    `ControlIds.${k} = '${v}' bound once in Table`);
+  const inIds = ctlIds.includes(`static readonly ${k}: string = '${v}';`);
+    const bound = pauseUiCode.includes(`.id(ControlIds.${k})`);
+  ok(inIds && bound, `ControlIds.${k} = '${v}' registered and bound in pause UI`);
 }
 const plIdx = panel.indexOf("$r('app.string.lb_str_pause')");
 ok(/\.id\(ControlIds\.DEBUG_PAUSE\)/.test(panel.slice(plIdx, plIdx + 600)), 'debug pause Text carries .id(ControlIds.DEBUG_PAUSE)');
@@ -3084,12 +3100,13 @@ const flyBase = /this\.flyZ = (\d+) \+ beat\.index;/.exec(tableCode);
 const maxBeats = md.max_players * md.hand_size_default;
 const flyMax = flyBase ? Number(flyBase[1]) + maxBeats : Infinity;
 const plz = /const PAUSE_LAYER_Z: number = (\d+);/.exec(table);
-ok(plz !== null && Number(plz[1]) > Math.max(flyMax, ...zNums) && /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  pauseLayer() {'))) &&
+ok(plz !== null && Number(plz[1]) > Math.max(flyMax, ...zNums.filter((z) => z !== Number(plz[1]))) &&
   /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  elimChoiceLayer() {'))) && /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  ffOverlay() {'))) &&
-  count(tableCode, /zIndex\(PAUSE_LAYER_Z\)/) === 3,
-  `PAUSE_LAYER_Z=${plz && plz[1]} > every other zIndex (fly max ${flyMax} = ${flyBase && flyBase[1]} + ${md.max_players}×${md.hand_size_default}; literals ${zNums.join('/')})`);
-ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
-  'pause layer only mounted while pauseLayerOn (no layout / hit-test change when not paused)');
+  /\.zIndex\(PAUSE_LAYER_Z\)/.test(code(body(table, '  confirmLobbyLayer() {'))) &&
+  count(tableCode, /zIndex\(PAUSE_LAYER_Z\)/) >= 4,
+  `PAUSE_LAYER_Z=${plz && plz[1]} > other zIndex (fly max ${flyMax}; literals ${zNums.join('/')})`);
+ok(/if \(this\.pauseLayerOn\) \{[\s\S]*?PausePanel\(/.test(tableCode),
+  'pause layer only mounted while pauseLayerOn via PausePanel (no layout / hit-test change when not paused)');
 // ⑮ 补丁轮 2 第 1 段（UI 22 S22-32 / 22:106）：zIndex 只在同一父容器里比，所以按父容器查挂载位置——暂停层必须是根 Stack 的直接子节点
 // （2b 起其后只挂淘汰弹层、快进罩，快进罩为最后一个），排在桌面 Stack（含桌槌 choiceActLayer / 回大厅键）、PeekMaskOverlay、出牌面板、飞牌之后；全屏盖安全区、遮罩吃点击。
 {
@@ -3104,24 +3121,26 @@ ok(/if \(this\.pauseLayerOn\) \{\s*this\.pauseLayer\(\)\s*\}/.test(tableCode),
   const sheet = at(/^if \(this\.showPlay\) \{$/);
   const fly = at(/^if \(this\.flyOn\) \{$/);
   const pause = at(/^if \(this\.pauseLayerOn\) \{$/);
+  const leaveC = at(/^if \(this\.leaveConfirmOpen\) \{$/);
   const elim = at(/^if \(this\.elimChoiceOn\) \{$/);
   const ffo = at(/^if \(this\.ffOn\) \{$/);
   const last = kids.length > 0 ? kids[kids.length - 1][0] : -1;
   let deskEnd = -1;
   for (let i = desk + 1; desk >= 0 && i < lines.length; i++) { if (/^ {6}\}/.test(lines[i])) { deskEnd = i; break; } }
   const deskBody = desk >= 0 && deskEnd > desk ? lines.slice(desk, deskEnd + 1).join('\n') : '';
-  ok(desk >= 0 && deskEnd > desk && peek > deskEnd && sheet > peek && fly > sheet && pause > fly && elim > pause && ffo > elim && ffo === last &&
+  ok(desk >= 0 && deskEnd > desk && peek > deskEnd && sheet > peek && fly > sheet && pause > fly &&
+    leaveC > pause && elim > leaveC && ffo > elim && ffo === last &&
     !deskBody.includes('this.elimChoiceLayer()') && !deskBody.includes('this.ffOverlay()') &&
-    !deskBody.includes('this.pauseLayer()') && deskBody.includes('this.choiceActLayer()') && deskBody.includes('this.homeExitChrome()') &&
-    count(tableCode, /this\.pauseLayer\(\)/) === 1,
-    `pause layer mount (by parent): root Stack child after desk ${desk}-${deskEnd} [mallet + home inside], PeekMaskOverlay ${peek}, play sheet ${sheet}, fly card ${fly} → pause layer ${pause}; ` +
-    `followed by 2b elim choice ${elim} then 2b ff overlay ${ffo} (ff overlay = last root child ${last}); pause / elim / ff not inside the desk Stack; pauseLayer() mounted once`);
-  const plb = body(table, '  pauseLayer() {');
+    !deskBody.includes('PausePanel') && deskBody.includes('this.choiceActLayer()') && deskBody.includes('this.homeExitChrome()') &&
+    /PausePanel\(/.test(tableCode),
+    `pause layer mount (by parent): root Stack after desk → pause ${pause} → leaveConfirm ${leaveC} → elim ${elim} → ff ${ffo}=last; PausePanel outside desk Stack`);
+  const plb = src(E + 'features/table/PausePanel.ets');
   ok(/\.expandSafeArea\(\[SafeAreaType\.SYSTEM, SafeAreaType\.CUTOUT\],\s*\[SafeAreaEdge\.TOP, SafeAreaEdge\.BOTTOM, SafeAreaEdge\.START, SafeAreaEdge\.END\]\)/.test(plb) &&
-    /\.hitTestBehavior\(HitTestMode\.Default\)/.test(plb) && /\.opacity\(0\.72\)\s*\.onClick\(/.test(plb) &&
+    /\.hitTestBehavior\(HitTestMode\.Default\)/.test(plb) && /opacity\(0\.6\)/.test(plb) &&
     /\.ignoreLayoutSafeArea\(\[LayoutSafeAreaType\.SYSTEM\], \[LayoutSafeAreaEdge\.ALL\]\)/.test(lines.slice(rootEnd).join('\n')),
-    'pause layer full screen incl. safe areas (expandSafeArea 4 edges, root Stack ignoreLayoutSafeArea ALL); HitTestMode.Default + dim backdrop onClick swallow taps (nothing underneath clickable)');
+    'pause layer full screen (PausePanel): expandSafeArea 4 edges; HitTestMode.Default + tavern_bg 0.6 mask (22:106); root ignoreLayoutSafeArea ALL');
 }
+
 ok(/REVEAL_HOLD_MS\(3000\)/.test(rawSrc(E + 'pages/Table.ets')) && !/REVEAL_HOLD_MS\(5000\)/.test(rawSrc(E + 'pages/Table.ets')) &&
   /static readonly REVEAL_HOLD_MS: number = 3000;/.test(src(E + 'features/table/PlayFlyFx.ets')), 'REVEAL_HOLD_MS comment matches code (3000)');
 
@@ -4020,8 +4039,9 @@ RUN(false);
     /\.onClick\(\(\) => \{\s*\}\)/.test(code(ffo)),
     '2b ff overlay (22:324-330): mask + one line lb_str_ff_running only — no progress / spinner / animation / sound; swallows taps; above home + pause (PAUSE_LAYER_Z)');
   const hec = body(table, '  homeExitChrome() {');
-  ok(/Row\(\{ space: 8 \}\) \{\s*if \(this\.spectating\) \{\s*this\.spectateBadge\(\)\s*\}\s*Text\(\$r\('app\.string\.lb_str_home'\)\)\s*\.id\(ControlIds\.HOME\)/.test(hec),
-    '2b spectate badge in the right cluster, left of lb_btn_home (22:157/:162 right-to-left: home → pause → demo → spectate; pause / demo not mounted yet)');
+  ok(/if \(this\.pausePendingBarOn\)/.test(hec) && /this\.pauseButton\(\)/.test(hec) && /ControlIds\.PAUSE/.test(hec) &&
+    /if \(this\.spectating\)/.test(hec) && /ControlIds\.HOME/.test(hec) && /space: 12/.test(hec),
+    '2b/22 §3.2 right cluster: pending bar / spectate + lb_btn_pause + lb_btn_home (space 12)');
   const sbg = body(table, '  spectateBadge() {');
   ok(/Text\(\$r\('app\.string\.lb_str_spectating'\)\)\s*\.id\(ControlIds\.SPECTATE_BADGE\)/.test(sbg) && /\? 20 : 22\)/.test(sbg) &&
     sbg.includes("$r('app.color.tavern_ghost')") && sbg.includes('.hitTestBehavior(HitTestMode.None)'),

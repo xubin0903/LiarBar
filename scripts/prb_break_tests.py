@@ -19,9 +19,28 @@ if '-k' in args:
 repo = args[0] if args else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 E = 'entry/src/main/ets/'
 T, R, LR, LB = E + 'pages/Table.ets', E + 'persist/RecordStore.ets', E + 'common/LbRouter.ets', E + 'pages/Lobby.ets'
+PP = E + 'features/table/PausePanel.ets'
 TA, SP, AS, ME, MD = (E + 'features/table/TableAudio.ets', E + 'features/table/SoundPlayer.ets', E + 'persist/AudioSettings.ets',
                       E + 'engine/MatchEngine.ets', E + 'common/MatchDirector.ets')
-ROOT_PAUSE = "      if (this.pauseLayerOn) {\n        this.pauseLayer()\n      }\n"
+ROOT_PAUSE = (
+    "      if (this.pauseLayerOn) {\n"
+    "        PausePanel({\n"
+    "          fromBackground: this.pauseFromBackground,\n"
+    "          sub: $pauseSub,\n"
+    "          onResume: () => { this.resumeFromPauseLayer(); },\n"
+    "          onOpenSettings: () => { this.pauseSub = 'settings'; },\n"
+    "          onOpenRules: () => { this.pauseSub = 'rules'; },\n"
+    "          onOpenEnd: () => { this.pauseSub = 'confirm_end'; },\n"
+    "          onOpenLobby: () => { this.openLeaveConfirmFromPauseMenu(); },\n"
+    "          onBackToMenu: () => { this.pauseSub = 'menu'; },\n"
+    "          onConfirmEnd: () => { this.onConfirmEndOk(); },\n"
+    "          onCancelEnd: () => { this.pauseSub = 'menu'; }\n"
+    "        })\n"
+    "          .width('100%')\n"
+    "          .height('100%')\n"
+    "          .zIndex(PAUSE_LAYER_Z)\n"
+    "      }\n"
+)
 LB_PLAY_IF_IDLE = ("      // 补丁轮 3（负责人批）：接手的大厅音频若已在交接窗外被释放（新大厅超过 1000ms 才出现）→ 按当前增益重起；仍在响 → 不动。\n"
                    "      LobbyAudio.playIfIdle();\n")
 GONE_AWAIT = ("    if (this.pageGone) {\n      // 补丁轮 3：等路由期间本页已被另一趟 replace 销毁 → 结果不论成败都不回到本页（不解锁、不锁横屏、不恢复导演）。\n"
@@ -146,8 +165,8 @@ M = [
   "static readonly SILENT: string = 'lb_tog_silent';", "static readonly SILENT: string = 'lb_tog_mute';", "ControlIds.SILENT = 'lb_tog_silent' unchanged"),
  ('B49 lb.settings key renamed (vol_bgm → bgm_vol)', E + 'persist/AudioSettings.ets',
   "  static readonly KEY_BGM: string = 'vol_bgm';", "  static readonly KEY_BGM: string = 'bgm_vol';", 'lb.settings keys vol_bgm / vol_sfx / mute_all'),
- ('B50 pause layer id not bound', E + 'pages/Table.ets',
-  "    .id(ControlIds.PAUSE_LAYER)\n", "", "ControlIds.PAUSE_LAYER = 'lb_cmp_pause_layer' bound once in Table"),
+ ('B50 pause layer id not registered', E + 'common/Ids.ets',
+  "  static readonly PAUSE_LAYER: string = 'lb_cmp_pause_layer';\n", "", "ControlIds.PAUSE_LAYER = 'lb_cmp_pause_layer' registered and bound in pause UI"),
  ('B51 REVEAL_HOLD_MS comment back to 5000', E + 'pages/Table.ets',
   "face-up REVEAL_HOLD_MS(3000); ban instant cut", "face-up REVEAL_HOLD_MS(5000); ban instant cut", 'REVEAL_HOLD_MS comment matches code (3000)'),
  ('B52 「静默」 back in AudioSettings comment', E + 'persist/AudioSettings.ets',
@@ -175,16 +194,16 @@ M = [
   "    this.lobbyInit = LbRouter.leaveTicketFromRoute() > 0 && LbRouter.claimLobbyInit(LbRouter.leaveTicketFromRoute());", 'leave-token controls'),
  # B / 1. pause layer mount
  ('B61 pause layer back inside the desk Stack', T,
-  [(ROOT_PAUSE, ""), ("        this.homeExitChrome()\n", "        this.homeExitChrome()\n        if (this.pauseLayerOn) {\n          this.pauseLayer()\n        }\n")],
+  [(ROOT_PAUSE, ""), ("        this.homeExitChrome()\n", "        this.homeExitChrome()\n        if (this.pauseLayerOn) {\n          PausePanel({ sub: $pauseSub })\n        }\n")],
   None, 'pause layer mount'),
  ('B62 pause layer mounted before the fly card', T,
   [(ROOT_PAUSE, ""), ("      if (this.flyOn) {\n", ROOT_PAUSE + "      if (this.flyOn) {\n")], None, 'pause layer mount'),
- ('B63 pause layer not expanded over safe areas', T,
-  "    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],\n      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])\n    // Default",
-  "    // Default", 'pause layer full screen'),
- ('B64 pause layer lets taps through (Transparent)', T,
-  "    .hitTestBehavior(HitTestMode.Default)\n    .zIndex(PAUSE_LAYER_Z)\n    .id(ControlIds.PAUSE_LAYER)",
- "    .hitTestBehavior(HitTestMode.Transparent)\n    .zIndex(PAUSE_LAYER_Z)\n    .id(ControlIds.PAUSE_LAYER)", 'pause layer full screen'),
+ ('B63 pause layer not expanded over safe areas', PP,
+  "    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],\n      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])\n    .hitTestBehavior(HitTestMode.Default)",
+  "    .hitTestBehavior(HitTestMode.Default)", 'pause layer full screen'),
+ ('B64 pause layer lets taps through (Transparent)', PP,
+  "    .hitTestBehavior(HitTestMode.Default)\n    .id(ControlIds.PAUSE_LAYER)",
+  "    .hitTestBehavior(HitTestMode.Transparent)\n    .id(ControlIds.PAUSE_LAYER)", 'pause layer full screen'),
  # 2. play gating on pause
  ('B65 pause with sheet open: sheet hidden but selection / engine pick kept', T,
   "      if (this.showPlay) {\n        this.cancelPlaySheet();\n      }\n", "      if (this.showPlay) {\n        this.showPlay = false;\n      }\n", 'pause-closes-play-sheet'),
@@ -501,6 +520,24 @@ M = [
  "      if (this.view.empty) {\n        Blank().layoutWeight(1)\n        Text($r('app.string.lb_str_records_empty'))",
  "      if (this.view.empty) {\n        Text($r('app.string.lb_str_rec_recent'))\n        Blank().layoutWeight(1)\n        Text($r('app.string.lb_str_records_empty'))",
  'records panel empty = title'),
+('B183 PausePanel MENU drops 结束游戏', PP,
+ "        Button($r('app.string.lb_str_pause_end'))\n          .id(ControlIds.PAUSE_END)\n", "", 'ControlIds.PAUSE_END'),
+('B184 PausePanel MENU drops 回大厅', PP,
+ "        Button($r('app.string.lb_str_pause_lobby'))\n          .id(ControlIds.PAUSE_LOBBY)\n", "", 'ControlIds.PAUSE_LOBBY'),
+('B185 PausePanel mask opacity outside 55–65%', PP,
+ "        .opacity(0.6)\n", "        .opacity(0.3)\n", 'pause layer full screen'),
+('B186 PausePanel mount replaced by dead pauseLayer()', T,
+ ROOT_PAUSE,
+ "      if (this.pauseLayerOn) {\n        this.pauseLayer()\n      }\n",
+ 'pause layer only mounted while pauseLayerOn via PausePanel'),
+('B187 openLeaveConfirm uses showAlertDialog again', T,
+ "  private openLeaveConfirm(): void {\n    if (this.leaving || this.leaveConfirmOpen) {\n      return;\n    }\n    this.leaveConfirmOpen = true;\n    this.leaveConfirmAt = Date.now();\n    // 面板由根 Stack 挂 confirmLobbyLayer；点遮罩不关（与暂停遮罩同口径）。\n  }",
+ "  private openLeaveConfirm(): void {\n    if (this.leaving || this.leaveConfirmOpen) {\n      return;\n    }\n    this.getUIContext().showAlertDialog({ title: 'x', message: 'y', buttons: [] });\n  }",
+ 'openLeaveConfirm: single panel guard'),
+('B188 end-game path skips commitOnce(quit)', T,
+ "      RecordStore.commitOnce(snap, endCommit);\n      AppRuntime.engine.leave();\n",
+ "      AppRuntime.engine.leave();\n",
+ 'Table writes records at leave confirm + 结束游戏'),
 ]
 
 
