@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * PR-A static gate (负责人分派单 v1 · 2026-10-07):
- *  ① 结算高光：collectRedeal 先快照 challenge/lastPlay 再清空；{n}=手数（不是张数）
+ *  ① 旧结算高光已退役（2b · 21 §1.4.5-1）：captureHighlightBeforeClear / buildHighlight / matchHandNo / highlightLineFor / highlightFromLog / lb_str_dlr_hl_* 模板都不存在
  *  ② 大厅「战绩」不走输音效（Report 仅 RECAP/END 才 playResult）
  *  ③ Report 结算页：顶区固定 + 主体是唯一 Scroll + 按钮条固定、不在 Scroll 内（结算面板 PR 改写 · 21 §1.6-2 / 22 §4.2 / S21-28）；战绩空态仍可滚
  *  ④ lb_btn_home / 系统返回键 先过离局二次确认；goHome 出口按方法逐路径白名单（PR-B 改写 goHomeCalls===1）+ 离局锁
@@ -45,42 +45,37 @@ const report = src('entry/src/main/ets/pages/Report.ets');
 const table = src('entry/src/main/ets/pages/Table.ets');
 const STR = 'entry/src/main/resources/base/element/string.json';
 
-// ① snapshot before clear
-const redeal = methodBody(engine, '  collectRedeal(): boolean {');
-const capAt = redeal.indexOf('this.captureHighlightBeforeClear()');
-const clrPlay = redeal.indexOf('this.lastPlay = null');
-const clrCh = redeal.indexOf('this.challenge = null');
-const recapAt = redeal.indexOf('this.toRecap()');
-if (capAt >= 0 && clrPlay > capAt && clrCh > capAt && recapAt > capAt) {
-  pass('collectRedeal snapshots highlight before clearing lastPlay/challenge and before toRecap');
+// ① 旧结算高光退役（21 §1.4.5-1：两模板与 buildHighlight() / highlightFromLog() 退役，由 §1.4.4 回放句取代 · 2b）
+// PR-A 时这 5 条断言旧高光「在且正确」；2b 起改成断言它们「不存在」（任何一处被搬回来都红）。
+const engineCode = stripCommentsAndStrings(engine);
+const linesCode = stripCommentsAndStrings(lines);
+const typesCode = stripCommentsAndStrings(src('entry/src/main/ets/engine/MatchTypes.ets'));
+const redeal = methodBody(engineCode, '  collectRedeal(): boolean {');
+if (redeal.length > 0 && !/captureHighlightBeforeClear/.test(engineCode)) {
+  pass('old highlight retired: collectRedeal no longer snapshots a highlight (no captureHighlightBeforeClear anywhere in MatchEngine)');
 } else {
-  fail(`collectRedeal snapshot order cap=${capAt} clrPlay=${clrPlay} clrCh=${clrCh} recap=${recapAt}`);
+  fail('old highlight snapshot captureHighlightBeforeClear still present (21 §1.4.5-1)');
 }
-const hl = methodBody(engine, '  private buildHighlight(): string {');
-if (hl.length > 0 && !hl.includes('this.challenge') && !hl.includes('this.lastPlay') &&
-  !hl.includes('buildSnapshot') && hl.includes('hlSlamCaught') && hl.includes('hlFail') && hl.includes('hlLast')) {
-  pass('buildHighlight reads only the pre-clear snapshot (no live challenge/lastPlay/buildSnapshot)');
+if (!/buildHighlight|hlSlamCaught|hlFail|hlLast|highlightLine/.test(engineCode) && !/highlightLine/.test(typesCode)) {
+  pass('old highlight retired: no buildHighlight / hlSlamCaught / hlFail / hlLast / highlightLine in MatchEngine, no snapshot.highlightLine');
 } else {
-  fail('buildHighlight still reads live challenge/lastPlay or snapshot');
+  fail('old highlight buildHighlight / hl* fields / highlightLine still present (21 §1.4.5-1)');
 }
-const cap = methodBody(engine, '  private captureHighlightBeforeClear(): void {');
-if (cap.includes('handNo: this.matchHandNo()') && !/handNo:\s*[^,\n]*\.count/.test(cap)) {
-  pass('{n} source = match hand ordinal (matchHandNo), not lastPlay.count');
+if (!/matchHandNo|HighlightPick/.test(engineCode) && !/HighlightPick/.test(typesCode)) {
+  pass('old highlight retired: no matchHandNo / HighlightPick (report {手} comes from playLog.seq only)');
 } else {
-  fail('{n} highlight source is not hand ordinal');
+  fail('old highlight matchHandNo / HighlightPick still present');
 }
-const hlFn = methodBody(lines, 'export function highlightLineFor(');
-if (hlFn.includes("replace('{n}'") && hlFn.includes('handNo') && !hlFn.includes('.count')) {
-  pass('DealerLines.highlightLineFor fills {n} with handNo');
+if (!/highlightLineFor|highlightFromLog/.test(linesCode)) {
+  pass('old highlight retired: DealerLines has no highlightLineFor / highlightFromLog');
 } else {
-  fail('DealerLines.highlightLineFor missing or uses card count');
+  fail('DealerLines.highlightLineFor / highlightFromLog still present (21 §1.4.5-1)');
 }
 for (const key of ['lb_str_dlr_hl_slam_caught', 'lb_str_dlr_hl_fallback']) {
-  const m = new RegExp(`'${key}'\\)\\s*\\{\\s*return '([^']*)'`).exec(lines);
-  if (m && m[1].includes('第 {n} 手')) {
-    pass(`${key} template means 第 {n} 手 (hand count)`);
+  if (!lines.includes(`'${key}'`) && !engine.includes(`'${key}'`)) {
+    pass(`old highlight retired: ${key} template gone from DealerLines / MatchEngine`);
   } else {
-    fail(`${key} template changed / not hand semantics`);
+    fail(`${key} template still present (21 §1.4.5-1)`);
   }
 }
 

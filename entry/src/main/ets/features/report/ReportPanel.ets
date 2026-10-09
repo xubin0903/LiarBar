@@ -12,6 +12,8 @@ export struct ReportPanel {
   onHome: () => void = () => {};
   /** L-small（短边 < 320vp）：两栏改单栏（22 §4.5）。 */
   @State narrow: boolean = false;
+  /** L-fold（1.20 ≤ W/H < 1.60，且不是 L-small）：仍两栏，左右外边距各 8%（22 §4.5 · 22:283）。 */
+  @State fold: boolean = false;
 
   build() {
     Column() {
@@ -46,14 +48,22 @@ export struct ReportPanel {
     }
     .width('100%')
     .height('100%')
+    .padding({ left: this.fold ? '8%' : 0, right: this.fold ? '8%' : 0 })
     .onAreaChange((oldArea: Area, newArea: Area) => {
-      this.narrow = Math.min(Number(newArea.width), Number(newArea.height)) < 320;
+      this.applyTier(Number(newArea.width), Number(newArea.height));
     })
+  }
+
+  /** 22 §4.5 档位：L-small = 短边 < 320vp（单栏）；L-fold = 1.20 ≤ W/H < 1.60（两栏 + 左右 8%）；其余 = L-phone。 */
+  applyTier(w: number, h: number): void {
+    this.narrow = Math.min(w, h) < 320;
+    const ratio: number = h > 0 ? w / h : 0;
+    this.fold = !this.narrow && ratio >= 1.20 && ratio < 1.60;
   }
 
   @Builder
   head() {
-    Column({ space: 2 }) {
+    Column({ space: 1 }) {
       Stack() {
         if (this.view.humanWon) {
           Image($r('app.media.art_result_bar_win'))
@@ -72,27 +82,35 @@ export struct ReportPanel {
           .fontWeight(FontWeight.Bold)
       }
       .width('100%')
-      .height(36)
+      .height(30)
       Row({ space: 12 }) {
         Text(this.view.winnerText)
           .id(ControlIds.WINNER)
           .fontColor($r('app.color.tavern_candle'))
           .fontSize($r('app.float.subtitle_text_size'))
+          .lineHeight(18)
+          .maxLines(1)
         Text(`${this.view.durationText} · ${this.view.roundsText}`)
           .fontColor($r('app.color.tavern_mute'))
           .fontSize(12)
+          .lineHeight(18)
+          .maxLines(1)
       }
       if (this.view.ffNote) {
         Text($r('app.string.lb_str_rpt_ff_note'))
           .id(ControlIds.REPORT_FF_NOTE)
           .fontColor($r('app.color.tavern_mute'))
           .fontSize(11)
+          .lineHeight(14)
+          .maxLines(1)
       }
     }
     .id(ControlIds.REPORT_HEAD)
     .width('100%')
+    // 22:211 顶区 ≤20%。360vp 横屏 20% = 72vp：上 4 + 结果条 30 + 1 + 胜者行 18 + 1 + 快进附注 14 + 下 2 = 70vp，快进局也放得下。
     .constraintSize({ maxHeight: '20%' })
-    .padding({ left: 16, right: 16, top: 6, bottom: 4 })
+    .clip(true)
+    .padding({ left: 16, right: 16, top: 4, bottom: 2 })
   }
 
   @Builder
@@ -115,7 +133,9 @@ export struct ReportPanel {
       }, (r: ReportRowView) => r.slot)
     }
     .id(ControlIds.RECAP_LIST)
-    .width(this.narrow ? '100%' : '58%')
+    .width('100%')
+    // 22 §4.2 两栏 ≈58 / 42 按权重分「行宽 − 12vp 栏缝」（不再 58% + 42% + 12vp 溢出）；单栏不加权。
+    .layoutWeight(this.narrow ? 0 : 58)
   }
 
   @Builder
@@ -216,7 +236,8 @@ export struct ReportPanel {
         .visibility(this.view.replayText.length > 0 ? Visibility.Visible : Visibility.None)
     }
     .id(ControlIds.REPORT_HL)
-    .width(this.narrow ? '100%' : '42%')
+    .width('100%')
+    .layoutWeight(this.narrow ? 0 : 42)
   }
 
   /** 不成立的卡：位置 / 尺寸 / 顺序不变，徽章灰度 100% + 不透明度 40%，标题与降级句用 tavern_mute（22 §4.4）。 */

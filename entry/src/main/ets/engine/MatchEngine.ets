@@ -18,14 +18,13 @@ import {
   AiRevealRec
 } from '../ai/AiTypes';
 import { isChallengeSuccess, isLegal } from './Judge';
-import { highlightLineFor, lineForKey, pickTurnDealerKey } from './DealerLines';
+import { lineForKey, pickTurnDealerKey } from './DealerLines';
 import { dealRound, DealResult, isFakeRank, repairDemoHands } from './DeckDeal';
 import {
   CardModel,
   ChallengeModel,
   ClaimModel,
   FaceBet,
-  HighlightPick,
   MatchEvent,
   MatchSnapshot,
   PlayLogEntry,
@@ -109,11 +108,6 @@ export class MatchEngine {
   private challenge: ChallengeModel | null = null;
   private dealerKey: string = '';
   private dealerLine: string = '';
-  private highlightLine: string = '';
-  /** PR-A: highlight snapshots captured before collectRedeal clears challenge/lastPlay. */
-  private hlSlamCaught: HighlightPick | null = null;
-  private hlFail: HighlightPick | null = null;
-  private hlLast: HighlightPick | null = null;
   private demoOn: boolean = false;
   private forceClaimUsed: boolean = false;
   private forcePlayUsed: boolean = false;
@@ -225,6 +219,26 @@ export class MatchEngine {
     return shift;
   }
 
+  /**
+   * 2b 快进超步回落（21 §1.7 · 21:236）：快进按虚拟时钟 virtualMs 推进，跑在墙钟前面；回落「继续观战」时把引擎时间轴
+   * 拉回墙钟——每个已武装（>0）的 deadline 平移同一个 (wallMs − virtualMs)（= −(vt − now)），nowMs = wallMs。
+   * 各项剩余时长与到期顺序不变；不改规则 / 质疑结果，不计暂停时长。不复用 resumeClock：它的 shift 下限 ≥ 暂停时长 Δ（只会往后推）。
+   * 返回实际平移量（ms，≤ 0）；时钟暂停中不动（返回 0）。
+   */
+  rebaseClock(virtualMs: number, wallMs: number): number {
+    if (this.clockPausedAt > 0) {
+      return 0;
+    }
+    const shift: number = wallMs - virtualMs;
+    this.turnEndsAtMs = this.turnEndsAtMs > 0 ? this.turnEndsAtMs + shift : 0;
+    this.ritualEndsAtMs = this.ritualEndsAtMs > 0 ? this.ritualEndsAtMs + shift : 0;
+    this.beatEndsAtMs = this.beatEndsAtMs > 0 ? this.beatEndsAtMs + shift : 0;
+    this.penaltyEndsAtMs = this.penaltyEndsAtMs > 0 ? this.penaltyEndsAtMs + shift : 0;
+    this.nowMs = wallMs;
+    Logger.info(TAG, `rebaseClock virtual=${virtualMs} wall=${wallMs} shift=${shift}ms`);
+    return shift;
+  }
+
   /** 暂停开始的墙钟（未暂停 = 0）。 */
   clockPausedAtMs(): number {
     return this.clockPausedAt;
@@ -325,6 +339,8 @@ export class MatchEngine {
     this.roundIndex = 0;
     this.playIndexInRound = 0;
     this.stallSkipCount = 0;
+    // 2b：上一局停在 CHALLENGE_ONLY / EMPTY_SAFE / FORCE_CHALLENGE 时「再来一局」不得带进新局（Report 不经 resetToLobby 直接开局）。
+    this.turnWindow = TurnWindow.NORMAL;
     this.winnerSeatId = -1;
     this.currentClaim = null;
     this.lastPlay = null;
@@ -342,10 +358,6 @@ export class MatchEngine {
     this.slamUsed = 0;
     this.hesitateUsed = 0;
     this.lastClaimRank = '';
-    this.highlightLine = '';
-    this.hlSlamCaught = null;
-    this.hlFail = null;
-    this.hlLast = null;
     this.viewerSeatId = 0;
     this.skipDepth = 0;
     this.clearEmptyGate();
@@ -736,9 +748,6 @@ export class MatchEngine {
 
   /** CollectRedeal: after PenaltyExtinguish1 or RoundSafeWait settle → redeal (不绑枪). */
   collectRedeal(): boolean {
-    // PR-A: snapshot judged challenge + lastPlay BEFORE they are cleared below,
-    // so recap highlight never reads null challenge/lastPlay (结算高光句半空).
-    this.captureHighlightBeforeClear();
     this.clearEmptyGate();
     this.roundSafeWaitSeats = [];
     this.roundWinPending = false;
@@ -1484,55 +1493,7 @@ export class MatchEngine {
       }
     }
     this.dealerKey = 'lb_str_dlr_recap';
-    this.highlightLine = this.buildHighlight();
     this.dealerLine = lineForKey(this.dealerKey, this.buildSnapshot());
-  }
-
-  /** PR-A: called at the top of collectRedeal, before lastPlay/challenge = null. */
-  private captureHighlightBeforeClear(): void {
-    const ch: ChallengeModel | null = this.challenge;
-    const lp: PlayModel | null = this.lastPlay;
-    if (ch === null || lp === null || ch.result.length === 0 || ch.targetPlayId !== lp.playId) {
-      return;
-    }
-    const success: boolean = ch.result === ChallengeResult.SUCCESS;
-    const pick: HighlightPick = {
-      challengerSeatId: ch.challengerSeatId,
-      accusedSeatId: lp.actorSeatId,
-      handNo: this.matchHandNo(),
-      style: lp.style,
-      success: success
-    };
-    this.hlLast = pick;
-    if (success && lp.style === PlayStyle.SLAM) {
-      this.hlSlamCaught = pick;
-    }
-    if (!success) {
-      this.hlFail = pick;
-    }
-  }
-
-  /** 本局已落定的手数 = playLog 长度（commitPicked 追加，rollbackLastPlay 弹末条）。 */
-  private matchHandNo(): number {
-    return this.playLog.size();
-  }
-
-  /** Priority unchanged: SLAM 被拆穿 > 开错 > 兜底（取本局最后一次判定的质疑）。 */
-  private buildHighlight(): string {
-    if (this.hlSlamCaught !== null) {
-      return this.lineForPick('lb_str_dlr_hl_slam_caught', this.hlSlamCaught);
-    }
-    if (this.hlFail !== null) {
-      return this.lineForPick('lb_str_dlr_hl_fail', this.hlFail);
-    }
-    if (this.hlLast !== null) {
-      return this.lineForPick('lb_str_dlr_hl_fallback', this.hlLast);
-    }
-    return '';
-  }
-
-  private lineForPick(key: string, pick: HighlightPick): string {
-    return highlightLineFor(key, this.seats, pick.challengerSeatId, pick.accusedSeatId, pick.handNo);
   }
 
   private refreshTurnBanner(): void {
@@ -1875,7 +1836,6 @@ export class MatchEngine {
       revealOpen: this.revealOpen,
       dealerKey: this.dealerKey,
       dealerLine: this.dealerLine,
-      highlightLine: this.highlightLine,
       selfHand: this.phase === Phase.DEAL ? [] : this.copyCards(this.handOf(this.viewerSeatId)),
       lastPlayRanks: showRanks ? this.copyRanks(this.lastPlayRanks) : [],
       seats: pubSeats,
