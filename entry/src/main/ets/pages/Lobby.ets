@@ -3,6 +3,7 @@ import { AppRuntime } from '../common/AppRuntime';
 import { ControlIds, OverlayIds, ScreenIds } from '../common/Ids';
 import { RecordsPanel } from '../features/lobby/RecordsPanel';
 import { RulesPanel } from '../features/lobby/RulesPanel';
+import { SettingsPanel } from '../features/lobby/SettingsPanel';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { ConfigRepository } from '../config/ConfigRepository';
@@ -75,6 +76,7 @@ struct Lobby {
   @State recordsOn: boolean = false;
   /** 22 §7.3 规则说明（大厅入口）。 */
   @State rulesOn: boolean = false;
+  @State settingsOn: boolean = false;
   @State dealerScale: number = 1;
   @State candleOpacity: number = 0.70;
   @State candleScale: number = 1;
@@ -227,7 +229,7 @@ struct Lobby {
       }
 
       // 22 §7 大厅叠层：遮罩 + 战绩 / 规则（不路由、不碰 LobbyAudio）。
-      if (this.recordsOn || this.rulesOn) {
+      if (this.recordsOn || this.rulesOn || this.settingsOn) {
         this.overlayMask()
       }
       if (this.recordsOn) {
@@ -254,6 +256,21 @@ struct Lobby {
         .height('100%')
         .hitTestBehavior(HitTestMode.Transparent)
       }
+      if (this.settingsOn) {
+        Stack({ alignContent: Alignment.Center }) {
+          SettingsPanel({
+            allowDemoUnlock: true,
+            silentMatchNote: false,
+            panelWidthPct: '92%',
+            onClose: (): void => {
+              this.settingsOn = false;
+            }
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+      }
     }
     .id(ScreenIds.LOBBY)
     .width('100%')
@@ -269,17 +286,46 @@ struct Lobby {
         .fontSize($r('app.float.title_text_size'))
         .fontWeight(FontWeight.Bold)
       Blank()
-      Text($r('app.string.lb_str_records'))
-        .id(ControlIds.RECORDS)
-        .fontColor($r('app.color.tavern_mute'))
-        .fontSize($r('app.float.caption_text_size'))
+      Row({ space: 12 }) {
+        Text($r('app.string.lb_str_records'))
+          .id(ControlIds.RECORDS)
+          .fontColor($r('app.color.tavern_mute'))
+          .fontSize($r('app.float.caption_text_size'))
+          .width(44)
+          .height(44)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            if (!this.bootReady || this.matchBusy || this.matchLoading) {
+              return;
+            }
+            // 22 §7.1 / S21-19：大厅内战绩浮层；不 push Report、不调大厅隐藏淡出、不播结算音。
+            this.openRecords();
+          })
+        // 22 §7.2：设置齿轮热区 ≥44vp（美术无 gear 图 → 文案键；ico id 仍挂）。
+        Row() {
+          Text($r('app.string.lb_str_settings'))
+            .fontColor($r('app.color.tavern_mute'))
+            .fontSize($r('app.float.caption_text_size'))
+            .textAlign(TextAlign.Center)
+            .layoutWeight(1)
+          // 占位挂 id，待 gear 图到位替换为 Image(art_icon_settings)。
+          Blank()
+            .id(ControlIds.SETTINGS_ICO)
+            .width(0)
+            .height(0)
+        }
+        .id(ControlIds.SETTINGS)
+        .width(44)
+        .height(44)
+        .justifyContent(FlexAlign.Center)
         .onClick(() => {
           if (!this.bootReady || this.matchBusy || this.matchLoading) {
             return;
           }
-          // 22 §7.1 / S21-19：大厅内战绩浮层；不 push Report、不调大厅隐藏淡出、不播结算音。
-          this.openRecords();
+          this.openSettings();
         })
+      }
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
     .padding({ top: 12, bottom: 4 })
@@ -1097,20 +1143,33 @@ struct Lobby {
       })
   }
 
-  /** 打开战绩浮层：不路由、不 fadeOutForHide（DEV-3c / S21-19）。 */
+  /** 打开战绩浮层：不路由、不 fadeOutForHide（DEV-3c / S21-19）；与规则/设置互斥。 */
   private openRecords(): void {
     this.rulesOn = false;
+    this.settingsOn = false;
     this.recordsOn = true;
   }
 
-  /** 打开规则浮层（大厅入口；设置/暂停入口另票）。 */
+  /** 打开规则浮层（大厅入口）；与战绩/设置互斥。 */
   private openRules(): void {
     this.recordsOn = false;
+    this.settingsOn = false;
     this.rulesOn = true;
+  }
+
+  /** 打开设置浮层（22 §7.2）；与战绩/规则互斥。 */
+  private openSettings(): void {
+    this.recordsOn = false;
+    this.rulesOn = false;
+    this.settingsOn = true;
   }
 
   /** 系统返回：先关规则 / 战绩浮层，再交给默认。 */
   onBackPress(): boolean {
+    if (this.settingsOn) {
+      this.settingsOn = false;
+      return true;
+    }
     if (this.rulesOn) {
       this.rulesOn = false;
       return true;

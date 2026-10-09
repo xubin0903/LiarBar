@@ -623,6 +623,7 @@ struct Table {
       if (this.pauseLayerOn) {
         PausePanel({
           fromBackground: this.pauseFromBackground,
+          silentMatch: this.silentModeOn(),
           sub: $pauseSub,
           onResume: () => { this.resumeFromPauseLayer(); },
           onOpenSettings: () => { this.pauseSub = 'settings'; },
@@ -1104,6 +1105,8 @@ struct Table {
             .constraintSize({ maxHeight: 24 })
         } else if (this.spectating) {
           this.spectateBadge()
+        } else if (AppRuntime.engine.isDemoMatch()) {
+          this.demoBadge()
         }
         if (this.pauseButtonVisible()) {
           this.pauseButton()
@@ -2021,6 +2024,11 @@ struct Table {
   }
 
   /** 22 §3.2：暂停键只在局内可行动阶段显示（phase ∉ LOBBY/RECAP/END）。 */
+  private silentModeOn(): boolean {
+    const snap = AppRuntime.engine.current();
+    return snap !== null && snap.silentMode === true;
+  }
+
   private pauseButtonVisible(): boolean {
     const ph: string = this.phaseText;
     return ph.length > 0 && ph !== Phase.LOBBY && ph !== Phase.RECAP && ph !== Phase.END && !this.leaving;
@@ -2448,6 +2456,20 @@ struct Table {
   }
 
   /** 22 §3.2 观战角标：胶囊高 ≤24vp（L-small 只字无底、≤20vp），程序底 tavern_ghost（23 #11b），不吃点击。 */
+  /** 21 §4.4 / 22 §3.2：演示局角标（不吃点击；待停条优先让位）。 */
+  @Builder
+  demoBadge() {
+    Text($r('app.string.lb_str_demo_badge'))
+      .id(ControlIds.DEMO_BADGE)
+      .fontColor($r('app.color.tavern_paper'))
+      .fontSize(this.bp.shortSide < 320 ? 10 : 12)
+      .padding({ left: 8, right: 8, top: 2, bottom: 2 })
+      .constraintSize({ maxHeight: this.bp.shortSide < 320 ? 20 : 22 })
+      .backgroundColor($r('app.color.tavern_panel'))
+      .borderRadius(10)
+      .hitTestBehavior(HitTestMode.None)
+  }
+
   @Builder
   spectateBadge() {
     Text($r('app.string.lb_str_spectating'))
