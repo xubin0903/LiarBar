@@ -1,6 +1,8 @@
 import { common } from '@kit.AbilityKit';
 import { AppRuntime } from '../common/AppRuntime';
 import { ControlIds, OverlayIds, ScreenIds } from '../common/Ids';
+import { RecordsPanel } from '../features/lobby/RecordsPanel';
+import { RulesPanel } from '../features/lobby/RulesPanel';
 import { LbRouter } from '../common/LbRouter';
 import { Logger } from '../common/Logger';
 import { ConfigRepository } from '../config/ConfigRepository';
@@ -69,6 +71,10 @@ struct Lobby {
   @State peekHotLit: boolean = false;
   @State matchLoading: boolean = false;
   @State matchBusy: boolean = false;
+  /** 22 §7.1 战绩大厅叠层（非路由）。 */
+  @State recordsOn: boolean = false;
+  /** 22 §7.3 规则说明（大厅入口）。 */
+  @State rulesOn: boolean = false;
   @State dealerScale: number = 1;
   @State candleOpacity: number = 0.70;
   @State candleScale: number = 1;
@@ -219,6 +225,35 @@ struct Lobby {
       if (this.matchLoading) {
         MatchLoadOverlay()
       }
+
+      // 22 §7 大厅叠层：遮罩 + 战绩 / 规则（不路由、不碰 LobbyAudio）。
+      if (this.recordsOn || this.rulesOn) {
+        this.overlayMask()
+      }
+      if (this.recordsOn) {
+        Stack({ alignContent: Alignment.Center }) {
+          RecordsPanel({
+            onClose: (): void => {
+              this.recordsOn = false;
+            }
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+      }
+      if (this.rulesOn) {
+        Stack({ alignContent: Alignment.Center }) {
+          RulesPanel({
+            onClose: (): void => {
+              this.rulesOn = false;
+            }
+          })
+        }
+        .width('100%')
+        .height('100%')
+        .hitTestBehavior(HitTestMode.Transparent)
+      }
     }
     .id(ScreenIds.LOBBY)
     .width('100%')
@@ -242,8 +277,8 @@ struct Lobby {
           if (!this.bootReady || this.matchBusy || this.matchLoading) {
             return;
           }
-          // PR-A: 战绩入口 = 空态页，不放输音效（结算音效只在 RECAP/END 的 Report 播）。
-          LbRouter.toRecords();
+          // 22 §7.1 / S21-19：大厅内战绩浮层；不 push Report、不调大厅隐藏淡出、不播结算音。
+          this.openRecords();
         })
     }
     .width('100%')
@@ -401,8 +436,8 @@ struct Lobby {
 
   @Builder
   peekLayer() {
-    Text($r('app.string.lb_str_nav_peek'))
-      .id(ControlIds.PEEK_TABLE)
+    Text($r('app.string.lb_str_rules_entry'))
+      .id(ControlIds.RULES)
       .fontColor(this.peekHotLit ? $r('app.color.tavern_paper') : $r('app.color.tavern_mute'))
       .fontSize($r('app.float.caption_text_size'))
       .padding({ top: 16, bottom: 8, left: 8, right: 8 })
@@ -433,7 +468,8 @@ struct Lobby {
         if (!this.bootReady || this.matchBusy || this.matchLoading) {
           return;
         }
-        this.lockThenPeekTable();
+        // 22 §7.3 / S21-32：原「进桌看看」位改为规则入口；不进空桌。
+        this.openRules();
       })
   }
 
@@ -1046,7 +1082,48 @@ struct Lobby {
     this.tryEnterTable();
   }
 
-  /** Peek is not the L1 axis (08). Still lock landscape first — no enter-then-rotate. */
+  /** 22 §2.1 叠层遮罩：全屏压暗、吃点击；点遮罩不关面板（回返回键 / 返回键关）。 */
+  @Builder
+  overlayMask() {
+    Column()
+      .id(OverlayIds.MASK)
+      .width('100%')
+      .height('100%')
+      .backgroundColor($r('app.color.tavern_bg'))
+      .opacity(0.6)
+      .hitTestBehavior(HitTestMode.Default)
+      .onClick(() => {
+        // 遮罩吃掉点击，不等于关闭。
+      })
+  }
+
+  /** 打开战绩浮层：不路由、不 fadeOutForHide（DEV-3c / S21-19）。 */
+  private openRecords(): void {
+    this.rulesOn = false;
+    this.recordsOn = true;
+  }
+
+  /** 打开规则浮层（大厅入口；设置/暂停入口另票）。 */
+  private openRules(): void {
+    this.recordsOn = false;
+    this.rulesOn = true;
+  }
+
+  /** 系统返回：先关规则 / 战绩浮层，再交给默认。 */
+  onBackPress(): boolean {
+    if (this.rulesOn) {
+      this.rulesOn = false;
+      return true;
+    }
+    if (this.recordsOn) {
+      this.recordsOn = false;
+      return true;
+    }
+    return false;
+  }
+
+  /** Peek is not the L1 axis (08). Still lock landscape first — no enter-then-rotate.
+   *  UI 入口已改规则浮层；方法保留给页栈失败回滚真跑（landscape → push 失败路径）。 */
   private async lockThenPeekTable(): Promise<void> {
     const ctx: common.UIAbilityContext = getContext(this) as common.UIAbilityContext;
     await WindowOrientation.lockLandscape(ctx);

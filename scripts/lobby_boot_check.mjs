@@ -340,10 +340,10 @@ if (lobby.includes('voClockMs') && lobby.includes('crossToAnnounce') &&
   fail('announce state machine');
 }
 
-if (ids.includes("lb_btn_peek_table") && lobby.includes('ControlIds.PEEK_TABLE')) {
-  pass('lb_btn_peek_table');
+if (ids.includes("'lb_btn_rules'") && lobby.includes('ControlIds.RULES') && !ids.includes("'lb_btn_peek_table'")) {
+  pass('lb_btn_rules (replaced peek table)');
 } else {
-  fail('peek id');
+  fail('rules id');
 }
 if (lobby.includes('playCtaTap(false)') && lobby.includes('playCtaTap(true)') &&
     lobby.includes('ctaPressScale = 0.96') && lobby.includes('peekPressScale = 0.98')) {
@@ -575,9 +575,9 @@ if (ctaLayer && ctaLayer[0].includes('.onHover(') && ctaLayer[0].includes('.focu
 if (peekLayer && peekLayer[0].includes('.onHover(') && peekLayer[0].includes('.focusable(true)') &&
     peekLayer[0].includes('.onFocus(') && peekLayer[0].includes('.onBlur(') &&
     peekLayer[0].includes('tavern_brass') && peekLayer[0].includes('peekHotBorder')) {
-  pass('R2b lb_btn_peek_table weaker hover/focus flash');
+  pass('R2b lb_btn_rules weaker hover/focus flash');
 } else {
-  fail('R2b peek hover/focus wiring');
+  fail('R2b rules hover/focus wiring');
 }
 
 if (panel.includes('ControlIds.SILENT') && panel.includes('ControlIds.NICK_FIELD') &&

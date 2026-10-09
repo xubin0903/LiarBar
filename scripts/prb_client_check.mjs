@@ -1276,7 +1276,8 @@ if (RSh && PSched && MR) {
       '  private async lockPortraitSoft(): Promise<void> {', '  private async begin(): Promise<void> {', '  private startColdBoot(): void {',
       '  private startReturnEnter(): void {', '  private arm(delayMs: number, fn: () => void): void {', '  private clearTimers(): void {',
       '  private async hydrate(): Promise<void> {', '  private async hydrateView(): Promise<void> {', '  onPageHide(): void {', '  onPageShow(): void {',
-      '  private tryEnterTable(): void {', '  private async rollbackTablePush(): Promise<void> {', '  private async lockThenPeekTable(): Promise<void> {'];
+      '  private tryEnterTable(): void {', '  private async rollbackTablePush(): Promise<void> {', '  private async lockThenPeekTable(): Promise<void> {',
+      '  private openRecords(): void {', '  private openRules(): void {', '  onBackPress(): boolean {'];
     const missingLobby = LOBBY_SIGS.filter((sg) => body(lobbyText, sg).length === 0);
     ok(missingLobby.length === 0, `Lobby harness: all ${LOBBY_SIGS.length} lifecycle methods found (${missingLobby.join(' | ') || 'ok'})`);
     const lobbyJs = stripEts(LOBBY_SIGS.map((sg) => body(lobbyText, sg) + '\n  }\n').join('\n'),
@@ -1287,7 +1288,7 @@ if (RSh && PSched && MR) {
       loadValue: 0, idleOpacity: 0, announceOpacity: 0, greetOpacity: 0, topbarOpacity: 0, topbarY: 12, topbarScale: 0.96, cardOpacity: 0, cardY: 12,
       cardScale: 0.96, ctaOpacity: 0, ctaY: 12, ctaEnterScale: 0.96, peekOpacity: 0, peekY: 12, peekScale: 0.96, timerIds: [], loopsAlive: false,
       idleLoopAlive: false, layerMs: 0, lobbyInit: true, lobbyKey: 0, appeared: false, matchLoading: false, matchBusy: false, matchLoadAxisDone: false,
-      matchLoadPersistDone: false });
+      matchLoadPersistDone: false, recordsOn: false, rulesOn: false });
   }
   revealDealerIdle() {} crossToAnnounce() {} showGreet() {} crossBackIdle() {} playStagger() {}
   enableCta() { this.bootReady = true; } startIdleLoop() {} pulseBreath() {} pulseCandle() {} pulseDust() {} pulseCtaGlow() {} pulseTopbar() {}
@@ -1973,23 +1974,56 @@ export { LobbyHarness };`;
         `+${bgm.plays - cold.bgm} (amb +${amb.plays - cold.amb}) = returns, playing=${isPlaying(bgm)}; SoundPool created ${fm.calls.pool}× (pools ${fm.pools.length}), ` +
         `AVPlayer created ${fm.calls.player}× (players ${fm.players.length})`);
     }
-    // (2) onPageShow → playIfIdle 是恢复的唯一入口（back 回本页 / 回前台，没有新大厅 begin()）：Records push 盖住大厅 → 淡出暂停 → back → 同一组播放器 play() 一次；
+    // (2a) DEV-3c / S21-19：开战绩浮层不调 fadeOutForHide、不 leaveThenRelease；LobbyAudio gen 不变，BGM 仍在播。
+    {
+      const bs = await makeLeaveWorld(true);
+      const { clk: c, fm, LA } = bs;
+      const L0 = await coldLobby(bs, 'L0');
+      const bgm = LA.bgmPlayer;
+      if (bgm === null) { fail('records-overlay-no-fade: cold lobby built no BGM player'); }
+      else {
+        const gen0 = LA.gen;
+        const p0 = bgm.plays;
+        const spy = { fade: 0, leaveRelease: 0, release: 0 };
+        const fade0 = LA.fadeOutForHide;
+        const lrel0 = LA.leaveThenRelease;
+        const rel0 = LA.release;
+        LA.fadeOutForHide = function fadeOutForHide() { spy.fade++; return fade0.call(this); };
+        LA.leaveThenRelease = function leaveThenRelease() { spy.leaveRelease++; return lrel0.call(this); };
+        LA.release = function release() { spy.release++; return rel0.call(this); };
+        const acts0 = bgm.acts.length;
+        L0.openRecords();
+        c.advance(500);
+        await settle();
+        const mid = { on: L0.recordsOn, playing: isPlaying(bgm), plays: bgm.plays, gen: LA.gen,
+          acts: bgm.acts.slice(acts0).filter((a) => !a.startsWith('vol:')) };
+        L0.onBackPress();
+        c.advance(200);
+        await settle();
+        ok(mid.on === true && !L0.recordsOn && spy.fade === 0 && spy.leaveRelease === 0 && spy.release === 0 &&
+          mid.gen === gen0 && LA.gen === gen0 && mid.plays === p0 && bgm.plays === p0 && mid.playing && isPlaying(bgm) &&
+          mid.acts.length === 0 && LA.bgmPlayer === bgm && !LA.isPausedByHide() && fm.pools.length === 1,
+          `records-overlay-no-fade (DEV-3c): openRecords → recordsOn=${mid.on}, fadeOutForHide=${spy.fade} leaveThenRelease=${spy.leaveRelease} ` +
+          `release=${spy.release}; gen ${gen0}→${LA.gen}; BGM play() ${p0}→${bgm.plays} playing=${isPlaying(bgm)} acts [${mid.acts.join(',') || 'none'}]; ` +
+          `onBackPress closes panel (recordsOn=${L0.recordsOn})`);
+      }
+    }
+    // (2b) onPageShow → playIfIdle 是恢复的唯一入口：任意盖住大厅的页（这里用占位页代替已废止的 Records push）→ 淡出暂停 → 再 show → 同一组播放器 play() 一次；
     //     400 ms 内又可见（淡出还没到 pause）→ 撤销暂停淡回常驻，不 play()、不 pause()。
     showAfterBack: {
       const bs = await makeLeaveWorld(true);
-      const { clk: c, fm, LbR, LA, rm } = bs;
+      const { clk: c, fm, LA, rm } = bs;
       const L0 = await coldLobby(bs, 'L0');
       const bgm = LA.bgmPlayer;
       if (bgm === null) { fail('lobby-bgm-show-after-back: cold lobby built no BGM player'); break showAfterBack; }
       const p0 = bgm ? bgm.plays : -1;
-      LbR.toRecords();
-      rm.pages.push({ name: 'Report', inst: { aboutToDisappear: () => {} } });
+      rm.pages.push({ name: 'Cover', inst: { aboutToDisappear: () => {} } });
       L0.onPageHide();
       c.advance(5000);
       await settle();
       const hid = { paused: bgm.acts.filter((a) => !a.startsWith('vol:')).pop() === 'pause', vol: bgm.vols[bgm.vols.length - 1] };
       rm.pages.pop();
-      L0.onPageShow(); // router.back() → Lobby page shown again
+      L0.onPageShow(); // cover gone → Lobby page shown again
       c.advance(1000);
       await settle();
       const back = { plays: bgm.plays, playing: isPlaying(bgm), vol: bgm.vols[bgm.vols.length - 1] };
@@ -2004,7 +2038,7 @@ export { LobbyHarness };`;
       ok(p0 === 1 && hid.paused && hid.vol === 0 && back.plays === 2 && back.playing && Math.abs(back.vol - LA.VOL_BGM_STEADY) < 1e-12 &&
         quick.length === 0 && bgm.plays === 2 && isPlaying(bgm) && Math.abs(bgm.vols[bgm.vols.length - 1] - LA.VOL_BGM_STEADY) < 1e-12 &&
         LA.bgmPlayer === bgm && fm.pools.length === 1 && fm.players.length === 2,
-        `lobby-bgm-show-after-back (Records push → back, no new lobby): hidden → paused=${hid.paused} volume ${hid.vol}; onPageShow → playIfIdle → same player play() ${p0} → ${back.plays}, ` +
+        `lobby-bgm-show-after-back (cover page → show, no new lobby): hidden → paused=${hid.paused} volume ${hid.vol}; onPageShow → playIfIdle → same player play() ${p0} → ${back.plays}, ` +
         `playing=${back.playing} volume ${back.vol}; shown again 200 ms into the fade → acts [${quick.join(',') || 'none'}] (no play / pause), play() stays ${bgm.plays}, ` +
         `volume back to ${bgm.vols[bgm.vols.length - 1]}; pools=${fm.pools.length} AVPlayers=${fm.players.length}`);
     }
@@ -3376,7 +3410,7 @@ if (RMod && MR && rpMiss.length === 0) {
   const PhaseE4 = enumObj('Phase');
   const SS4 = enumObj('SeatStatus');
   const rpJs = `class ReportHarness {
-  constructor() { Object.assign(this, { view: null, recordsMode: true, leaving: false, againOpts: null }); }
+  constructor() { Object.assign(this, { view: null, leaving: false, againOpts: null }); }
 ${stripEts(REPORT_SIGS.map((sg) => body(reportPage, sg) + '\n  }\n').join('\n'),
   ['MatchSnapshot | null', 'StartMatchOpts | null', 'StartMatchOpts', 'common.UIAbilityContext', 'Map<string, string>', 'RecordCommit',
     'ReportInput', 'number', 'string', 'boolean'], ['common.UIAbilityContext']).replace(/new Map<string, string>\(\)/g, 'new Map()')}
@@ -3531,7 +3565,7 @@ export { ReportHarness };`;
   {
     const w = await world(`m-${T0r}-view`, true);
     w.h.aboutToAppear();
-    ok(w.h.recordsMode === false && w.h.view && w.h.view.topText === '你没撑到最后' && w.h.view.winnerText === '胜者：ai1' && w.h.view.rows[0].slot === 'self' &&
+    ok(w.h.view && w.h.view.topText === '你没撑到最后' && w.h.view.winnerText === '胜者：ai1' && w.h.view.rows[0].slot === 'self' &&
       w.h.view.rows[0].rankText === '第 4 名' && w.h.view.durationText === '用时 4分0秒' && w.h.view.fallbackText === '这一局，没人掀过牌。' && w.h.view.replayText === '',
       `real Report.aboutToAppear → ReportModel view via getStringByNameSync (${w.h.view && w.h.view.topText} · ${w.h.view && w.h.view.winnerText} · self ${w.h.view && w.h.view.rows[0].rankText})`);
   }
@@ -4005,6 +4039,32 @@ RUN(false);
   ok(ksNow.length === 341 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
     'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))),
     `2b uses existing keys only (string.json ${ksNow.length} keys)`);
+
+// 战绩浮层结构（22 §7.1 · S21-19 · S22-09/10 · DEV-3c）
+{
+  const recP = src(E + 'features/lobby/RecordsPanel.ets');
+  const lob = src(E + 'pages/Lobby.ets');
+  const ids = src(E + 'common/Ids.ets');
+  const openRec = body(lob, '  private openRecords(): void {');
+  ok(ids.includes("'lb_cmp_records_panel'") && ids.includes("'lb_btn_records_back'") && ids.includes("'lb_cmp_overlay_mask'") &&
+    ids.includes("'lb_btn_rules'") && !ids.includes("'lb_btn_peek_table'") &&
+    lob.includes('RecordsPanel(') && lob.includes('OverlayIds.MASK') && lob.includes('this.openRecords()') &&
+    !lob.includes('toRecords') && openRec.includes('this.recordsOn = true') && !/fadeOutForHide|LobbyAudio/.test(openRec),
+    'records overlay wired: ids + Lobby mounts RecordsPanel / overlay mask; openRecords sets recordsOn, no LobbyAudio / toRecords');
+  const rpBuild = body(recP, '  build() {');
+  const emptyAt = rpBuild.indexOf('if (this.view.empty)');
+  const elseAt = rpBuild.indexOf('} else {', emptyAt);
+  const emptyBlock = emptyAt >= 0 && elseAt > emptyAt ? rpBuild.slice(emptyAt, elseAt) : '';
+  ok(emptyAt >= 0 && elseAt > emptyAt && emptyBlock.includes('lb_str_records_empty') &&
+    rpBuild.includes('ControlIds.RECORDS_BACK') &&
+    !emptyBlock.includes('RECORDS_SUMMARY') && !emptyBlock.includes('LIST_RECORDS') &&
+    !emptyBlock.includes('lb_str_rec_recent') && !emptyBlock.includes('lb_str_rec_sum_fmt') &&
+    rpBuild.indexOf('RECORDS_SUMMARY') > elseAt && rpBuild.indexOf('LIST_RECORDS') > elseAt &&
+    rpBuild.includes('lb_str_rec_recent') && !recP.includes('app.media.art_panel_base') &&
+    recP.includes("app.color.tavern_panel") && !recP.includes('REPORT_LOBBY'),
+    'records panel empty = title+empty+back only; summary/list only when !empty; program base; back ≠ report_lobby');
+}
+
 }
 
 // ---------------------------------------------------------------- ⑦ strings (21 §6 keys, no PR-B temp keys)
