@@ -176,10 +176,23 @@ export class ControlIds {
   static readonly DEBUG_HAMMER_BELIEVE: string = 'lb_btn_debug_hammer_believe';
   /** PR-B 调试暂停入口（仅 DebugBuild）。 */
   static readonly DEBUG_PAUSE: string = 'lb_btn_debug_pause';
-  /** PR-B 临时暂停层（UI 22 换皮前）：层 / 「继续」/ 切后台提示。 */
+  /** 22 §3.2 / §6：局内暂停键 + 暂停层五项 + 待停条 + 确认框。 */
+  static readonly PAUSE: string = 'lb_btn_pause';
+  static readonly PAUSE_ICO: string = 'lb_ico_pause';
   static readonly PAUSE_LAYER: string = 'lb_cmp_pause_layer';
   static readonly PAUSE_RESUME: string = 'lb_btn_pause_resume';
+  static readonly PAUSE_SETTINGS: string = 'lb_btn_pause_settings';
+  static readonly PAUSE_RULES: string = 'lb_btn_pause_rules';
+  static readonly PAUSE_END: string = 'lb_btn_pause_end';
+  static readonly PAUSE_LOBBY: string = 'lb_btn_pause_lobby';
   static readonly PAUSE_BG_NOTE: string = 'lb_txt_pause_bg_note';
+  static readonly PAUSE_PENDING: string = 'lb_txt_pause_pending';
+  static readonly CONFIRM_END: string = 'lb_cmp_confirm_end';
+  static readonly CONFIRM_END_OK: string = 'lb_btn_confirm_end_ok';
+  static readonly CONFIRM_END_CANCEL: string = 'lb_btn_confirm_end_cancel';
+  static readonly CONFIRM_LOBBY: string = 'lb_cmp_confirm_lobby';
+  static readonly CONFIRM_LOBBY_OK: string = 'lb_btn_confirm_lobby_ok';
+  static readonly CONFIRM_LOBBY_CANCEL: string = 'lb_btn_confirm_lobby_cancel';
   /** 2b · 21 §1.7 / 22 §5：人类出局二选一面板 + 两键（右主「直接看结算」/ 左次「继续观战」）。02:329 已登记。 */
   static readonly ELIM_CHOICE: string = 'lb_cmp_elim_choice';
   static readonly ELIM_REPORT: string = 'lb_btn_elim_report';

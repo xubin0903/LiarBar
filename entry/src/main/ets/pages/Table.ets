@@ -24,6 +24,7 @@ import { ChallengeFx } from '../features/table/ChallengeFx';
 import { ChoiceActFx } from '../features/table/ChoiceActFx';
 import { PlayFlyFx } from '../features/table/PlayFlyFx';
 import { PeekMaskOverlay, PlayConfirmBar, PlaySheetOverlay } from '../features/table/TableOverlays';
+import { PausePanel } from '../features/table/PausePanel';
 import { PeekPrivacyAdapter } from '../harmony/PeekPrivacyAdapter';
 import { SafeInsets, WindowOrientation } from '../harmony/WindowOrientation';
 import { CardModel, MatchSnapshot, SeatModel } from '../engine/MatchTypes';
@@ -171,6 +172,13 @@ struct Table {
   @State pauseLayerOn: boolean = false;
   /** 21 §3.6 BG_RESUME：切后台进的暂停，层上加 lb_str_pause_bg_note。 */
   @State pauseFromBackground: boolean = false;
+  /** 22 §6：暂停层子态 menu / settings / rules / confirm_end（BG_RESUME 由 pauseFromBackground 区分）。 */
+  @State pauseSub: string = 'menu';
+  /** 21 §3.1 PAUSE_PENDING：导演待停中（暂停键 _pending + 待停条）。 */
+  @State pausePendingOn: boolean = false;
+  /** 22:373：待停 <200ms 不显示待停条。 */
+  @State pausePendingBarOn: boolean = false;
+  private pausePendingBarTimer: number = -1;
   /** 2b · 21 §1.7：PAUSED.ELIM_CHOICE → 出局二选一面板（lb_cmp_elim_choice）。 */
   @State elimChoiceOn: boolean = false;
   /** 2b · 22 §5.1：快进罩（lb_cmp_ff_overlay）；期间页面冻帧，pull() 不走。 */
@@ -278,6 +286,8 @@ struct Table {
   private hintTimer: number = -1;
   /** PR-A 离局二次确认：弹窗挂起期间系统返回键/回大厅键不重复弹、不直接离局。 */
   private leaveConfirmOpen: boolean = false;
+  /** 离局确认打开时刻（真跑/破坏测对 PENDING_CAP 用）。 */
+  private leaveConfirmAt: number = 0;
   /** 21 §3.1 P06：原子序列中请求离局 → 先记下、待停；序列放完（或满 PENDING_CAP_MS）进 PAUSED 才弹框。重复请求只算一次。 */
   private leavePending: boolean = false;
   /** 调试暂停入口是否挂载：aboutToAppear 读一次 DebugBuild（appInfo.debug），Builder 只读此字段。 */
@@ -608,10 +618,27 @@ struct Table {
           .zIndex(this.flyZ)
       }
 
-      // 补丁轮 2 第 1 条（UI 22 S22-32）：暂停层 = 根 Stack 最后一个子节点，压过桌面 Stack（含桌槌 / 回大厅键）、
-      // PeekMaskOverlay、出牌面板与飞牌；zIndex 只在同一父容器内比，所以必须挂在这里而不是桌面 Stack 里。
+      // 补丁轮 2 第 1 条（UI 22 S22-32）+ DEV-1：根 Stack 末段层序 = 暂停 → 出局二选一 → 快进罩。
+      // 正式暂停层在 PausePanel（避开设置锚点硬锁段内的旧 pauseLayer 临时代码）。
       if (this.pauseLayerOn) {
-        this.pauseLayer()
+        PausePanel({
+          fromBackground: this.pauseFromBackground,
+          sub: $pauseSub,
+          onResume: () => { this.resumeFromPauseLayer(); },
+          onOpenSettings: () => { this.pauseSub = 'settings'; },
+          onOpenRules: () => { this.pauseSub = 'rules'; },
+          onOpenEnd: () => { this.pauseSub = 'confirm_end'; },
+          onOpenLobby: () => { this.openLeaveConfirmFromPauseMenu(); },
+          onBackToMenu: () => { this.pauseSub = 'menu'; },
+          onConfirmEnd: () => { this.onConfirmEndOk(); },
+          onCancelEnd: () => { this.pauseSub = 'menu'; }
+        })
+          .width('100%')
+          .height('100%')
+          .zIndex(PAUSE_LAYER_Z)
+      }
+      if (this.leaveConfirmOpen) {
+        this.confirmLobbyLayer()
       }
       // 2b · 22 §5 / §5.1：出局二选一与快进罩同挂根 Stack 末尾（同暂停层层序），压过回大厅键 / 暂停入口。
       if (this.elimChoiceOn) {
@@ -1061,10 +1088,22 @@ struct Table {
   @Builder
   homeExitChrome() {
     Stack({ alignContent: Alignment.TopEnd }) {
-      // 22 §3.2 右簇从右到左：lb_btn_home → (lb_btn_pause) → (lb_cmp_demo_badge) → lb_cmp_spectate_badge；暂停键 / 演示角标未挂时角标紧贴 home 左侧。
-      Row({ space: 8 }) {
-        if (this.spectating) {
+      // 22 §3.2 右簇从右到左：lb_btn_home → lb_btn_pause → (待停条 / 角标)；演示角标未挂时角标或待停条紧贴暂停键左侧。
+      Row({ space: 12 }) {
+        if (this.pausePendingBarOn) {
+          Text($r('app.string.lb_str_pause_pending'))
+            .id(ControlIds.PAUSE_PENDING)
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.caption_text_size'))
+            .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+            .backgroundColor($r('app.color.tavern_panel'))
+            .borderRadius(8)
+            .constraintSize({ maxHeight: 24 })
+        } else if (this.spectating) {
           this.spectateBadge()
+        }
+        if (this.pauseButtonVisible()) {
+          this.pauseButton()
         }
         Text($r('app.string.lb_str_home'))
           .id(ControlIds.HOME)
@@ -1087,6 +1126,39 @@ struct Table {
     .height(44)
     .hitTestBehavior(HitTestMode.Transparent)
     .zIndex(40)
+  }
+
+  /** 22 §3.2 / §3.3：局内暂停键；待停 = _on 图 40% + 程序画 Circle 外圈（不新增 media）。 */
+  @Builder
+  pauseButton() {
+    Stack({ alignContent: Alignment.Center }) {
+      if (this.pausePendingOn) {
+        Circle({ width: 36, height: 36 })
+          .fill(Color.Transparent)
+          .stroke($r('app.color.tavern_brass'))
+          .strokeWidth(1.5)
+      }
+      Row({ space: 3 }) {
+        Column()
+          .width(4)
+          .height(14)
+          .backgroundColor($r('app.color.tavern_paper'))
+          .borderRadius(1)
+        Column()
+          .width(4)
+          .height(14)
+          .backgroundColor($r('app.color.tavern_paper'))
+          .borderRadius(1)
+      }
+      .id(ControlIds.PAUSE_ICO)
+      .opacity(this.pausePendingOn ? 0.4 : 1)
+    }
+    .id(ControlIds.PAUSE)
+    .width(44)
+    .height(44)
+    .onClick(() => {
+      this.requestPauseFromButton();
+    })
   }
 
   /**
@@ -1654,8 +1726,18 @@ struct Table {
       this.onElimSpectate();
       return true;
     }
+    if (this.leaveConfirmOpen) {
+      // 21 §3.5：确认框内返回键 = 取消。
+      this.onLeaveCancel();
+      return true;
+    }
     if (this.pauseLayerOn) {
-      // 21 §3.1 P08 / §3.5：暂停层内返回键 = 继续（常规恢复，含 RESUME_GRACE_MS）。
+      // 21 §3.5：子层 → 菜单；菜单 / BG_RESUME → 继续。
+      if (!this.pauseFromBackground && (this.pauseSub === 'settings' || this.pauseSub === 'rules' ||
+        this.pauseSub === 'confirm_end')) {
+        this.pauseSub = 'menu';
+        return true;
+      }
       this.resumeFromPauseLayer();
       return true;
     }
@@ -1686,44 +1768,14 @@ struct Table {
     this.openLeaveConfirm();
   }
 
-  /** 弹离局确认框（AlertDialog：左取消 / 右离开，autoCancel:false）。只在暂停已生效（或非对局阶段）时调用。 */
+  /** 22 §6.4 离局确认 `lb_cmp_confirm_lobby`（换掉 PR-B AlertDialog）。只在暂停已生效时调用。 */
   private openLeaveConfirm(): void {
     if (this.leaving || this.leaveConfirmOpen) {
       return;
     }
     this.leaveConfirmOpen = true;
-    const ghost: boolean = this.humanIsGhost(AppRuntime.engine.current());
-    const opts: AlertDialogParamWithButtons = {
-      title: $r('app.string.lb_str_leave_confirm_title'),
-      // 21 §3.5：观战中离局不改战绩，正文换 lb_str_confirm_lobby_ghost_body。
-      message: ghost ? $r('app.string.lb_str_confirm_lobby_ghost_body') : $r('app.string.lb_str_leave_confirm_body'),
-      autoCancel: false,
-      alignment: DialogAlignment.Center,
-      primaryButton: {
-        value: $r('app.string.lb_str_leave_confirm_cancel'),
-        action: (): void => {
-          this.onLeaveCancel();
-        }
-      },
-      secondaryButton: {
-        value: $r('app.string.lb_str_leave_confirm_ok'),
-        fontColor: $r('app.color.tavern_accent'),
-        action: (): void => {
-          this.onLeaveConfirmed();
-        }
-      },
-      cancel: (): void => {
-        this.onLeaveCancel();
-      }
-    };
-    try {
-      this.getUIContext().showAlertDialog(opts);
-    } catch (err) {
-      // Dialog failed to show: stay on table (never leave without confirm).
-      this.leaveConfirmOpen = false;
-      this.resumeIfLeavePause();
-      Logger.warn(TAG, 'leave confirm dialog fail-soft — stay on table');
-    }
+    this.leaveConfirmAt = Date.now();
+    // 面板由根 Stack 挂 confirmLobbyLayer；点遮罩不关（与暂停遮罩同口径）。
   }
 
   private onLeaveCancel(): void {
@@ -1731,8 +1783,12 @@ struct Table {
       return;
     }
     this.leaveConfirmOpen = false;
-    // 「再想想」/ 返回键关窗 → 常规恢复（含 RESUME_GRACE_MS 缓冲）。
+    this.leaveConfirmAt = 0;
+    // 「再想想」：若是 LEAVE_CONFIRM 路径则常规恢复；若从暂停菜单打开则回到菜单（仍冻结）。
     this.resumeIfLeavePause();
+    if (this.pauseLayerOn) {
+      this.pauseSub = 'menu';
+    }
     Logger.info(TAG, 'leave confirm → cancel, stay on table');
   }
 
@@ -1789,6 +1845,15 @@ struct Table {
 
   private bindPause(): void {
     const fn: PauseListener = (state: PauseState, shiftMs: number): void => {
+      this.pausePendingOn = state === PauseState.PENDING;
+      if (state === PauseState.PENDING) {
+        this.armPendingBar();
+      } else {
+        this.clearPendingBar();
+      }
+      if (state === PauseState.PAUSED) {
+        this.pauseSub = 'menu';
+      }
       this.onPauseState(state, shiftMs);
     };
     this.pauseListener = fn;
@@ -1831,9 +1896,12 @@ struct Table {
     AppRuntime.director.setSequenceBusyProbe(null);
     AppRuntime.director.setPendingDeadlineProbe(null);
     TableAudio.clearGamePause();
+    this.clearPendingBar();
+    this.pausePendingOn = false;
     this.pauseLayerOn = false;
     this.elimChoiceOn = false;
     this.leavePending = false;
+    this.pauseSub = 'menu';
   }
 
   private onPauseState(state: PauseState, shiftMs: number): void {
@@ -1843,7 +1911,7 @@ struct Table {
       TableAudio.pauseForGame();
       SoundPlayer.pauseForGame();
       // 补丁轮 2 第 2 条：暂停期间不能出牌 / 偷看。暂停那一刻出牌面板开着 → 关面板并清空选牌（cancelPlaySheet）；
-      // 偷看层一律关。面板没开、只是手牌直选 + 确认条 → 选牌保留（21 §3.3 第 14 项，21:396），恢复后防误触靠 RESUME_GRACE_MS。
+      // 偷看层一律关。面板没开、只是手牌直选 + 确认条 → 选牌保留（21 §3.3 第 14 项，21:398），恢复后防误触靠 RESUME_GRACE_MS。
       // 恢复后不自动重开面板 / 偷看。
       if (this.showPlay) {
         this.cancelPlaySheet();
@@ -1947,6 +2015,137 @@ struct Table {
     .hitTestBehavior(HitTestMode.Default)
     .zIndex(PAUSE_LAYER_Z)
     .id(ControlIds.PAUSE_LAYER)
+  }
+
+  /** 22 §3.2：暂停键只在局内可行动阶段显示（phase ∉ LOBBY/RECAP/END）。 */
+  private pauseButtonVisible(): boolean {
+    const ph: string = this.phaseText;
+    return ph.length > 0 && ph !== Phase.LOBBY && ph !== Phase.RECAP && ph !== Phase.END && !this.leaving;
+  }
+
+  /** 生产暂停键入口（硬锁段内 requestUserPause 仍仅 Debug；此处不碰那段）。 */
+  private requestPauseFromButton(): void {
+    if (this.leaving || this.pausePendingOn || this.pauseLayerOn || this.leaveConfirmOpen) {
+      return;
+    }
+    AppRuntime.director.requestPause(PauseReasons.USER);
+  }
+
+  /** 22:373 待停条防闪：满 200ms 才显示（走 PausableScheduler，不裸 setTimeout）。 */
+  private armPendingBar(): void {
+    this.clearPendingBar();
+    this.pausePendingBarTimer = this.timers.schedule((): void => {
+      this.pausePendingBarTimer = -1;
+      if (this.pausePendingOn) {
+        this.pausePendingBarOn = true;
+      }
+    }, 200);
+  }
+
+  private clearPendingBar(): void {
+    if (this.pausePendingBarTimer >= 0) {
+      this.timers.cancel(this.pausePendingBarTimer);
+      this.pausePendingBarTimer = -1;
+    }
+    this.pausePendingBarOn = false;
+  }
+
+  /**
+   * 暂停菜单「回大厅」：已在 USER 暂停中，不能再 requestPause(LEAVE_CONFIRM)（会被忽略）。
+   * 直接开离局确认面板；取消回到暂停菜单（仍冻结）。
+   */
+  private openLeaveConfirmFromPauseMenu(): void {
+    if (this.leaving || this.leaveConfirmOpen) {
+      return;
+    }
+    this.leaveConfirmOpen = true;
+  }
+
+  /** 21 P11：结束游戏确认 → 记中退 → engine.leave(END) → 结算页。 */
+  private onConfirmEndOk(): void {
+    if (this.leaving) {
+      return;
+    }
+    this.leaving = true;
+    const snap = AppRuntime.engine.current();
+    if (snap !== null && snap.phase !== Phase.LOBBY && snap.phase !== Phase.RECAP && snap.phase !== Phase.END) {
+      const endCommit: RecordCommit = {
+        quit: true,
+        isDemo: AppRuntime.engine.isDemoMatch(),
+        ff: false,
+        pausedMs: AppRuntime.engine.pausedTotalAt(Date.now())
+      };
+      RecordStore.commitOnce(snap, endCommit);
+      AppRuntime.engine.leave();
+    }
+    this.pauseLayerOn = false;
+    TableAudio.clearGamePause();
+    LbRouter.replaceReport();
+  }
+
+  /**
+   * 22 §6.4 离局确认面板（换 AlertDialog）。左=再想想（实心）/ 右=确认回大厅（危险描边）。
+   */
+  @Builder
+  confirmLobbyLayer() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor($r('app.color.tavern_bg'))
+        .opacity(0.6)
+        .onClick(() => {
+          // 点遮罩不关。
+        })
+      Column({ space: 12 }) {
+        Text($r('app.string.lb_str_leave_confirm_title'))
+          .fontColor($r('app.color.tavern_candle'))
+          .fontSize($r('app.float.page_text_size'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+        Text(this.humanIsGhost(AppRuntime.engine.current()) ?
+          $r('app.string.lb_str_confirm_lobby_ghost_body') :
+          $r('app.string.lb_str_leave_confirm_body'))
+          .fontColor($r('app.color.tavern_paper'))
+          .fontSize($r('app.float.subtitle_text_size'))
+          .width('100%')
+          .textAlign(TextAlign.Center)
+        Row({ space: 12 }) {
+          Button($r('app.string.lb_str_leave_confirm_cancel'))
+            .id(ControlIds.CONFIRM_LOBBY_CANCEL)
+            .layoutWeight(1)
+            .height($r('app.float.btn_height'))
+            .backgroundColor($r('app.color.tavern_accent'))
+            .fontColor($r('app.color.tavern_bg'))
+            .onClick(() => {
+              this.onLeaveCancel();
+            })
+          Button($r('app.string.lb_str_leave_confirm_ok'))
+            .id(ControlIds.CONFIRM_LOBBY_OK)
+            .layoutWeight(1)
+            .height($r('app.float.btn_height'))
+            .backgroundColor(Color.Transparent)
+            .border({ width: 1.5, color: $r('app.color.tavern_danger') })
+            .fontColor($r('app.color.tavern_danger'))
+            .onClick(() => {
+              this.onLeaveConfirmed();
+            })
+        }
+        .width('100%')
+      }
+      .id(ControlIds.CONFIRM_LOBBY)
+      .width('40%')
+      .padding(20)
+      .backgroundColor($r('app.color.tavern_panel'))
+      .borderRadius(12)
+      .border({ width: 1, color: $r('app.color.tavern_brass') })
+    }
+    .width('100%')
+    .height('100%')
+    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+    .hitTestBehavior(HitTestMode.Default)
+    .zIndex(PAUSE_LAYER_Z)
   }
 
   /**
