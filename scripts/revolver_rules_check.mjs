@@ -2,10 +2,11 @@
 /**
  * Spec check: 对局-状态机 v2.0.0 / GDD v0.4.0 — 废左轮 · lives_default=3.
  * SUPERSEDES revolver v1 (左轮对局-状态机). Asserts PenaltyExtinguish1 primary,
- * no RevolverGun on MatchEngine primary path, CollectRedeal unbound from gun.
+ * no RevolverGun / revolver SFX on primary path, CollectRedeal unbound from gun.
+ * P2 (23 §5): also assert stubs/files gone.
  * Cloud has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -217,6 +218,35 @@ if (engine.includes('alive-token') || /lives_default\s*=\s*1/.test(engine)) {
   pass('engine abolished lives_default=1 / alive-token formula');
 }
 
+
+// P2 · 23 §5 — full-repo absence of revolver SFX / dead helpers / gun module.
+const audio = src('entry/src/main/ets/features/table/TableAudio.ets');
+const noRevSfx =
+  !audio.includes('playRevolver') &&
+  !audio.includes('sfx_revolver_') &&
+  !ids.includes('REVOLVER_CLICK') &&
+  !ids.includes('lb_sfx_revolver_') &&
+  !table.includes('hearRevolverEvents') &&
+  !table.includes('heardEventCount') &&
+  !table.includes('startRoundWin') &&
+  !table.includes('finishRoundWin') &&
+  !/pauseLayer\s*\(/.test(table) &&
+  !existsSync(join(root, 'entry/src/main/ets/engine/RevolverGun.ets')) &&
+  !existsSync(join(root, 'entry/src/main/ets/engine/RevolverRulesApi.ets')) &&
+  !existsSync(join(root, 'entry/src/main/resources/rawfile/audio/sfx/sfx_revolver_click.wav')) &&
+  !existsSync(join(root, 'scripts/gen_revolver_sfx.py')) &&
+  !defaultsTs.includes('revolver_chambers') &&
+  !defaultsTs.includes('revolver_live') &&
+  match.revolver_chambers === undefined &&
+  match.revolver_live === undefined &&
+  !types.includes('chamberIndex') &&
+  !types.includes('liveChamberIndex');
+if (noRevSfx) {
+  pass('P2: no revolver SFX/stubs/gun/dead RoundWin/pauseLayer/config keys');
+} else {
+  fail('P2 revolver residue still present (SFX/stubs/gun/config/dead helpers)');
+}
+
 if (!process.exitCode) {
-  console.log('revolver_rules_check: all green (no-revolver · 3lives)');
+  console.log('revolver_rules_check: all green (no-revolver · 3lives · P2 clean)');
 }

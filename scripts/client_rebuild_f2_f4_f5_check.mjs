@@ -39,8 +39,12 @@ if (table.includes('floorHandPad') && table.includes('nextB: number = this.inset
 else fail('padB path rewritten');
 if (table.includes('homeExitChrome') && table.includes('ControlIds.HOME') && table.includes('.id(ControlIds.HOME)')) pass('F3 lb_btn_home still present');
 else fail('F3 lb_btn_home missing');
-if (/revolver|RevolverGun|sfx_revolver/i.test(table) && table.includes('playRevolver')) fail('revolver primary path reintroduced');
-else pass('no revolver primary on Table');
+if (table.includes('playRevolver') || table.includes('hearRevolverEvents') ||
+    table.includes('startRoundWin') || table.includes('finishRoundWin')) {
+  fail('P2 revolver/RoundWin dead helpers reintroduced');
+} else {
+  pass('no revolver primary / dead RoundWin helpers on Table');
+}
 
 // --- F2 ---
 if (strings.includes('lb_str_challenge_no_broadcast') && strings.includes('质疑无表现') &&

@@ -4167,11 +4167,17 @@ const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json'
 
 // ---------------------------------------------------------------- ⑦ strings (21 §6 keys, no PR-B temp keys)
 const names = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
-const prbKeys = ['lb_str_pause', 'lb_str_pause_title', 'lb_str_pause_resume', 'lb_str_pause_bg_note',
+// P2: pause title/resume/bg_note live in PausePanel (dead pauseLayer @Builder removed).
+const prbKeysTable = ['lb_str_pause',
   'lb_str_leave_confirm_title', 'lb_str_leave_confirm_body', 'lb_str_leave_confirm_ok', 'lb_str_leave_confirm_cancel',
   'lb_str_confirm_lobby_ghost_body'];
-for (const k of prbKeys) {
+const prbKeysPausePanel = ['lb_str_pause_title', 'lb_str_pause_resume', 'lb_str_pause_bg_note'];
+for (const k of prbKeysTable) {
   ok(names.includes(k) && table.includes(`$r('app.string.${k}')`), `Table references existing key ${k}`);
+}
+for (const k of prbKeysPausePanel) {
+  ok(names.includes(k) && pausePanelSrc.includes(`$r('app.string.${k}')`),
+    `PausePanel references existing key ${k}`);
 }
 ok(!names.includes('lb_str_debug_pause') && !table.includes('lb_str_debug_pause\''), 'no PR-B temp key lb_str_debug_pause');
 const refs = new Set([...table.matchAll(/\$r\('app\.string\.(\w+)'\)/g)].map((m) => m[1]));

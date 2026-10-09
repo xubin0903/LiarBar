@@ -62,7 +62,7 @@ export interface StartMatchOpts {
 /**
  * 对局-状态机 v2.0.0 / GDD v0.4.0 — 废左轮 · lives_default=3.
  * Reveal → PenaltyExtinguish1 (−1 candle) → CollectRedeal (不绑枪).
- * Win = one ALIVE remains. HandEmpty ≥3/=2. No RevolverGun primary path.
+ * Win = one ALIVE remains. HandEmpty ≥3/=2. No revolver primary path (P2 cleaned).
  */
 export class MatchEngine {
   private snapshot: MatchSnapshot | null = null;
@@ -1823,8 +1823,6 @@ export class MatchEngine {
       forceChallengeEmpty: this.forceChallengeEmpty,
       emptyHandSeatId: this.emptyHandSeatId,
       roundSafeWaitSeats: this.copyIds(this.roundSafeWaitSeats),
-      chamberIndex: -1,
-      liveChamberIndex: -1,
       lastShotLive: this.lastEliminated,
       lastShooterSeatId: this.lastExtinguishSeatId,
       lastPenalizedSeatId: this.lastPenalizedSeatId,

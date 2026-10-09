@@ -166,13 +166,14 @@ if (table.includes('this.hearLastPlay(snap)') &&
 
 if (table.includes('roundWinOn') &&
     table.includes('ControlIds.ROUND_WIN') &&
-    table.includes('startRoundWin') &&
+    !table.includes('startRoundWin') &&
+    !table.includes('finishRoundWin') &&
     table.includes('emptyOrder') &&
     table.includes('challengeEnabled = false') &&
     !table.includes('LbRouter.toChallenge()')) {
-  pass('hand==0 RoundWin gate; old toChallenge frozen');
+  pass('hand==0: dead startRoundWin gone; ROUND_WIN/emptyOrder; old toChallenge frozen');
 } else {
-  fail('RoundWin / challenge freeze');
+  fail('RoundWin residue / challenge freeze');
 }
 
 if (table.includes('maybeOtherPlayFly') &&
