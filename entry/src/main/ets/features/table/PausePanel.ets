@@ -1,5 +1,6 @@
 import { ControlIds, OverlayIds } from '../../common/Ids';
 import { RulesPanel } from '../lobby/RulesPanel';
+import { SettingsPanel } from '../lobby/SettingsPanel';
 
 /**
  * 22 §6 局内暂停层 `lb_cmp_pause_layer`：MENU 五项 / BG_RESUME 单键 / SETTINGS·RULES 子层 / CONFIRM_END。
@@ -10,6 +11,8 @@ import { RulesPanel } from '../lobby/RulesPanel';
 export struct PausePanel {
   /** 21 §3.6：切后台进的暂停，只露「继续」+ bg note。 */
   fromBackground: boolean = false;
+  /** 局内静默局 → 设置页只读提示。 */
+  silentMatch: boolean = false;
   /** menu | settings | rules | confirm_end */
   @Link sub: string;
   onResume: () => void = () => {};
@@ -153,27 +156,15 @@ export struct PausePanel {
 
   @Builder
   settingsBody() {
-    Column({ space: 14 }) {
-      Text($r('app.string.lb_str_pause_settings'))
-        .fontColor($r('app.color.tavern_candle'))
-        .fontSize($r('app.float.page_text_size'))
-        .width('100%')
-      Button($r('app.string.lb_str_back'))
-        .height($r('app.float.btn_height'))
-        .width('100%')
-        .backgroundColor(Color.Transparent)
-        .border({ width: 1.5, color: $r('app.color.tavern_brass') })
-        .fontColor($r('app.color.tavern_paper'))
-        .onClick(() => {
-          this.onBackToMenu();
-        })
-    }
-    .width('44%')
-    .constraintSize({ maxHeight: '86%' })
-    .padding(20)
-    .backgroundColor($r('app.color.tavern_panel'))
-    .borderRadius(12)
-    .border({ width: 1, color: $r('app.color.tavern_brass') })
+    // 22 §7.2：与大厅同一 SettingsPanel；局内 allowDemoUnlock=false；静默局只读提示。
+    SettingsPanel({
+      allowDemoUnlock: false,
+      silentMatchNote: this.silentMatch,
+      panelWidthPct: '52%',
+      onClose: () => {
+        this.onBackToMenu();
+      }
+    })
   }
 
   @Builder

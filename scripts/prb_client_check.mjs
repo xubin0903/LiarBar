@@ -754,8 +754,9 @@ ok(!/persist\(\)/.test(code(body(records, '  static loadFrom(rawRecent: preferen
 
 RUN(true);
 // ---------------------------------------------------------------- ⑭ lb.settings per key (real AudioSettings, read never writes)
-const AS_TYPES = ['preferences.Preferences | null', 'preferences.Preferences', 'preferences.ValueType', 'common.UIAbilityContext', 'Promise<void>',
-  'AudioSettingsListener[]', 'AudioSettingsListener', 'number', 'boolean', 'string'];
+const AS_TYPES = ['preferences.Preferences | null', 'preferences.Preferences', 'preferences.ValueType',
+  'common.UIAbilityContext | null', 'common.UIAbilityContext', 'Promise<void>',
+  'AudioSettingsListener[]', 'AudioSettingsListener', 'number | boolean', 'number', 'boolean', 'string'];
 const settingsJs = stripEts(settings, AS_TYPES);
 let asStore = makePrefStore();
 let asFailOpen = false;
@@ -804,31 +805,65 @@ for (const [init, want, name] of AUDIO_CASES) {
   const r = await asCase({ vol_bgm: 37.5, vol_sfx: 105, mute_all: 'x' });
   r.AS.setBgmLevel(37);
   await tickIo();
-  ok(r.AS.bgm === 35 && asStore.data.get('vol_bgm') === 35 && asStore.data.get('vol_sfx') === 100 && asStore.data.get('mute_all') === false &&
-    asStore.writes().includes('flush'), 'control: the player\'s next set (slider release) is what persists the repaired values (37 → 35)');
+  const puts = asStore.writes().filter((w) => w.startsWith('put:'));
+  ok(r.AS.bgm === 35 && asStore.data.get('vol_bgm') === 35 && asStore.data.get('vol_sfx') === 105 && asStore.data.get('mute_all') === 'x' &&
+    puts.length === 1 && puts[0] === 'put:vol_bgm' && asStore.writes().includes('flush'),
+    'control: slider release puts only vol_bgm (37→35); other keys untouched in store (21 补7 per-key)');
 }
-// ⑯ 补丁轮 3 第 3 条：getPreferences 成功、某个 get 中途抛错 → 三键全回默认 100 / 100 / false，存档字节不变（不 put / flush / delete）。
+// ⑯ 21 补7：getPreferences 成功、某个 get 中途抛错 → 只回落抛错的那个键，其余保持已读值；存档字节不变。
 {
   const rows = [];
   let good = true;
+  const want = {
+    vol_bgm: [100, 20, true],
+    vol_sfx: [40, 100, true],
+    mute_all: [40, 20, false]
+  };
   for (const key of ['vol_bgm', 'vol_sfx', 'mute_all']) {
     asStore = makePrefStore({ vol_bgm: 40, vol_sfx: 20, mute_all: true });
     const before = asStore.dump();
-    const get0 = asStore.get;
+    const get0 = asStore.get.bind(asStore);
     asStore.get = async (k, d) => { if (k === key) { throw new Error(`get ${k} failed`); } return get0(k, d); };
     const AS = await loadAudioSettings();
-    AS.setBgmLevel(40); AS.setSfxLevel(20); AS.setMuted(true); // stale in-memory values before init (no store yet → nothing written)
     await AS.init({});
     await tickIo();
-    const r = AS.bgm === 100 && AS.sfx === 100 && AS.muted === false && asStore.writes().length === 0 && asStore.dump() === before;
+    const w = want[key];
+    const r = AS.bgm === w[0] && AS.sfx === w[1] && AS.muted === w[2] && asStore.writes().length === 0 && asStore.dump() === before;
     good = good && r;
-    rows.push(`${key} throws: ${AS.bgm}/${AS.sfx}/${AS.muted} writes=${asStore.writes().length} bytesSame=${asStore.dump() === before}`);
+    rows.push(`${key} throws: ${AS.bgm}/${AS.sfx}/${AS.muted} (want ${w.join('/')}) writes=${asStore.writes().length} bytesSame=${asStore.dump() === before}`);
   }
-  ok(good, `lb.settings one get throws midway → all three back to 100/100/false, stored bytes unchanged: ${rows.join(' | ')}`);
+  ok(good, `lb.settings one get throws midway → only that key defaults, others kept, bytes unchanged: ${rows.join(' | ')}`);
 }
 ok(asNoWrite, `lb.settings read never writes: ${AUDIO_CASES.length} loads → 0 put / flush / delete, bytes identical`);
+// S21-47 / 21:806 按键写：改 BGM 时另两键 put=0、get 不变；本键 get=新值。
+{
+  asStore = makePrefStore({ vol_bgm: 40, vol_sfx: 60, mute_all: false });
+  const AS = await loadAudioSettings();
+  await AS.init({});
+  await tickIo();
+  asStore.ops.length = 0;
+  AS.setBgmLevel(80);
+  await tickIo();
+  const puts = asStore.writes().filter((w) => w.startsWith('put:'));
+  ok(puts.length === 1 && puts[0] === 'put:vol_bgm' && asStore.data.get('vol_bgm') === 80 &&
+    asStore.data.get('vol_sfx') === 60 && asStore.data.get('mute_all') === false && asStore.writes().includes('flush'),
+    'S21-47 per-key write: setBgmLevel → put vol_bgm only; vol_sfx/mute_all get unchanged');
+  asStore.ops.length = 0;
+  AS.setMuted(true);
+  await tickIo();
+  const puts2 = asStore.writes().filter((w) => w.startsWith('put:'));
+  ok(puts2.length === 1 && puts2[0] === 'put:mute_all' && asStore.data.get('mute_all') === true &&
+    asStore.data.get('vol_bgm') === 80 && asStore.data.get('vol_sfx') === 60,
+    'S21-47 per-key write: setMuted → put mute_all only; volumes unchanged');
+}
 RUN(false);
-ok(!/persist\(\)/.test(code(body(settings, '  static async init(context: common.UIAbilityContext): Promise<void> {'))), 'AudioSettings.init never persists');
+ok(!/persist\(\)/.test(code(body(settings, '  static async init(context: common.UIAbilityContext): Promise<void> {'))) &&
+  /persistKey\(/.test(settings) && !/store\.put\(AudioSettings\.KEY_BGM[\s\S]*KEY_SFX[\s\S]*KEY_MUTED/.test(code(settings)),
+  'AudioSettings.init never persists; persistKey only (no whole-group put)');
+ok(/AudioSettings\.store = store;/.test(code(body(settings, '  static async init(context: common.UIAbilityContext): Promise<void> {'))) &&
+  code(body(settings, '  static async init(context: common.UIAbilityContext): Promise<void> {')).indexOf('store.get') <
+    code(body(settings, '  static async init(context: common.UIAbilityContext): Promise<void> {')).indexOf('AudioSettings.store = store'),
+  'AudioSettings.init: store assigned after gets (21 补7)');
 
 RUN(true);
 // ---------------------------------------------------------------- ⑭ unified resume shift (real ResumeShift + real PausableScheduler)
@@ -3617,6 +3652,7 @@ export { StartHarness };`;
       const SH = (await importFresh(smJs, {
         TurnWindow: TW, Phase: PhS, LifeReason: { NONE: 'NONE' }, TAG: 'MatchEngine', Logger: { info: () => {}, warn: () => {}, error: () => {} },
         SeededRng: class { constructor(s) { this.s = s; } },
+        DemoArm: { consume: () => false, isArmed: () => false, setArmed: () => {}, unlock: () => {}, isUnlocked: () => false, resetAll: () => {} },
         ConfigRepository: { isReady: () => true, snapshotMatchDefaults: () => ({ min_players: 3, max_players: 4, demo_seed_enabled: false, demo_seed_value: 7, lives_default: 3 }),
           deck: () => ({}), demo: () => ({}) }
       })).StartHarness;
@@ -3737,7 +3773,9 @@ ${stubs}`) + '\nexport { TableFF };';
     const b = await loadEtsBundle(root, ['common/MatchDirector'], {
       'common/Logger': { Logger: LoggerS }, '@kit.AbilityKit': { common: {} },
       '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: (u) => Buffer.from(u).toString('utf8') }) } } },
-      'persist/RecordStore': { RecordStore: RSspy }, 'harmony/LiveWindowAdapter': { LiveWindowAdapter: class {} }
+      'persist/RecordStore': { RecordStore: RSspy },
+      'persist/DemoArm': { DemoArm: { consume: () => false, isArmed: () => false, setArmed: () => {}, unlock: () => {}, isUnlocked: () => false, resetAll: () => {} } },
+      'harmony/LiveWindowAdapter': { LiveWindowAdapter: class {} }
     }, timeG);
     const CR = b['config/ConfigRepository'].ConfigRepository;
     await CR.loadAll({ resourceManager: { getRawFileContent: async (p) => new Uint8Array(readFileSync(join(root, 'entry/src/main/resources/rawfile/', p))) } });
@@ -4062,7 +4100,34 @@ RUN(false);
     /this\.armIfNeeded\(\);\s*if \(this\.thinkUntilMs > 0\) \{\s*this\.thinkUntilMs = 0;\s*this\.runAi\(\);\s*\}/.test(ffb) && count(ffb, /this\.runAi\(\)/) === 1 &&
     ffb.includes('engine.dealDone()') && ffb.includes('engine.skipRitual()') && ffb.includes('engine.penaltyDone()') && ffb.includes('steps < this.ffMaxSteps'),
     '2b director FF (21:236/240): product FF_MAX_STEPS = 4000; same beat as tick — one runAi per arm (ThinkDelay drawn, thinkUntil zeroed, no wait, no retry); no new RNG / Math.random');
-  const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
+  
+// ---------------------------------------------------------------- ⑱ 设置面板 / 演示（21 §4 · 22 §7.2）
+{
+  const setPanel = src(E + 'features/lobby/SettingsPanel.ets');
+  const demoArm = src(E + 'persist/DemoArm.ets');
+  ok(/ControlIds\.SETTINGS_PANEL/.test(setPanel) && /ControlIds\.VOL_BGM/.test(setPanel) && /ControlIds\.VOL_SFX/.test(setPanel) &&
+    /ControlIds\.TOG_MUTE/.test(setPanel) && /art_icon_mute/.test(setPanel) && /art_icon_silent_match/.test(setPanel) &&
+    /ControlIds\.ICO_SILENT_MATCH/.test(setPanel) && !/lb_tog_silent/.test(setPanel) && !/ControlIds\.SILENT\b/.test(setPanel),
+    'settings panel: vol_bgm + vol_sfx + mute (art_icon_mute) + silent note (art_icon_silent_match); no silent toggle (S22-18/19)');
+  ok(/allowDemoUnlock/.test(setPanel) && /ControlIds\.TOG_DEMO/.test(setPanel) && /DemoArm\.unlock/.test(setPanel) &&
+    /versionTaps/.test(setPanel),
+    'settings about: version 7-tap unlocks demo (DemoArm); tog only when allowDemoUnlock');
+  ok(/static consume\(\): boolean/.test(demoArm) && /static setArmed/.test(demoArm) &&
+    /DemoArm\.consume\(\)/.test(engine) && /demo_seed_enabled \|\| demoArmed/.test(engine),
+    'DemoArm.consume arms one match via demo_seed path (force_ai stays config)');
+  ok(/SettingsPanel\(/.test(src(E + 'pages/Lobby.ets')) && /ControlIds\.SETTINGS/.test(src(E + 'pages/Lobby.ets')) &&
+    /width\(44\)/.test(src(E + 'pages/Lobby.ets')) && /SettingsPanel\(/.test(src(E + 'features/table/PausePanel.ets')),
+    'Lobby + Pause mount SettingsPanel; settings/records hit ≥44vp');
+  ok(/ControlIds\.DEMO_BADGE/.test(tableCode) && /isDemoMatch\(\)/.test(tableCode) && /demoBadge\(\)/.test(tableCode),
+    'demo badge on Table chrome when isDemoMatch');
+  const md = JSON.parse(rawSrc('entry/src/main/resources/rawfile/config/match_defaults.json'));
+  const ds = JSON.parse(rawSrc('entry/src/main/resources/rawfile/config/demo_seed.json'));
+  ok(md.demo_seed_enabled === false && ds.demo_seed_enabled === false && ds.demo_force_ai_enabled === false &&
+    md.demo_seed_value === ds.demo_seed_value && Number.isInteger(md.demo_seed_value),
+    `demo defaults OFF (S21-39); seed=${md.demo_seed_value}; force_ai false`);
+}
+
+const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
   ok(ksNow.length === 341 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
     'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))),
     `2b uses existing keys only (string.json ${ksNow.length} keys)`);

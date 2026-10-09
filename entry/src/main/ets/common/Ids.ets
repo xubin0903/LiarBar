@@ -67,6 +67,24 @@ export class ControlIds {
   static readonly RULES_SEC_EMPTY: string = 'lb_cmp_rules_sec_empty';
   static readonly RULES_SEC_OUT: string = 'lb_cmp_rules_sec_out';
   static readonly RULES_SEC_WIN: string = 'lb_cmp_rules_sec_win';
+
+  /** 22 §7.2 设置面板（大厅顶栏 + 暂停层共用）。 */
+  static readonly SETTINGS: string = 'lb_btn_settings';
+  static readonly SETTINGS_ICO: string = 'lb_ico_settings';
+  static readonly SETTINGS_PANEL: string = 'lb_cmp_settings_panel';
+  static readonly SETTINGS_BACK: string = 'lb_btn_settings_back';
+  static readonly VOL_BGM: string = 'lb_cmp_vol_bgm';
+  static readonly VOL_SFX: string = 'lb_cmp_vol_sfx';
+  static readonly TOG_MUTE: string = 'lb_tog_mute';
+  static readonly ICO_MUTE: string = 'lb_ico_mute';
+  static readonly ICO_SILENT_MATCH: string = 'lb_ico_silent_match';
+  static readonly SETTINGS_RULES: string = 'lb_btn_settings_rules';
+  static readonly SETTINGS_ABOUT: string = 'lb_btn_settings_about';
+  /** 22 §7.2.1 关于子页 / 演示（仅大厅解锁）。 */
+  static readonly ABOUT_PAGE: string = 'lb_cmp_about_page';
+  static readonly ABOUT_VERSION: string = 'lb_txt_about_version';
+  static readonly TOG_DEMO: string = 'lb_tog_demo';
+  static readonly DEMO_BADGE: string = 'lb_cmp_demo_badge';
   static readonly HAND: string = 'lb_cmp_hand';
   static readonly CHALLENGE: string = 'lb_btn_challenge';
   static readonly PLAY: string = 'lb_btn_play';
