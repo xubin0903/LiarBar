@@ -2528,7 +2528,7 @@ export { LobbyHarness };`;
         `pause-closes-play-sheet (sheet open): at pause showPlay=${atPause.play} showPeek=${atPause.peek} selected=${atPause.sel} (engine.cancelPlay=${engine.cancelPlayCalls}); ` +
         `after resume showPlay=${t.showPlay} showPeek=${t.showPeek} selected=${t.selectedIds.length} (not reopened); SoundPlayer.pauseForGame=${audio.spPause}`);
     }
-    // (b) PAU-12b：面板没开、手牌直选 + 确认条 → 暂停 → 恢复：选牌保留（21 §3.3 第 14 项，21:396）、确认条照常显示。
+    // (b) PAU-12b：面板没开、手牌直选 + 确认条 → 暂停 → 恢复：选牌保留（21 §3.3 第 14 项，21:398）、确认条照常显示。
     {
       const { t, director, engine } = await makeWorld();
       t.selectedIds = ['c1']; t.confirmBarOn = true;
