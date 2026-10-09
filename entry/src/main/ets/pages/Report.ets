@@ -39,6 +39,8 @@ struct Report {
     const pausedMs: number = AppRuntime.engine.pausedTotalAt(snap.endedAt > 0 ? snap.endedAt : Date.now());
     // 21 §1.7：快进局 ff=true（导演记的本局标记），战绩与战报快进附注同源。
     const ff: boolean = AppRuntime.director.isFastForwardMatch();
+    // 21 P11 中退：暂停「结束游戏」先 commitOnce(quit) 再 engine.leave()→END；RECAP 正常终局。
+    const quit: boolean = snap.phase === Phase.END;
     if (snap.phase === Phase.RECAP) {
       // RPT-11：结算页一出现就写（不等玩家点任何键）；与导演 RECAP 回调同一口径，commitOnce 按 last_match_id 幂等。
       const recapCommit: RecordCommit = {
@@ -60,7 +62,7 @@ struct Report {
       endedAt: snap.endedAt > 0 ? snap.endedAt : Date.now(),
       pausedMs: pausedMs,
       livesDefault: snap.config.lives_default > 0 ? snap.config.lives_default : 3,
-      quit: false,
+      quit: quit,
       ff: ff
     };
     this.view = ReportModel.build(input, this.readTexts());

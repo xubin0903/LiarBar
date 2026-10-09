@@ -7,6 +7,8 @@ import { ControlIds } from '../../common/Ids';
 @Component
 export struct RulesPanel {
   onClose: () => void = () => {};
+  /** 大厅竖屏 92%；局内暂停子层横屏约 100%（外层已约束宽）。 */
+  panelWidthPct: string = '92%';
 
   build() {
     Column() {
@@ -48,7 +50,7 @@ export struct RulesPanel {
       .scrollBar(BarState.Auto)
     }
     .id(ControlIds.RULES_PANEL)
-    .width('92%')
+    .width(this.panelWidthPct)
     .constraintSize({ maxHeight: '86%' })
     .padding(16)
     .backgroundColor($r('app.color.tavern_panel'))

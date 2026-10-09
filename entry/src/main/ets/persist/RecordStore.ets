@@ -178,6 +178,11 @@ export class RecordStore {
     return RecordStore.loaded;
   }
 
+  /** 只读：当前内存里的 last_match_id（S22-33 / 22:427 离局框藏「记中退」行）。 */
+  static lastMatchIdNow(): string {
+    return RecordStore.lastMatchId;
+  }
+
   /** 最近在前。返回副本。 */
   static recent(): MatchRecordV1[] {
     const out: MatchRecordV1[] = [];
