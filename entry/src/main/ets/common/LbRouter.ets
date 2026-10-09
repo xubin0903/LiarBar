@@ -214,13 +214,6 @@ export class LbRouter {
     LbRouter.push(PageUrls.REPORT);
   }
 
-  /**
-   * PR-A 大厅「战绩」入口：同一 Report 页，phase=LOBBY 时走战绩空态，
-   * 不播结算输赢音效（真战绩列表 PR-B 接 RecordStore）。
-   */
-  static toRecords(): void {
-    LbRouter.push(PageUrls.REPORT);
-  }
 
   /** F3: table → lobby. replaceUrl; fall back to back() inside replace(). */
   static toLobby(): void {

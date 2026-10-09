@@ -19,6 +19,8 @@ export class PageUrls {
 
 export class OverlayIds {
   static readonly PEEK_MASK: string = 'lb_cmp_peek_mask';
+  /** 22 §2.1 全部叠层共用全屏遮罩（吃点击）。 */
+  static readonly MASK: string = 'lb_cmp_overlay_mask';
   static readonly SHEET_PLAY: string = 'lb_sheet_play';
   static readonly PRIVACY_ON: string = 'lb_privacy_on';
   static readonly MATCH_LOAD: string = 'lb_ovl_match_load';
@@ -45,8 +47,26 @@ export class ControlIds {
   static readonly SILENT: string = 'lb_tog_silent';
   static readonly TOPBAR: string = 'lb_cmp_topbar';
   static readonly DEALER: string = 'lb_cmp_dealer';
-  static readonly PEEK_TABLE: string = 'lb_btn_peek_table';
+  /** 22 §7.3：原「进桌看看」位废止，改为规则入口（值原 lb_btn_peek_table）。 */
+  static readonly RULES: string = 'lb_btn_rules';
   static readonly RECORDS: string = 'lb_btn_records';
+  /** 22 §7.1 战绩大厅叠层。 */
+  static readonly RECORDS_PANEL: string = 'lb_cmp_records_panel';
+  static readonly RECORDS_BACK: string = 'lb_btn_records_back';
+  static readonly RECORDS_SUMMARY: string = 'lb_cmp_records_summary';
+  static readonly LIST_RECORDS: string = 'lb_list_records';
+  /** + {i}（i 自 0）。 */
+  static readonly RECORDS_ROW_PREFIX: string = 'lb_cmp_records_row_';
+  /** 22 §7.3 规则说明（大厅入口；设置/暂停入口另票）。 */
+  static readonly RULES_PANEL: string = 'lb_cmp_rules_panel';
+  static readonly RULES_BACK: string = 'lb_btn_rules_back';
+  static readonly RULES_SEC_GOAL: string = 'lb_cmp_rules_sec_goal';
+  static readonly RULES_SEC_DEAL: string = 'lb_cmp_rules_sec_deal';
+  static readonly RULES_SEC_PLAY: string = 'lb_cmp_rules_sec_play';
+  static readonly RULES_SEC_DOUBT: string = 'lb_cmp_rules_sec_doubt';
+  static readonly RULES_SEC_EMPTY: string = 'lb_cmp_rules_sec_empty';
+  static readonly RULES_SEC_OUT: string = 'lb_cmp_rules_sec_out';
+  static readonly RULES_SEC_WIN: string = 'lb_cmp_rules_sec_win';
   static readonly HAND: string = 'lb_cmp_hand';
   static readonly CHALLENGE: string = 'lb_btn_challenge';
   static readonly PLAY: string = 'lb_btn_play';
