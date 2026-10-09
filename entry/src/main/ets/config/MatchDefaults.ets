@@ -1,7 +1,7 @@
 /**
  * Keys must match docs/02-游戏设计/数值与牌堆配置.md + 对局-状态机 v2.0.0 / GDD v0.4.0.
  * lives_default=3 candle lives (揭牌输家直接熄1). Not alive-token=1 / 真弹即死.
- * revolver_* fields frozen (废左轮); not MatchEngine primary path.
+ * P2: revolver_* dead config keys removed (23 §5.3).
  * Do not alias lives_default → hp, etc.
  */
 export interface MatchDefaults {
@@ -11,10 +11,6 @@ export interface MatchDefaults {
   default_players: number;
   /** Candle lives at match start (locked 3). PenaltyExtinguish1 → −1; 0 → ghost. */
   lives_default: number;
-  /** Frozen · 废左轮. Kept for config shape only; not primary path. */
-  revolver_chambers: number;
-  /** Frozen · 废左轮. Kept for config shape only; not primary path. */
-  revolver_live: number;
   hand_size_default: number;
   max_play_cards: number;
   min_play_cards: number;

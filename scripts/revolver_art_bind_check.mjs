@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Spec check: #168 EmptySafe you/prev chrome + 废左轮 Foley freeze.
- * Media keys present; revolver wavs may remain unused; Table MUST NOT call
- * playRevolverClick/Shot/Spin on EmptySafe / SHOOT / COLLECT_REDEAL primary.
- * Cloud has no DevEco — not CompileArkTS. 合入 ≠ 终验.
+ * Spec check: #168 EmptySafe you/prev chrome + P2 废左轮 Foley cleanup (23 §5).
+ * Media keys present; TableAudio / Ids / wav MUST NOT keep revolver SFX stubs.
+ * Table MUST NOT call playRevolver*. Cloud has no DevEco — not CompileArkTS.
+ * 合入 ≠ 终验.
  */
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -45,26 +45,41 @@ for (const name of mediaKeys) {
   }
 }
 
-const wavs = [
-  ['sfx_revolver_click.wav', 5000],
-  ['sfx_revolver_shot.wav', 7000],
-  ['sfx_revolver_spin.wav', 7000],
+const bannedWav = [
+  'sfx_revolver_click.wav',
+  'sfx_revolver_shot.wav',
+  'sfx_revolver_spin.wav',
 ];
-for (const [name, min] of wavs) {
-  const rel = join(sfxDir, name);
-  if (existsSync(join(root, rel)) && statSync(join(root, rel)).size >= min) {
-    pass(`wav ${name}`);
-  } else {
-    fail(`missing/small wav ${name}`);
-  }
+const sfxAbs = join(root, sfxDir);
+const present = existsSync(sfxAbs) ? readdirSync(sfxAbs) : [];
+const hitWav = bannedWav.filter((n) => present.includes(n));
+if (hitWav.length === 0) {
+  pass('no sfx_revolver_*.wav on disk');
+} else {
+  fail(`revolver wav still present: ${hitWav.join(',')}`);
 }
 
-if (ids.includes("REVOLVER_CLICK: string = 'lb_sfx_revolver_click'") &&
-    ids.includes("REVOLVER_SHOT: string = 'lb_sfx_revolver_shot'") &&
-    ids.includes("REVOLVER_SPIN: string = 'lb_sfx_revolver_spin'")) {
-  pass('SfxIds revolver click/shot/spin');
+const artHits = ['art_revolver_cylinder.png', 'art_revolver_chamber_live.png',
+  'art_revolver_chamber_spent.png'].filter((n) => existsSync(join(root, mediaDir, n)));
+if (artHits.length === 0) {
+  pass('no art_revolver_* media');
 } else {
-  fail('SfxIds missing revolver slots');
+  fail(`art_revolver still present: ${artHits.join(',')}`);
+}
+
+if (!ids.includes('REVOLVER_CLICK') && !ids.includes('REVOLVER_SHOT') &&
+    !ids.includes('REVOLVER_SPIN') && !ids.includes('lb_sfx_revolver_')) {
+  pass('SfxIds has no revolver slots');
+} else {
+  fail('SfxIds still has revolver slots');
+}
+
+if (!audio.includes('sfx_revolver_') && !audio.includes('playRevolver') &&
+    !audio.includes('PATH_REV_') && !audio.includes('VOL_REV_') &&
+    !audio.includes('revClickId') && !audio.includes('pendingRevClick')) {
+  pass('TableAudio has no revolver SFX path/method/pending');
+} else {
+  fail('TableAudio still has revolver SFX residue');
 }
 
 if (empty.includes("$r('app.media.art_btn_challenge_you')") &&
@@ -81,54 +96,16 @@ if (empty.includes("$r('app.media.art_btn_challenge_you')") &&
   fail('EmptySafeEntry missing you/prev art ±_on wiring');
 }
 
-if (audio.includes('sfx_revolver_click.wav') &&
-    audio.includes('sfx_revolver_shot.wav') &&
-    audio.includes('sfx_revolver_spin.wav') &&
-    audio.includes('playRevolverClick') &&
-    audio.includes('playRevolverShot') &&
-    audio.includes('playRevolverSpin')) {
-  pass('TableAudio still has frozen revolver slots (assets unused OK)');
-} else {
-  fail('TableAudio revolver slot methods/paths missing (keep frozen stubs)');
-}
-
-const clickBody = (audio.split('static playRevolverClick')[1] || '').split('static playRevolverShot')[0];
-const shotBody = (audio.split('static playRevolverShot')[1] || '').split('static playRevolverSpin')[0];
-const spinBody = (audio.split('static playRevolverSpin')[1] || '').split('static playStyleAtPeak')[0];
-const frozen = ['CARD_FLIP', 'PLAY_LAUNCH', 'PLAY_LAND', 'sfx_card_flip', 'sfx_play_launch', 'sfx_play_land'];
-function noImpersonate(label, body) {
-  for (const bad of frozen) {
-    if (body.includes(bad)) {
-      fail(`${label} impersonates ${bad}`);
-      return false;
-    }
-  }
-  return true;
-}
-if (noImpersonate('playRevolverClick', clickBody) &&
-    noImpersonate('playRevolverShot', shotBody) &&
-    noImpersonate('playRevolverSpin', spinBody) &&
-    clickBody.includes('REVOLVER_CLICK') &&
-    shotBody.includes('REVOLVER_SHOT') &&
-    spinBody.includes('REVOLVER_SPIN')) {
-  pass('revolver methods do not impersonate flip/launch/land');
-} else {
-  fail('revolver SFX methods reuse frozen slots or wrong ids');
-}
-
 if (table.includes('onChooseEmptyYou') &&
     table.includes('onChooseEmptyShangjia') &&
-    !table.includes('TableAudio.playRevolverClick()')) {
-  pass('Table: EmptySafe you/prev without revolver click narrative');
+    !table.includes('TableAudio.playRevolverClick()') &&
+    !table.includes('TableAudio.playRevolverShot()') &&
+    !table.includes('TableAudio.playRevolverSpin()') &&
+    !table.includes('hearRevolverEvents') &&
+    !table.includes('heardEventCount')) {
+  pass('Table: EmptySafe you/prev; no revolver SFX / hearRevolverEvents');
 } else {
-  fail('Table still plays revolver click on you/prev or missing choose handlers');
-}
-
-if (!table.includes('TableAudio.playRevolverShot()') &&
-    !table.includes('TableAudio.playRevolverSpin()')) {
-  pass('Table: no revolver shot/spin on primary eventLog path');
-} else {
-  fail('Table still calls playRevolverShot/Spin as primary');
+  fail('Table still has revolver SFX call or hearRevolver residue');
 }
 
 if (layout.includes('HAND_RING_GAP_PCT: number = 24') &&
@@ -140,5 +117,5 @@ if (layout.includes('HAND_RING_GAP_PCT: number = 24') &&
 }
 
 if (!process.exitCode) {
-  console.log('revolver_art_bind_check: all green (no-revolver primary)');
+  console.log('revolver_art_bind_check: all green (P2 no-revolver SFX)');
 }

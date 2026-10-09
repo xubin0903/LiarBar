@@ -118,8 +118,10 @@ if (landEmpty && /this\.syncEmptySafeEntry\(snap\)/.test(landEmpty[1]) &&
 } else {
   fail(`Table hand==0 path not HandEmptyGate (startRoundWin call sites=${startRoundWinCalls})`);
 }
-if (/private startRoundWin\(/.test(tableCode)) {
-  console.log('NOTE Table.ets still defines dead startRoundWin/finishRoundWin (0 callers) — ets cleanup is out of scope here (P2).');
+if (/private startRoundWin\(/.test(tableCode) || /private finishRoundWin\(/.test(tableCode)) {
+  fail('Table.ets still defines dead startRoundWin/finishRoundWin (P2 must delete)');
+} else {
+  pass('Table.ets has no startRoundWin/finishRoundWin defs (P2 cleaned)');
 }
 
 // Challenge gating after #167 (replaces "banned while roundWinPending").

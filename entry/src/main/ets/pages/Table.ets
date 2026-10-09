@@ -247,8 +247,6 @@ struct Table {
   private winRef: window.Window | null = null;
   private avoidBound: boolean = false;
   private heardPlayId: string = '';
-  /** Frozen · was revolver eventLog cursor; unused after 废左轮. */
-  private heardEventCount: number = 0;
   private heardMatchId: string = '';
   private playFlyPlayId: string = '';
   private playFlyTimer: number = -1;
@@ -619,7 +617,7 @@ struct Table {
       }
 
       // 补丁轮 2 第 1 条（UI 22 S22-32）+ DEV-1：根 Stack 末段层序 = 暂停 → 出局二选一 → 快进罩。
-      // 正式暂停层在 PausePanel（避开设置锚点硬锁段内的旧 pauseLayer 临时代码）。
+      // 正式暂停层在 PausePanel（P2 已删死 pauseLayer @Builder）。
       if (this.pauseLayerOn) {
         PausePanel({
           fromBackground: this.pauseFromBackground,
@@ -1973,55 +1971,6 @@ struct Table {
     AppRuntime.director.resumeFromPause();
   }
 
-  /**
-   * PR-B 最小暂停层（临时样式，UI 22 合入后换皮）：标题 + 只放「继续」；切后台进来时加 21 §3.6 提示。
-   * 文案用 21 §6.5 键：lb_str_pause_title / lb_str_pause_bg_note / lb_str_pause_resume。
-   * 正式菜单（继续/设置/规则/结束游戏/回大厅）等 UI 22。
-   */
-  @Builder
-  pauseLayer() {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor($r('app.color.tavern_shadow'))
-        .opacity(0.72)
-        .onClick(() => {
-          // 遮罩吃掉点击：下层（回大厅键 / 出牌 / 偷看 / 手牌）都收不到。
-        })
-      Column({ space: 14 }) {
-        Text($r('app.string.lb_str_pause_title'))
-          .fontColor($r('app.color.tavern_candle'))
-          .fontSize($r('app.float.page_text_size'))
-        if (this.pauseFromBackground) {
-          Text($r('app.string.lb_str_pause_bg_note'))
-            .id(ControlIds.PAUSE_BG_NOTE)
-            .fontColor($r('app.color.tavern_paper'))
-            .fontSize($r('app.float.caption_text_size'))
-        }
-        Button($r('app.string.lb_str_pause_resume'))
-          .id(ControlIds.PAUSE_RESUME)
-          .height($r('app.float.btn_height'))
-          .backgroundColor($r('app.color.tavern_accent'))
-          .fontColor($r('app.color.tavern_bg'))
-          .onClick(() => {
-            this.resumeFromPauseLayer();
-          })
-      }
-      .padding(24)
-      .backgroundColor($r('app.color.tavern_panel'))
-      .borderRadius(12)
-    }
-    .width('100%')
-    .height('100%')
-    // 22:106 全屏：盖到四周安全区（根 Stack 已 ignoreLayoutSafeArea，此处再铺满绘制区）。
-    .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
-      [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
-    // Default = 命中本层即阻断其下的兄弟节点（不穿透）；「继续」按钮在本层内照常可点。
-    .hitTestBehavior(HitTestMode.Default)
-    .zIndex(PAUSE_LAYER_Z)
-    .id(ControlIds.PAUSE_LAYER)
-  }
 
   /** 22 §3.2：暂停键只在局内可行动阶段显示（phase ∉ LOBBY/RECAP/END）。 */
   private silentModeOn(): boolean {
@@ -2528,7 +2477,7 @@ struct Table {
     DealAudio.setSilent(snap.silentMode);
     TableAudio.setSilent(snap.silentMode);
     SoundPlayer.setSilent(snap.silentMode);
-    // 废左轮: no sfx_revolver_* on challenge/penalty/CollectRedeal primary path.
+    // 废左轮: no revolver Foley on challenge/penalty/CollectRedeal primary path.
     if (snap.phase === Phase.DEAL) {
       if (stamp !== this.lastHudStamp) {
         this.lastHudStamp = stamp;
@@ -3207,16 +3156,6 @@ struct Table {
     }
   }
 
-  /**
-   * Frozen · 废左轮 (#176/#177): do not play sfx_revolver_* on SHOOT/COLLECT_REDEAL.
-   * Assets may remain unused; candle extinguish is lives primary SFX.
-   */
-  private hearRevolverEvents(snap: MatchSnapshot): void {
-    // Frozen · 废左轮: intentionally unused; keep signature for bisect.
-    if (snap.matchId.length < 0) {
-      return;
-    }
-  }
 
   @Builder
   choiceActLayer() {
@@ -3540,27 +3479,6 @@ struct Table {
     }
   }
 
-  /** U03b: visible RoundWin tip (1.0s, not skippable) then RedealAll. */
-  private startRoundWin(): void {
-    this.cancelRoundWinTimer();
-    this.roundWinOn = true;
-    this.queuedPlayId = '';
-    this.closeChallengeEntry(false);
-    AppRuntime.engine.beginRoundWin();
-    Logger.info(TAG, `RoundWin tip ${PlayFlyFx.ROUND_WIN_MS}ms`);
-    this.roundWinTimer = this.timers.schedule((): void => {
-      this.roundWinTimer = -1;
-      this.finishRoundWin();
-    }, PlayFlyFx.ROUND_WIN_MS);
-  }
-
-  private finishRoundWin(): void {
-    this.roundWinOn = false;
-    // Clear pool hand + fly UI before RedealAll deal show.
-    this.resetPlayFlyUi();
-    AppRuntime.engine.redealAll();
-    this.pull();
-  }
 
   private cancelRevealTimer(): void {
     if (this.revealTimer >= 0) {

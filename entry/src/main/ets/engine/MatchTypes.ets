@@ -116,10 +116,6 @@ export interface MatchSnapshot {
   emptyHandSeatId?: number;
   /** Seats in RoundSafeWait (≥3 不质疑你). */
   roundSafeWaitSeats?: number[];
-  /** Frozen · 废左轮. Always −1 on primary path. */
-  chamberIndex?: number;
-  /** Frozen · 废左轮. Always −1 on primary path. */
-  liveChamberIndex?: number;
   /** Legacy field: true iff last PenaltyExtinguish1 eliminated (lives→0). */
   lastShotLive?: boolean;
   /** Legacy field: seat that took last PenaltyExtinguish1 (−1 none). */
