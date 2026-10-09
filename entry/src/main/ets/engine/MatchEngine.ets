@@ -49,6 +49,7 @@ import { SeededRng } from './SeededRng';
 import { PlayLog, PlayLogTally } from './PlayLog';
 import { aliveCount, nextAlive, seatById } from './SeatUtil';
 import { allOtherAliveEmpty, classifyEmptyGate, EmptyGateKind } from './HandEmptyGate';
+import { DemoArm } from '../persist/DemoArm';
 
 const TAG = 'MatchEngine';
 
@@ -318,7 +319,9 @@ export class MatchEngine {
     this.cfg = cfg;
     this.deck = JSON.parse(JSON.stringify(ConfigRepository.deck())) as DeckConfig;
     this.demo = JSON.parse(JSON.stringify(ConfigRepository.demo())) as DemoSeedConfig;
-    this.demoOn = cfg.demo_seed_enabled;
+    // 21 §4.4：大厅演示开关武装 → 本局覆盖 demo_seed_enabled（消费后复位；force_ai 保持 false）。
+    const demoArmed: boolean = DemoArm.consume();
+    this.demoOn = cfg.demo_seed_enabled || demoArmed;
     this.seed = this.demoOn ? cfg.demo_seed_value : Date.now();
     this.rng = new SeededRng(this.seed);
     this.playLog.clear();

@@ -49,11 +49,12 @@ if (Number.isInteger(match.demo_seed_value) && match.demo_seed_value > 0 &&
 } else {
   fail(`demo_seed_value drift: match_defaults=${match.demo_seed_value} demo_seed=${demo.demo_seed_value}`);
 }
-if (/this\.demoOn = cfg\.demo_seed_enabled;/.test(engineMain) &&
+if (/DemoArm\.consume\(\)/.test(engineMain) &&
+  /this\.demoOn = cfg\.demo_seed_enabled \|\| demoArmed;/.test(engineMain) &&
   /this\.seed = this\.demoOn \? cfg\.demo_seed_value : Date\.now\(\);/.test(engineMain)) {
-  pass('engine: demo off → seed = Date.now() (fixed seed only when demo on)');
+  pass('engine: demo off → seed = Date.now(); DemoArm.consume arms one match (21 §4.4)');
 } else {
-  fail('engine seed source no longer gated by demo_seed_enabled');
+  fail('engine seed source no longer gated by demo_seed_enabled / DemoArm');
 }
 if (Array.isArray(demo.force_events)) {
   pass('demo_force_events present');

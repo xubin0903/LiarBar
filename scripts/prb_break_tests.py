@@ -26,6 +26,7 @@ ROOT_PAUSE = (
     "      if (this.pauseLayerOn) {\n"
     "        PausePanel({\n"
     "          fromBackground: this.pauseFromBackground,\n"
+    "          silentMatch: this.silentModeOn(),\n"
     "          sub: $pauseSub,\n"
     "          onResume: () => { this.resumeFromPauseLayer(); },\n"
     "          onOpenSettings: () => { this.pauseSub = 'settings'; },\n"
@@ -73,7 +74,9 @@ M = [
  ('B04 volume 105 not treated as out of range', E + 'persist/AudioSettings.ets',
   " || v > AudioSettings.LEVEL_MAX) {\n      return fallback;", ") {\n      return fallback;", '105'),
  ('B05 settings read writes back', E + 'persist/AudioSettings.ets',
-  "    AudioSettings.notify();\n  }\n\n  /** BGM", "    AudioSettings.notify();\n    void AudioSettings.persist();\n  }\n\n  /** BGM", 'lb.settings read never writes'),
+  "    AudioSettings.store = store;\n    Logger.info(TAG, `loaded bgm=${AudioSettings.bgm} sfx=${AudioSettings.sfx} muted=${AudioSettings.muted}`);\n    AudioSettings.notify();\n  }",
+  "    AudioSettings.store = store;\n    Logger.info(TAG, `loaded bgm=${AudioSettings.bgm} sfx=${AudioSettings.sfx} muted=${AudioSettings.muted}`);\n    AudioSettings.notify();\n    void AudioSettings.persistKey(AudioSettings.KEY_BGM, AudioSettings.bgm);\n    void AudioSettings.persistKey(AudioSettings.KEY_SFX, AudioSettings.sfx);\n    void AudioSettings.persistKey(AudioSettings.KEY_MUTED, AudioSettings.muted);\n  }",
+  'lb.settings in-range non-multiple of 5'),
  ('B06 bad summary zeroed instead of recomputed', E + 'persist/RecordStore.ets',
   "        RecordStore.summary = RecordStore.recomputeSummary(rp.list);", "        RecordStore.summary = RecordStore.zeroSummary();", 'recomputed from valid records'),
  ('B07 valid summary dropped when details all bad', E + 'persist/RecordStore.ets',
@@ -170,7 +173,9 @@ M = [
  ('B51 REVEAL_HOLD_MS comment back to 5000', E + 'pages/Table.ets',
   "face-up REVEAL_HOLD_MS(3000); ban instant cut", "face-up REVEAL_HOLD_MS(5000); ban instant cut", 'REVEAL_HOLD_MS comment matches code (3000)'),
  ('B52 「静默」 back in AudioSettings comment', E + 'persist/AudioSettings.ets',
-  " * 静音（mute_all）= 两轨同乘 0", " * 静默（mute_all）= 两轨同乘 0", '「静默」→「静音」'),
+  " * 两轨：BGM · SFX（语音跟 SFX）。静音 = 两轨乘 0，不改滑条值。",
+  " * 两轨：BGM · SFX（语音跟 SFX）。静默 = 两轨乘 0，不改滑条值。",
+  '「静默」→「静音」'),
  # ---------------- patch round 2 / 3 (2026-10-07) ----------------
  # A / 5. leave token
  ('B53 Lobby ignores the token (stale lobby re-inits)', LB,
@@ -231,8 +236,9 @@ M = [
  ('B74 summary above recomputed recomputed anyway (false kill)', R,
   "    if (total < floor.total || wins < floor.wins", "    if (total !== floor.total || wins < floor.wins", 'no false kill'),
  ('B75 volume 37 not rounded to 35', AS,
-  "    return Math.round(v / AudioSettings.LEVEL_STEP) * AudioSettings.LEVEL_STEP;\n  }\n\n  /** mute_all",
-  "    return v;\n  }\n\n  /** mute_all", '37→35'),
+  "    if (!Number.isInteger(v) || v < AudioSettings.LEVEL_MIN || v > AudioSettings.LEVEL_MAX) {\n      return fallback;\n    }\n    return Math.round(v / AudioSettings.LEVEL_STEP) * AudioSettings.LEVEL_STEP;\n  }",
+  "    if (!Number.isInteger(v) || v < AudioSettings.LEVEL_MIN || v > AudioSettings.LEVEL_MAX) {\n      return fallback;\n    }\n    return v;\n  }",
+  '37→35'),
  ('B76 bad last_match_id crashes the read (write lost)', R,
   "  private static parseLastMatchId(raw: preferences.ValueType, list: MatchRecordV1[]): string {\n",
   "  private static parseLastMatchId(raw: preferences.ValueType, list: MatchRecordV1[]): string {\n    if (typeof raw !== 'string') {\n      throw new Error('bad last_match_id');\n    }\n",
@@ -288,8 +294,9 @@ M = [
   "        Logger.warn(TAG, 'recent_v1 + summary_v1 both invalid — clear records (new player, 21 §2.6)');\n",
   "        Logger.warn(TAG, 'recent_v1 + summary_v1 both invalid — clear records (new player, 21 §2.6)');\n        return true;\n", 'both bad → cleared in memory'),
  ('B98 lb.settings get throws midway → stale values kept', AS,
-  "      AudioSettings.bgm = AudioSettings.DEFAULT_BGM;\n      AudioSettings.sfx = AudioSettings.DEFAULT_SFX;\n      AudioSettings.muted = AudioSettings.DEFAULT_MUTED;\n      Logger.warn(TAG, 'preferences load fail-soft",
-  "      Logger.warn(TAG, 'preferences load fail-soft", 'one get throws midway'),
+  "      AudioSettings.bgm = AudioSettings.DEFAULT_BGM;\n      Logger.warn(TAG, 'vol_bgm get fail-soft → default 100');",
+  "      AudioSettings.bgm = 0;\n      Logger.warn(TAG, 'vol_bgm get fail-soft → default 100');",
+  'one get throws midway'),
  # 4. gain real-runs (art: full volume when gain > 0 / gain dropped)
  ('B99 SoundPlayer.playNamed full volume when gain > 0', SP,
   "    const gained: number = AudioSettings.sfx01(volume);", "    const gained: number = AudioSettings.sfx01(volume) > 0 ? volume : 0;", 'SoundPlayer.playNamed main path'),
@@ -509,8 +516,8 @@ M = [
 ('B179 ff cap fallback keeps the virtual-clock deadlines (no rebaseClock)', MD,
  "    engine.rebaseClock(vt, Date.now());\n", "", '2b ff cap rebase'),
 ('B180 records overlay calls fadeOutForHide (DEV-3c)', LB,
- "  private openRecords(): void {\n    this.rulesOn = false;\n    this.recordsOn = true;\n  }",
- "  private openRecords(): void {\n    this.rulesOn = false;\n    LobbyAudio.fadeOutForHide();\n    this.recordsOn = true;\n  }",
+ "  private openRecords(): void {\n    this.rulesOn = false;\n    this.settingsOn = false;\n    this.recordsOn = true;\n  }",
+ "  private openRecords(): void {\n    this.rulesOn = false;\n    this.settingsOn = false;\n    LobbyAudio.fadeOutForHide();\n    this.recordsOn = true;\n  }",
  'records-overlay-no-fade'),
 ('B181 records button pushes Report again (S21-19)', LB,
  "          this.openRecords();",
@@ -546,6 +553,32 @@ M = [
  "        if (!this.pausePendingBarOn) {\n          this.weakCta()\n        }\n",
  "        this.weakCta()\n",
  '22:372: weakCta hidden'),
+('B191 AudioSettings persistKey writes all three keys again', AS,
+ "      await store.put(key, value);\n      await store.flush();\n",
+ "      await store.put(AudioSettings.KEY_BGM, AudioSettings.bgm);\n      await store.put(AudioSettings.KEY_SFX, AudioSettings.sfx);\n      await store.put(AudioSettings.KEY_MUTED, AudioSettings.muted);\n      await store.flush();\n",
+ 'S21-47 per-key write'),
+('B192 AudioSettings setter never writes', AS,
+ "    void AudioSettings.persistKey(AudioSettings.KEY_BGM, AudioSettings.bgm);\n",
+ "    // no write\n",
+ 'S21-47 per-key write'),
+('B193 settings panel missing mute art', E + 'features/lobby/SettingsPanel.ets',
+ "Image(this.muted ? $r('app.media.art_icon_mute_on') : $r('app.media.art_icon_mute'))",
+ "Image(this.muted ? $r('app.media.art_icon_MISSING_mute_on') : $r('app.media.art_icon_MISSING_mute'))",
+ 'settings panel: vol_bgm + vol_sfx + mute'),
+('B194 DemoArm.consume removed from startMatch', ME,
+ "    const demoArmed: boolean = DemoArm.consume();\n    this.demoOn = cfg.demo_seed_enabled || demoArmed;\n",
+ "    this.demoOn = cfg.demo_seed_enabled;\n",
+ 'DemoArm.consume arms one match'),
+('B195 settings panel missing silent-match art', E + 'features/lobby/SettingsPanel.ets',
+ "art_icon_silent_match", "art_icon_MISSING_silent_match", 'art_icon_silent_match'),
+('B196 Lobby.openSettings removed', LB,
+ "  private openSettings(): void {\n    this.recordsOn = false;\n    this.rulesOn = false;\n    this.settingsOn = true;\n  }",
+ "  // openSettings removed\n",
+ 'openSettings'),
+('B197 openRecords leaves settingsOn on (no mutex)', LB,
+ "  private openRecords(): void {\n    this.rulesOn = false;\n    this.settingsOn = false;\n    this.recordsOn = true;\n  }",
+ "  private openRecords(): void {\n    this.rulesOn = false;\n    this.recordsOn = true;\n  }",
+ 'settings/records/rules mutex'),
 ]
 
 
