@@ -538,6 +538,14 @@ M = [
  "      RecordStore.commitOnce(snap, endCommit);\n      AppRuntime.engine.leave();\n",
  "      AppRuntime.engine.leave();\n",
  'Table writes records at leave confirm + 结束游戏'),
+('B189 leave confirm body still shown when last_match_id == matchId (S22-33)', T,
+ "        if (this.leaveConfirmBodyVisible()) {\n",
+ "        if (true) {\n",
+ 'S22-33 / 22:427'),
+('B190 weakCta still shown while pending bar visible (22:372)', T,
+ "        if (!this.pausePendingBarOn) {\n          this.weakCta()\n        }\n",
+ "        this.weakCta()\n",
+ '22:372: weakCta hidden'),
 ]
 
 

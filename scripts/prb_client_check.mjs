@@ -197,6 +197,13 @@ ok(/confirmLobbyLayer\(\)/.test(tableCode) && /ControlIds\.CONFIRM_LOBBY/.test(t
   'leave confirm custom panel lb_cmp_confirm_lobby mounted from Table');
 ok(/onLeaveCancel\(\)/.test(tableCode) && /CONFIRM_LOBBY_CANCEL/.test(src(E + 'common/Ids.ets')),
   'confirm lobby cancel id + onLeaveCancel wired');
+ok(/static lastMatchIdNow\(\): string \{[\s\S]*?return RecordStore\.lastMatchId;/.test(src(E + 'persist/RecordStore.ets')) &&
+  /leaveConfirmBodyVisible\(\)/.test(tableCode) &&
+  /RecordStore\.lastMatchIdNow\(\) !== snap\.matchId/.test(code(body(table, '  private leaveConfirmBodyVisible(): boolean {'))) &&
+  /if \(this\.leaveConfirmBodyVisible\(\)\) \{[\s\S]*?lb_str_leave_confirm_body/.test(body(table, '  confirmLobbyLayer() {')),
+  'S22-33 / 22:427: leave confirm body hidden when last_match_id == matchId (RecordStore.lastMatchIdNow; title+buttons stay)');
+ok(/if \(!this\.pausePendingBarOn\) \{\s*this\.weakCta\(\)\s*\}/.test(code(body(table, '  topBar() {'))),
+  '22:372: weakCta hidden while pause pending bar is shown');
 const opsAll = code(body(table, '  private onPauseState(state: PauseState, shiftMs: number): void {'));
 ok(/if \(this\.leavePending\) \{\s*this\.leavePending = false;\s*this\.openLeaveConfirm\(\);/.test(opsAll.slice(0, opsAll.indexOf('PauseState.PENDING'))),
   'PAUSED (sequence ended or PENDING_CAP_MS) opens the deferred leave dialog exactly once');

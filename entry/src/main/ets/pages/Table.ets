@@ -710,7 +710,10 @@ struct Table {
         Blank()
           .layoutWeight(1)
 
-        this.weakCta()
+        // 22:372：待停条出现期间暂隐 weakCta（角标已在 chrome 用 else if 让位）。
+        if (!this.pausePendingBarOn) {
+          this.weakCta()
+        }
         // F3: lb_btn_home in homeExitChrome (above overlays). Spacer keeps balance.
         Blank()
           .width(48)
@@ -2083,6 +2086,16 @@ struct Table {
     LbRouter.replaceReport();
   }
 
+
+  /** S22-33 / 22:427：本局尚未写入 last_match_id 才显示「记中退」正文（含观战离局句）。 */
+  private leaveConfirmBodyVisible(): boolean {
+    const snap: MatchSnapshot | null = AppRuntime.engine.current();
+    if (snap === null || snap.matchId.length === 0) {
+      return true;
+    }
+    return RecordStore.lastMatchIdNow() !== snap.matchId;
+  }
+
   /**
    * 22 §6.4 离局确认面板（换 AlertDialog）。左=再想想（实心）/ 右=确认回大厅（危险描边）。
    */
@@ -2103,13 +2116,16 @@ struct Table {
           .fontSize($r('app.float.page_text_size'))
           .width('100%')
           .textAlign(TextAlign.Center)
-        Text(this.humanIsGhost(AppRuntime.engine.current()) ?
-          $r('app.string.lb_str_confirm_lobby_ghost_body') :
-          $r('app.string.lb_str_leave_confirm_body'))
-          .fontColor($r('app.color.tavern_paper'))
-          .fontSize($r('app.float.subtitle_text_size'))
-          .width('100%')
-          .textAlign(TextAlign.Center)
+        // S22-33 / 22:427：last_match_id == 本局 matchId → 整行藏起、不占位（标题与两键不变）。
+        if (this.leaveConfirmBodyVisible()) {
+          Text(this.humanIsGhost(AppRuntime.engine.current()) ?
+            $r('app.string.lb_str_confirm_lobby_ghost_body') :
+            $r('app.string.lb_str_leave_confirm_body'))
+            .fontColor($r('app.color.tavern_paper'))
+            .fontSize($r('app.float.subtitle_text_size'))
+            .width('100%')
+            .textAlign(TextAlign.Center)
+        }
         Row({ space: 12 }) {
           Button($r('app.string.lb_str_leave_confirm_cancel'))
             .id(ControlIds.CONFIRM_LOBBY_CANCEL)
