@@ -18,7 +18,7 @@ const TAG = 'Report';
  * 结算战报（21 §1 · 22 §4）。只承接 Table → replaceReport（phase=RECAP/END）。
  * 页面一出现就 commitOnce（RPT-11 · 21:298 / :305）；顶区与按钮条固定，只有中间主体在 Scroll 内（S21-28）。
  * 「再来一局」= 同设置直接开新局 → replaceTable（不经大厅、不转屏，21 §1.6）；「回大厅」/ 返回键 = 先竖屏再 toLobby。
- * 大厅战绩已改 `lb_cmp_records_panel` 浮层（22 §7.1），本页不再有 recordsMode。
+ * 大厅战绩已改 `lb_cmp_records_panel` 浮层（22 §7.1）；本页只服务结算。
  */
 @Entry
 @Component

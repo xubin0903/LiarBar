@@ -277,7 +277,7 @@ struct Lobby {
           if (!this.bootReady || this.matchBusy || this.matchLoading) {
             return;
           }
-          // 22 §7.1 / S21-19：大厅内战绩浮层；不 push Report、不 fadeOutForHide、不播结算音。
+          // 22 §7.1 / S21-19：大厅内战绩浮层；不 push Report、不调大厅隐藏淡出、不播结算音。
           this.openRecords();
         })
     }

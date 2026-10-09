@@ -79,37 +79,59 @@ for (const key of ['lb_str_dlr_hl_slam_caught', 'lb_str_dlr_hl_fallback']) {
   }
 }
 
-// ② lobby 战绩 → no lose SFX
+// ② lobby 战绩 = 大厅浮层（22 §7.1 / S21-19），不 push Report、不播结算音
+const recordsPanel = src('entry/src/main/ets/features/lobby/RecordsPanel.ets');
+const rulesPanel = src('entry/src/main/ets/features/lobby/RulesPanel.ets');
 const recBtn = lobby.slice(lobby.indexOf('.id(ControlIds.RECORDS)'), lobby.indexOf('.id(ControlIds.RECORDS)') + 600);
-if (recBtn.includes('LbRouter.toRecords()') && !/playResult|playLose|sfx_.*lose/i.test(recBtn)) {
-  pass('Lobby 战绩 → LbRouter.toRecords(), no result/lose SFX on the click path');
+const openRec = methodBody(lobby, '  private openRecords(): void {');
+if (recBtn.includes('this.openRecords()') && !recBtn.includes('LbRouter.toRecords') && !recBtn.includes('LbRouter.toReport') &&
+    !/playResult|playLose|sfx_.*lose/i.test(recBtn) && openRec.includes('this.recordsOn = true') &&
+    !/fadeOutForHide|leaveThenRelease|LobbyAudio\./.test(openRec)) {
+  pass('Lobby 战绩 → openRecords() overlay, no toRecords/toReport/result SFX; openRecords does not touch LobbyAudio');
 } else {
-  fail('Lobby 战绩 click path not toRecords or plays SFX');
+  fail('Lobby 战绩 click path still routes or plays SFX / fades / touches LobbyAudio');
 }
-if (router.includes('static toRecords(): void')) {
-  pass('LbRouter.toRecords present');
+if (!router.includes('toRecords') && !lobby.includes('LbRouter.toRecords') && !lobby.includes('LbRouter.toReport()')) {
+  pass('LbRouter.toRecords removed; lobby does not push Report for records');
 } else {
-  fail('LbRouter.toRecords missing');
+  fail('LbRouter.toRecords or lobby→Report push still present');
 }
 const appear = methodBody(report, '  aboutToAppear(): void {');
 const guardAt = appear.search(/snap\.phase !== Phase\.RECAP && snap\.phase !== Phase\.END/);
 const earlyRet = appear.indexOf('return;', guardAt);
 const playAt = appear.indexOf('TableAudio.playResult(');
-if (guardAt >= 0 && earlyRet > guardAt && playAt > earlyRet && appear.includes('this.recordsMode = true')) {
-  pass('Report plays result SFX only for RECAP/END; lobby entry → recordsMode empty state');
+const reportCode = stripCommentsAndStrings(report);
+if (guardAt >= 0 && earlyRet > guardAt && playAt > earlyRet && !appear.includes('recordsMode') &&
+    !reportCode.includes('recordsMode') && !reportCode.includes('recordsEmpty') &&
+    !reportCode.includes('lb_str_records_empty')) {
+  pass('Report plays result SFX only for RECAP/END; recordsMode / lobby empty state removed');
 } else {
-  fail('Report may still play lose SFX from lobby entry');
+  fail('Report still has recordsMode or may play lose SFX off the match path');
 }
-if (report.includes("$r('app.string.lb_str_records_empty')")) {
-  pass('records empty-state string bound');
+if (recordsPanel.includes("$r('app.string.lb_str_records_empty')") &&
+    recordsPanel.includes('ControlIds.RECORDS_BACK') &&
+    recordsPanel.includes("$r('app.string.lb_str_back')") &&
+    !recordsPanel.includes('ControlIds.REPORT_LOBBY') &&
+    recordsPanel.includes('ControlIds.RECORDS_PANEL') &&
+    recordsPanel.includes('tavern_panel') &&
+    lobby.includes('OverlayIds.MASK') && lobby.includes('this.recordsOn') &&
+    lobby.includes('RecordsPanel(')) {
+  pass('records panel: empty-state + lb_btn_records_back (lb_str_back); program panel base; lobby mounts overlay');
 } else {
-  fail('records empty-state not shown');
+  fail('records panel empty/back/id/base/mask missing');
+}
+if (lobby.includes('ControlIds.RULES') && lobby.includes("$r('app.string.lb_str_rules_entry')") &&
+    lobby.includes('this.openRules()') && !lobby.includes('lb_btn_peek_table') &&
+    !lobby.includes('lb_str_nav_peek') && rulesPanel.includes('ControlIds.RULES_PANEL') &&
+    rulesPanel.includes('ControlIds.RULES_BACK') && rulesPanel.includes('RULES_SEC_GOAL') &&
+    rulesPanel.includes('tavern_panel')) {
+  pass('rules entry = lb_btn_rules + lb_str_rules_entry → RulesPanel (not peek table / nav_peek)');
+} else {
+  fail('rules entry / panel missing or peek leftovers');
 }
 
-// ③ Report layout — rewritten in the 结算面板 PR (22 §4.2 · S21-28 / S22-02): the old "root Scroll wraps everything incl. the
-// buttons" made the buttons scroll-reachable, not fixed. Now: Report root is a plain Column; the records empty state keeps its
-// own vertical Scroll; the match report is ReportPanel = head (fixed) → Scroll (the ONLY scroll area) → btnBar (fixed, after the
-// Scroll's closing brace, holding AGAIN + REPORT_LOBBY).
+// ③ Report layout — 结算面板 PR (22 §4.2 · S21-28 / S22-02)：根 Column → ReportPanel
+// （head 固定 → 唯一 Scroll → btnBar 固定）。战绩空态已迁出到大厅 RecordsPanel。
 const reportPanel = src('entry/src/main/ets/features/report/ReportPanel.ets');
 /** Index just past the brace block that opens at the first '{' at/after `from` (comments/strings stripped text). */
 function blockEnd(text, from) {
@@ -123,15 +145,11 @@ function blockEnd(text, from) {
   return -1;
 }
 const build = methodBody(report, '  build() {');
-const recBranch = build.indexOf('if (this.recordsMode) {');
-const recScroll = build.indexOf('Scroll()', recBranch);
-const recEnd = blockEnd(build, recBranch);
-const panelAt = build.indexOf('ReportPanel(');
-if (/^\s*build\(\) \{\s*\n\s*Column\(\) \{/m.test(build + '\n') && recBranch >= 0 && recScroll > recBranch && recScroll < recEnd &&
-  build.includes('ScrollDirection.Vertical') && panelAt > recEnd && build.lastIndexOf('Scroll()') < recEnd) {
-  pass('Report root = Column; records empty state in its own vertical Scroll; match report = ReportPanel (not inside a Scroll)');
+if (/^\s*build\(\) \{\s*\n\s*Column\(\) \{/m.test(build + '\n') && build.includes('ReportPanel(') &&
+    !build.includes('recordsMode') && !build.includes('Scroll()')) {
+  pass('Report root = Column → ReportPanel only (no recordsMode branch / no page-level Scroll)');
 } else {
-  fail(`Report layout: root Column / records Scroll / ReportPanel outside Scroll (rec=${recBranch} scroll=${recScroll} end=${recEnd} panel=${panelAt})`);
+  fail(`Report layout: expected Column→ReportPanel without recordsMode (build has Scroll=${build.includes('Scroll()')} recordsMode=${build.includes('recordsMode')})`);
 }
 const pb = stripCommentsAndStrings(methodBody(reportPanel, '  build() {'));
 const headAt = pb.indexOf('this.head()');
@@ -154,10 +172,24 @@ if (report.includes('WindowOrientation.lockPortrait(') && report.includes('LbRou
 } else {
   fail('Report → lobby orientation restore missing');
 }
-if (/onBackPress\(\): boolean \{[\s\S]*?recordsMode[\s\S]*?return true;/.test(report)) {
-  pass('Report onBackPress handled (match mode consumes, records mode default back)');
+if (/onBackPress\(\): boolean \{[\s\S]*?leaveMatchReport\(false\)[\s\S]*?return true;/.test(report) &&
+    !/onBackPress\(\): boolean \{[\s\S]*?recordsMode/.test(report)) {
+  pass('Report onBackPress → leaveMatchReport (no recordsMode branch)');
 } else {
-  fail('Report onBackPress not handled');
+  fail('Report onBackPress not handled or still branches on recordsMode');
+}
+
+// ③b 战绩浮层结构（22 §7.1 · S22-09/10）
+const rpBuild = methodBody(recordsPanel, '  build() {');
+const emptyBranch = rpBuild.includes('if (this.view.empty)') && rpBuild.includes('lb_str_records_empty');
+const summaryOnlyInElse = rpBuild.indexOf('RECORDS_SUMMARY') > rpBuild.indexOf('if (this.view.empty)');
+const rpCode = stripCommentsAndStrings(recordsPanel);
+if (emptyBranch && summaryOnlyInElse && rpBuild.includes('LIST_RECORDS') &&
+    rpBuild.includes('lb_str_rec_recent') && !rpCode.includes('art_panel_base') &&
+    recordsPanel.includes("$r('app.color.tavern_panel')") && !recordsPanel.includes('app.media.art_panel_base')) {
+  pass('records panel empty = title+empty+back only; summary/list only when !empty; program base (no panel-base media id)');
+} else {
+  fail('records panel empty/full structure wrong or references missing panel-base media');
 }
 
 // ④ leave confirm

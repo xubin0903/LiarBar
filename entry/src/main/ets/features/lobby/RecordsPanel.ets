@@ -7,7 +7,7 @@ const TAG = 'RecordsPanel';
 
 /**
  * 22 §7.1 战绩大厅叠层面板 `lb_cmp_records_panel`（非路由页）。
- * art_panel_base 欠交 → 程序底 tavern_panel（同出局二选一临时口径）；遮罩由大厅挂 lb_cmp_overlay_mask。
+ * 面板底图欠交 → 程序底 tavern_panel（同出局二选一临时口径）；遮罩由大厅挂 lb_cmp_overlay_mask。
  */
 @Component
 export struct RecordsPanel {

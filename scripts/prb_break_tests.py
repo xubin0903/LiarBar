@@ -32,6 +32,7 @@ GONE_TEAR = ("    if (this.pageGone) {\n      // 补丁轮 3：本页已销毁�
 GONE_SET = "    this.pageGone = true; // 补丁轮 3：本页已销毁。下一行（负责人 #12 / #6）：离局路由已发起而本页被移走 → 停导演、引擎回 LOBBY 终态。\n"
 LA, DA = E + 'features/lobby/LobbyAudio.ets', E + 'features/table/DealAudio.ets'
 RP, RM = E + 'pages/Report.ets', E + 'features/report/ReportModel.ets'
+RPL = E + 'features/lobby/RecordsPanel.ets'
 PHASE_FLR = ("    if (snap === null || snap.phase === Phase.LOBBY || snap.phase === Phase.RECAP || snap.phase === Phase.END) {\n      return;\n    }\n"
              "    Logger.warn(TAG, 'table removed after leave route was issued")
 LA_GUARD = "    if (LobbyAudio.preparedGen === LobbyAudio.gen) {\n      return;\n    }\n    if (LobbyAudio.context === null) {"
@@ -488,6 +489,18 @@ M = [
  "this.pauseLayerOn = reason !== PauseReasons.LEAVE_CONFIRM;", '2b trigger (21:234)'),
 ('B179 ff cap fallback keeps the virtual-clock deadlines (no rebaseClock)', MD,
  "    engine.rebaseClock(vt, Date.now());\n", "", '2b ff cap rebase'),
+('B180 records overlay calls fadeOutForHide (DEV-3c)', LB,
+ "  private openRecords(): void {\n    this.rulesOn = false;\n    this.recordsOn = true;\n  }",
+ "  private openRecords(): void {\n    this.rulesOn = false;\n    LobbyAudio.fadeOutForHide();\n    this.recordsOn = true;\n  }",
+ 'records-overlay-no-fade'),
+('B181 records button pushes Report again (S21-19)', LB,
+ "          this.openRecords();",
+ "          LbRouter.toRecords();",
+ 'records overlay wired'),
+('B182 records empty state also draws the summary shell (S22-10)', RPL,
+ "      if (this.view.empty) {\n        Blank().layoutWeight(1)\n        Text($r('app.string.lb_str_records_empty'))",
+ "      if (this.view.empty) {\n        Text($r('app.string.lb_str_rec_recent'))\n        Blank().layoutWeight(1)\n        Text($r('app.string.lb_str_records_empty'))",
+ 'records panel empty = title'),
 ]
 
 

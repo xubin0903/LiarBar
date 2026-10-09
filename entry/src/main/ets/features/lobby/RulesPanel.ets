@@ -2,7 +2,7 @@ import { ControlIds } from '../../common/Ids';
 
 /**
  * 22 §7.3 规则说明 `lb_cmp_rules_panel`（大厅入口最小可用；设置/暂停入口另票）。
- * art_panel_base 欠交 → 程序底 tavern_panel；遮罩由大厅挂 lb_cmp_overlay_mask。
+ * 面板底图欠交 → 程序底 tavern_panel；遮罩由大厅挂 lb_cmp_overlay_mask。
  */
 @Component
 export struct RulesPanel {
