@@ -1,6 +1,7 @@
 import { ControlIds } from '../../common/Ids';
 import { LbRouter } from '../../common/LbRouter';
 import { AudioSettings } from '../../persist/AudioSettings';
+import { LlmApiConfig } from '../../ai/LlmApiConfig';
 import { AuthStore } from '../../persist/AuthStore';
 import { RecordStore } from '../../persist/RecordStore';
 import { DemoArm } from '../../persist/DemoArm';
@@ -31,6 +32,9 @@ export struct SettingsPanel {
   @State private bgm: number = 100;
   @State private sfx: number = 100;
   @State private muted: boolean = false;
+  /** 输入草稿；不预填明文 Key。 */
+  @State private llmKeyDraft: string = '';
+  @State private llmHasKey: boolean = false;
   @State private demoUnlocked: boolean = false;
   @State private demoOn: boolean = false;
   @State private versionTaps: number = 0;
@@ -54,6 +58,7 @@ export struct SettingsPanel {
     this.bgm = AudioSettings.bgmLevel();
     this.sfx = AudioSettings.sfxLevel();
     this.muted = AudioSettings.isMuted();
+    this.llmHasKey = LlmApiConfig.hasApiKey();
   }
 
   /** 22:571 退出：清 lb.auth → 关设置 → replace 登录页（不经大厅）。失败则停在设置并提示泄漏短句。 */
@@ -70,6 +75,34 @@ export struct SettingsPanel {
     await RecordStore.adoptSession();
     this.onClose();
     LbRouter.toLogin();
+  }
+
+  private async onSaveLlmKey(): Promise<void> {
+    const ok: boolean = await LlmApiConfig.saveApiKeyFromSettings(this.llmKeyDraft);
+    this.llmKeyDraft = '';
+    this.llmHasKey = LlmApiConfig.hasApiKey();
+    try {
+      promptAction.showToast({
+        message: ok ? $r('app.string.lb_str_set_llm_key_saved') : $r('app.string.lb_str_set_llm_key_save_fail'),
+        duration: 2000
+      });
+    } catch (_e) {
+      // fail-soft
+    }
+  }
+
+  private async onClearLlmKey(): Promise<void> {
+    const ok: boolean = await LlmApiConfig.clearApiKeyFromSettings();
+    this.llmKeyDraft = '';
+    this.llmHasKey = LlmApiConfig.hasApiKey();
+    // 清除成功只改 status「未配置」，不弹 toast（22 §7.2）；写盘失败才提示。
+    if (!ok) {
+      try {
+        promptAction.showToast({ message: $r('app.string.lb_str_set_llm_key_save_fail'), duration: 2000 });
+      } catch (_e) {
+        // fail-soft
+      }
+    }
   }
 
   private previewSfx(): void {
@@ -157,6 +190,7 @@ export struct SettingsPanel {
           .width('100%')
           .alignItems(VerticalAlign.Center)
 
+
           if (this.silentMatchNote) {
             Row({ space: 10 }) {
               Image($r('app.media.art_icon_silent_match_on'))
@@ -180,6 +214,58 @@ export struct SettingsPanel {
             this.sub = 'about';
             this.versionTaps = 0;
           })
+
+          // DeepSeek Key：22 §7.2 最小挂点（规则/关于 ↔ 退出之间；关于子页不挂）。
+          Column({ space: 8 }) {
+            Text($r('app.string.lb_str_set_llm_key'))
+              .id(ControlIds.LLM_KEY_TITLE)
+              .fontColor($r('app.color.tavern_paper'))
+              .fontSize($r('app.float.subtitle_text_size'))
+              .width('100%')
+            TextInput({ text: this.llmKeyDraft, placeholder: $r('app.string.lb_str_set_llm_key_ph') })
+              .id(ControlIds.LLM_KEY_INPUT)
+              .type(InputType.Password)
+              .width('100%')
+              .height($r('app.float.btn_height'))
+              .backgroundColor($r('app.color.tavern_shadow'))
+              .placeholderColor($r('app.color.tavern_mute'))
+              .fontColor($r('app.color.tavern_paper'))
+              .onChange((value: string) => {
+                this.llmKeyDraft = value;
+              })
+            Row({ space: 10 }) {
+              Button('保存')
+                .id(ControlIds.LLM_KEY_SAVE)
+                .layoutWeight(1)
+                .height($r('app.float.btn_height'))
+                .backgroundColor(Color.Transparent)
+                .border({ width: 1.5, color: $r('app.color.tavern_brass') })
+                .fontColor($r('app.color.tavern_paper'))
+                .enabled(this.llmKeyDraft.length > 0)
+                .onClick(() => {
+                  this.onSaveLlmKey();
+                })
+              Button('清除')
+                .id(ControlIds.LLM_KEY_CLEAR)
+                .layoutWeight(1)
+                .height($r('app.float.btn_height'))
+                .backgroundColor(Color.Transparent)
+                .border({ width: 1.5, color: $r('app.color.tavern_danger') })
+                .fontColor($r('app.color.tavern_danger'))
+                .enabled(this.llmHasKey)
+                .onClick(() => {
+                  this.onClearLlmKey();
+                })
+            }
+            .width('100%')
+            Text(this.llmHasKey ? '已配置' : '未配置')
+              .id(ControlIds.LLM_KEY_STATUS)
+              .fontColor($r('app.color.tavern_mute'))
+              .fontSize($r('app.float.caption_text_size'))
+              .width('100%')
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)

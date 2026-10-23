@@ -786,6 +786,45 @@ if (llmCfg.includes('hilog') && /apiKey.*=.*['"]sk-/.test(llmCfg)) {
 } else {
   pass('LLM sources have no embedded API key literal');
 }
+// Observability for DeepSeek zero-call RCA (hasKey / skip prefetch / post+http)
+if (llmCfg.includes('llm_secrets status=absent') && llmCfg.includes('llm_secrets status=ok') &&
+    llmCfg.includes('llm_secrets status=invalid') && llmCfg.includes('hasKey=') &&
+    llmCfg.includes('status=ready') &&
+    llmClient.includes('llm_skip_prefetch reason=no_key') &&
+    llmClient.includes('llm_post kind=') && llmClient.includes('llm_http kind=')) {
+  pass('LLM observability: secrets status + skip_prefetch + post/http');
+} else {
+  fail('LLM observability logs incomplete (secrets status / skip_prefetch / post/http)');
+}
+// Settings Key: Preferences first, then rawfile; save/clear; never log plaintext key
+const idsTxt = src('entry/src/main/ets/common/Ids.ets');
+const setPanel = src('entry/src/main/ets/features/lobby/SettingsPanel.ets');
+if (llmCfg.includes('PersistNs.AUDIO') && llmCfg.includes('llm_api_key') &&
+    llmCfg.includes('saveApiKeyFromSettings') &&
+    llmCfg.includes('clearApiKeyFromSettings') && llmCfg.includes('source=prefs') &&
+    llmCfg.includes('source=rawfile') &&
+    idsTxt.includes("static readonly LLM_KEY_INPUT: string = 'lb_inp_llm_api_key';") &&
+    idsTxt.includes("static readonly LLM_KEY_STATUS: string = 'lb_txt_llm_key_status';") &&
+    setPanel.includes('ControlIds.LLM_KEY_INPUT') && setPanel.includes('ControlIds.LLM_KEY_STATUS') &&
+    setPanel.includes('InputType.Password') &&
+    setPanel.includes('saveApiKeyFromSettings') && setPanel.includes('clearApiKeyFromSettings') &&
+    !/Logger\.(info|warn|error)\([^)]*getApiKey/.test(llmCfg) &&
+    !/Logger\.(info|warn|error)\([^)]*apiKey\s*\+/.test(llmCfg)) {
+  pass('LLM settings Key: lb.settings/llm_api_key prefs>rawfile + save/clear + status + no key in logs');
+} else {
+  fail('LLM settings Key wiring incomplete (prefs priority / save-clear / masked UI / no key logs)');
+}
+const llmExampleRel = 'entry/src/main/resources/rawfile/config/llm_secrets.json.example';
+try {
+  const exTxt = readFileSync(join(root, llmExampleRel), 'utf8');
+  if (/sk-[A-Za-z0-9]{10,}/.test(exTxt)) {
+    fail('llm_secrets.json.example must not embed a real-looking API key');
+  } else {
+    pass('llm_secrets.json.example present (placeholder, no real key)');
+  }
+} catch (_e) {
+  fail('llm_secrets.json.example missing');
+}
 // parsePlay/parseChallenge must be callable for structural tests (exported static)
 if (llmClient.includes('static parsePlay') && llmClient.includes('static parseChallenge')) {
   pass('LLM parsePlay/parseChallenge exported for schema checks');
