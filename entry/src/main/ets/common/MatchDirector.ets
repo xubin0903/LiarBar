@@ -497,10 +497,10 @@ export class MatchDirector {
       String(this.armedPlays);
     if (this.challengeGate(info, snap.turnWindow)) {
       thinkMs = ChallengePolicy.decideChallenge(info, mem, rng, false).thinkMs;
-      LlmDecisionClient.armPrefetchChallenge(info, armKey + '|challenge');
+      LlmDecisionClient.armPrefetchChallenge(info, armKey + '|challenge', snap.matchId);
     } else {
       thinkMs = PlayPolicy.decidePlay(info, mem, rng, false).thinkMs;
-      LlmDecisionClient.armPrefetchPlay(info, armKey + '|play');
+      LlmDecisionClient.armPrefetchPlay(info, armKey + '|play', snap.matchId);
     }
     this.thinkUntilMs = Date.now() + thinkMs;
   }
@@ -564,8 +564,8 @@ export class MatchDirector {
 
 
   /**
-   * LLM fail-soft hook (DeepSeek). tryDecide* 只读 armIfNeeded 预取缓存，绝不同步死等 HTTP；
-   * null / 未就绪 / 无 Key / 非法包 → ChallengePolicy。Judge 路径不动。
+   * LLM fail-soft hook (cloud /api/v1/llm/decide). tryDecide* 只读 armIfNeeded 预取缓存，绝不同步死等 HTTP；
+   * null / 未就绪 / HTTP·parse 失败 → ChallengePolicy + report。Judge 路径不动。
    */
   private tryLlmThenPolicyChallenge(info: AiInfoSet, mem: Memory, rng: SeededRng, log: boolean): ChallengeAction {
     const llm: ChallengeAction | null = LlmDecisionClient.tryDecideChallenge(info);
@@ -576,7 +576,7 @@ export class MatchDirector {
   }
 
   /**
-   * LLM fail-soft hook (DeepSeek). tryDecide* 只读预取缓存；null → PlayPolicy。
+   * LLM fail-soft hook (cloud). tryDecide* 只读预取缓存；null → PlayPolicy + report。
    */
   private tryLlmThenPolicyPlay(info: AiInfoSet, mem: Memory, rng: SeededRng, log: boolean): PlayAction {
     const llm: PlayAction | null = LlmDecisionClient.tryDecidePlay(info);

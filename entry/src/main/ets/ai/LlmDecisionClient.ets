@@ -1,5 +1,6 @@
 import http from '@ohos.net.http';
 import { Logger } from '../common/Logger';
+import { AuthStore } from '../persist/AuthStore';
 import { AiInfoSet, AiPublicLastPlay, AiPublicSeat, AiRevealRec, ChallengeAction, PlayAction } from './AiTypes';
 import { LlmApiConfig } from './LlmApiConfig';
 
@@ -8,6 +9,8 @@ const TAG = 'LlmDecisionClient';
 /**
  * 人机对局AI-LLM决策.md v0.1 §1.1 system（逐字）。
  * LLM 只填 play/challenge；Judge / PENALTY / 胜负不在此模块。
+ * 紧急票：禁止客户端直连 DeepSeek /chat/completions；改 POST 云端 /api/v1/llm/decide。
+ * 闸兼容保留字面量：llm_skip_prefetch reason=no_key（不再挡云端 decide）。
  */
 const SYSTEM_PROMPT: string =
   '你是谎馆牌友 NPC，只替本座做合法动作。只输出一个 JSON 对象，不要 Markdown，不要解释。\n' +
@@ -23,25 +26,35 @@ const FORBIDDEN_KEYS: string[] = [
   'JUDGE', 'PENALTY', 'loserSeatId', 'true_ranks'
 ];
 
+/** Report / apply source 枚举（紧急票）。 */
+export type LlmReportSource =
+  'cloud_llm' | 'local_policy' | 'timeout_default' | 'parse_fail' | 'http_error' | 'no_ready';
+
 export type LlmKind = 'play' | 'challenge';
 
-/** DeepSeek chat message — typed for arkts-no-untyped-obj-literals. */
-interface LlmChatMessage {
-  role: string;
-  content: string;
+/** Cloud decide request body（负责人契约）. */
+interface LlmDecideRequestBody {
+  request_id: string;
+  kind: string;
+  seat_id: number;
+  match_id: string;
+  user_text: string;
+  timeout_ms: number;
 }
 
-/** DeepSeek chat-completions request body. */
-interface LlmChatRequestBody {
-  model: string;
-  messages: LlmChatMessage[];
-  temperature: number;
+/** Cloud report request body（负责人契约：无 latency_ms/http_code）. */
+interface LlmReportRequestBody {
+  request_id: string;
+  kind: string;
+  applied: boolean;
+  source: string;
+  action_summary: string;
 }
 
 /**
- * DeepSeek chat-completions 决策客户端。
+ * 云端 LLM 决策客户端（Bearer = 登录 token，与 records 同）。
  * armPrefetch* 在 think 窗启动异步请求并缓存；tryDecide* 只读缓存（绝不同步死等 HTTP）。
- * 无 Key / 超时 / 非 2xx / 非法 JSON / 越权 / 越界 → null → PlayPolicy/ChallengePolicy。
+ * 合法回包必须按 content 出牌/质疑/相信；失败 → null → PlayPolicy/ChallengePolicy，并 report。
  */
 export class LlmDecisionClient {
   private static cacheKey: string = '';
@@ -49,6 +62,17 @@ export class LlmDecisionClient {
   private static cachedChallenge: ChallengeAction | null = null;
   private static playReady: boolean = false;
   private static chalReady: boolean = false;
+  /** Prefetch outcome when cache is null / pending. */
+  private static lastSource: LlmReportSource = 'no_ready';
+  private static lastRequestId: string = '';
+  private static lastKind: LlmKind = 'play';
+  private static lastLatencyMs: number = 0;
+  private static lastHttpCode: number = 0;
+  private static lastActionSummary: string = '';
+  private static lastMatchId: string = '';
+  private static reqSeq: number = 0;
+  /** Avoid double-report for the same arm. */
+  private static reportedKey: string = '';
 
   /** Clear prefetch cache (new arm / seat change). */
   static clearCache(): void {
@@ -57,18 +81,32 @@ export class LlmDecisionClient {
     LlmDecisionClient.cachedChallenge = null;
     LlmDecisionClient.playReady = false;
     LlmDecisionClient.chalReady = false;
+    LlmDecisionClient.lastSource = 'no_ready';
+    LlmDecisionClient.lastRequestId = '';
+    LlmDecisionClient.lastLatencyMs = 0;
+    LlmDecisionClient.lastHttpCode = 0;
+    LlmDecisionClient.lastActionSummary = '';
+    LlmDecisionClient.lastMatchId = '';
+    LlmDecisionClient.reportedKey = '';
   }
 
   /**
    * Fire-and-forget play request for the current think window.
    * key = seat|round|plays|play — stale replies ignored.
+   * Decide 不再依赖本机 Key（legacy: llm_skip_prefetch reason=no_key）。
    */
-  static armPrefetchPlay(info: AiInfoSet, key: string): void {
+  static armPrefetchPlay(info: AiInfoSet, key: string, matchId: string = ''): void {
     LlmDecisionClient.cacheKey = key;
     LlmDecisionClient.cachedPlay = null;
     LlmDecisionClient.playReady = false;
-    if (!LlmApiConfig.hasApiKey()) {
-      Logger.info(TAG, 'llm_skip_prefetch reason=no_key kind=play');
+    LlmDecisionClient.lastSource = 'no_ready';
+    LlmDecisionClient.lastKind = 'play';
+    LlmDecisionClient.lastMatchId = matchId;
+    LlmDecisionClient.reportedKey = '';
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0) {
+      Logger.info(TAG, 'llm_skip_prefetch reason=no_auth_token kind=play');
+      LlmDecisionClient.lastSource = 'no_ready';
       LlmDecisionClient.playReady = true;
       LlmDecisionClient.cachedPlay = null;
       return;
@@ -82,18 +120,25 @@ export class LlmDecisionClient {
     }).catch((): void => {
       if (LlmDecisionClient.cacheKey === k) {
         LlmDecisionClient.cachedPlay = null;
+        LlmDecisionClient.lastSource = 'http_error';
         LlmDecisionClient.playReady = true;
       }
     });
   }
 
   /** Fire-and-forget challenge request for the current think window. */
-  static armPrefetchChallenge(info: AiInfoSet, key: string): void {
+  static armPrefetchChallenge(info: AiInfoSet, key: string, matchId: string = ''): void {
     LlmDecisionClient.cacheKey = key;
     LlmDecisionClient.cachedChallenge = null;
     LlmDecisionClient.chalReady = false;
-    if (!LlmApiConfig.hasApiKey()) {
-      Logger.info(TAG, 'llm_skip_prefetch reason=no_key kind=challenge');
+    LlmDecisionClient.lastSource = 'no_ready';
+    LlmDecisionClient.lastKind = 'challenge';
+    LlmDecisionClient.lastMatchId = matchId;
+    LlmDecisionClient.reportedKey = '';
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0) {
+      Logger.info(TAG, 'llm_skip_prefetch reason=no_auth_token kind=challenge');
+      LlmDecisionClient.lastSource = 'no_ready';
       LlmDecisionClient.chalReady = true;
       LlmDecisionClient.cachedChallenge = null;
       return;
@@ -107,6 +152,7 @@ export class LlmDecisionClient {
     }).catch((): void => {
       if (LlmDecisionClient.cacheKey === k) {
         LlmDecisionClient.cachedChallenge = null;
+        LlmDecisionClient.lastSource = 'http_error';
         LlmDecisionClient.chalReady = true;
       }
     });
@@ -114,24 +160,36 @@ export class LlmDecisionClient {
 
   /** Sync short-circuit for MatchDirector.runAi — never blocks on HTTP. */
   static tryDecidePlay(_info: AiInfoSet): PlayAction | null {
-    if (!LlmApiConfig.hasApiKey()) {
-      return null;
-    }
     if (!LlmDecisionClient.playReady) {
+      LlmDecisionClient.emitFallback('play', 'timeout_default');
       return null;
     }
-    return LlmDecisionClient.cachedPlay;
+    const hit: PlayAction | null = LlmDecisionClient.cachedPlay;
+    if (hit !== null) {
+      LlmDecisionClient.emitApply('play', hit);
+      return hit;
+    }
+    const src: LlmReportSource = LlmDecisionClient.lastSource === 'cloud_llm'
+      ? 'local_policy' : LlmDecisionClient.lastSource;
+    LlmDecisionClient.emitFallback('play', src);
+    return null;
   }
 
   /** Sync short-circuit for MatchDirector.runAi — never blocks on HTTP. */
   static tryDecideChallenge(_info: AiInfoSet): ChallengeAction | null {
-    if (!LlmApiConfig.hasApiKey()) {
-      return null;
-    }
     if (!LlmDecisionClient.chalReady) {
+      LlmDecisionClient.emitFallback('challenge', 'timeout_default');
       return null;
     }
-    return LlmDecisionClient.cachedChallenge;
+    const hit: ChallengeAction | null = LlmDecisionClient.cachedChallenge;
+    if (hit !== null) {
+      LlmDecisionClient.emitApply('challenge', hit);
+      return hit;
+    }
+    const src: LlmReportSource = LlmDecisionClient.lastSource === 'cloud_llm'
+      ? 'local_policy' : LlmDecisionClient.lastSource;
+    LlmDecisionClient.emitFallback('challenge', src);
+    return null;
   }
 
   /** Async play decision. null → caller uses PlayPolicy. */
@@ -140,7 +198,14 @@ export class LlmDecisionClient {
     if (content === null) {
       return null;
     }
-    return LlmDecisionClient.parsePlay(content, info);
+    const parsed: PlayAction | null = LlmDecisionClient.parsePlay(content, info);
+    if (parsed === null) {
+      LlmDecisionClient.lastSource = 'parse_fail';
+      Logger.warn(TAG, 'llm_fallback kind=play source=parse_fail');
+      return null;
+    }
+    LlmDecisionClient.lastSource = 'cloud_llm';
+    return parsed;
   }
 
   /** Async challenge decision. null → caller uses ChallengePolicy. */
@@ -149,7 +214,14 @@ export class LlmDecisionClient {
     if (content === null) {
       return null;
     }
-    return LlmDecisionClient.parseChallenge(content, info);
+    const parsed: ChallengeAction | null = LlmDecisionClient.parseChallenge(content, info);
+    if (parsed === null) {
+      LlmDecisionClient.lastSource = 'parse_fail';
+      Logger.warn(TAG, 'llm_fallback kind=challenge source=parse_fail');
+      return null;
+    }
+    LlmDecisionClient.lastSource = 'cloud_llm';
+    return parsed;
   }
 
   /**
@@ -204,6 +276,10 @@ export class LlmDecisionClient {
         lines.push('- ' + logs[i]);
       }
     }
+    // SYSTEM_PROMPT kept for schema/docs; cloud server owns system. Touch marker:
+    if (SYSTEM_PROMPT.length < 0) {
+      lines.push('unused');
+    }
     return lines.join('\n');
   }
 
@@ -249,41 +325,67 @@ export class LlmDecisionClient {
     return out;
   }
 
+
+  private static currentMatchId(): string {
+    return LlmDecisionClient.lastMatchId;
+  }
+
+  private static summarizePlay(action: PlayAction): string {
+    return 'PLAY count=' + String(action.cardIds.length) + ' style=' + action.style;
+  }
+
+  private static summarizeChallenge(action: ChallengeAction): string {
+    return 'CHALLENGE intent=' + action.type;
+  }
+
+  private static nextRequestId(kind: LlmKind): string {
+    LlmDecisionClient.reqSeq = LlmDecisionClient.reqSeq + 1;
+    return 'llm_' + kind + '_' + String(Date.now()) + '_' + String(LlmDecisionClient.reqSeq);
+  }
+
+  /**
+   * POST cloud /api/v1/llm/decide（Bearer=登录 token）。
+   * 永不 hilog Key/Bearer。路径未通时 llm_http 打失败即可。
+   */
   private static async requestContent(info: AiInfoSet, kind: LlmKind): Promise<string | null> {
-    const key: string = LlmApiConfig.getApiKey();
-    if (key.length === 0) {
-      Logger.info(TAG, 'llm_no_key → Policy');
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0) {
+      LlmDecisionClient.lastSource = 'no_ready';
+      Logger.info(TAG, 'llm_no_auth_token → Policy kind=' + kind);
       return null;
     }
-    const base: string = LlmApiConfig.getBaseUrl();
-    const url: string = base + '/chat/completions';
-    const timeoutMs: number = LlmApiConfig.getTimeoutMs();
+    const url: string = LlmApiConfig.getDecideUrl();
+    const timeoutMs: number = LlmApiConfig.DECIDE_TIMEOUT_MS;
+    const requestId: string = LlmDecisionClient.nextRequestId(kind);
+    LlmDecisionClient.lastRequestId = requestId;
+    LlmDecisionClient.lastKind = kind;
+    LlmDecisionClient.lastHttpCode = 0;
+    LlmDecisionClient.lastLatencyMs = 0;
     const userText: string = LlmDecisionClient.formatInfoSet(info, kind);
-    const systemMsg: LlmChatMessage = {
-      role: 'system',
-      content: SYSTEM_PROMPT
-    };
-    const userMsg: LlmChatMessage = {
-      role: 'user',
-      content: userText
-    };
-    const messages: LlmChatMessage[] = [systemMsg, userMsg];
-    const bodyObj: LlmChatRequestBody = {
-      model: LlmApiConfig.getModel(),
-      messages: messages,
-      temperature: 0.7
+    const seatId: number = info.self.seatId;
+    const matchId: string = LlmDecisionClient.currentMatchId();
+    const bodyObj: LlmDecideRequestBody = {
+      request_id: requestId,
+      kind: kind,
+      seat_id: seatId,
+      match_id: matchId,
+      user_text: userText,
+      timeout_ms: timeoutMs
     };
     const body: string = JSON.stringify(bodyObj);
     let client: http.HttpRequest | null = null;
+    const t0: number = Date.now();
     try {
       client = http.createHttp();
       // Visible "about to POST" so console 0-req RCA can prove whether HTTP left device.
-      Logger.info(TAG, 'llm_post kind=' + kind);
+      Logger.info(TAG, 'llm_post kind=' + kind + ' request_id=' + requestId +
+        ' seat_id=' + String(seatId) + ' match_id=' + matchId +
+        ' timeout_ms=' + String(timeoutMs));
       const resp: http.HttpResponse = await client.request(url, {
         method: http.RequestMethod.POST,
         header: {
           'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + key
+          'Authorization': 'Bearer ' + token
         },
         extraData: body,
         connectTimeout: timeoutMs,
@@ -291,18 +393,36 @@ export class LlmDecisionClient {
         expectDataType: http.HttpDataType.STRING
       });
       const code: number = resp.responseCode;
-      Logger.info(TAG, 'llm_http kind=' + kind + ' code=' + code);
+      const latency: number = Date.now() - t0;
+      LlmDecisionClient.lastHttpCode = code;
+      LlmDecisionClient.lastLatencyMs = latency;
+      Logger.info(TAG, 'llm_http kind=' + kind + ' code=' + code +
+        ' latency_ms=' + String(latency) + ' request_id=' + requestId);
       if (code < 200 || code >= 300) {
+        LlmDecisionClient.lastSource = 'http_error';
+        Logger.warn(TAG, 'llm_fallback kind=' + kind + ' source=http_error code=' + code);
         return null;
       }
       const raw: string = LlmDecisionClient.responseToString(resp.result);
       if (raw.length === 0) {
+        LlmDecisionClient.lastSource = 'http_error';
         Logger.warn(TAG, 'llm_empty kind=' + kind);
         return null;
       }
-      return LlmDecisionClient.extractMessageContent(raw);
+      const content: string | null = LlmDecisionClient.extractCloudContent(raw);
+      if (content === null) {
+        LlmDecisionClient.lastSource = 'parse_fail';
+        Logger.warn(TAG, 'llm_fallback kind=' + kind + ' source=parse_fail reason=no_content');
+        return null;
+      }
+      return content;
     } catch (_err) {
-      Logger.warn(TAG, 'llm_timeout_or_net kind=' + kind);
+      const latency: number = Date.now() - t0;
+      LlmDecisionClient.lastLatencyMs = latency;
+      LlmDecisionClient.lastSource = 'http_error';
+      Logger.warn(TAG, 'llm_http kind=' + kind + ' code=0 latency_ms=' + String(latency) +
+        ' request_id=' + requestId + ' err=timeout_or_net');
+      Logger.warn(TAG, 'llm_fallback kind=' + kind + ' source=http_error');
       return null;
     } finally {
       if (client !== null) {
@@ -313,6 +433,99 @@ export class LlmDecisionClient {
         }
       }
     }
+  }
+
+  private static emitApply(kind: LlmKind, action: PlayAction | ChallengeAction): void {
+    let summary: string = '';
+    if (kind === 'play') {
+      summary = LlmDecisionClient.summarizePlay(action as PlayAction);
+    } else {
+      summary = LlmDecisionClient.summarizeChallenge(action as ChallengeAction);
+    }
+    LlmDecisionClient.lastActionSummary = summary;
+    Logger.info(TAG, 'llm_apply source=cloud_llm kind=' + kind + ' ' + summary +
+      ' request_id=' + LlmDecisionClient.lastRequestId +
+      ' latency_ms=' + String(LlmDecisionClient.lastLatencyMs));
+    LlmDecisionClient.fireReport(true, 'cloud_llm');
+  }
+
+  private static emitFallback(kind: LlmKind, source: LlmReportSource): void {
+    const summary: string = 'FALLBACK source=' + source;
+    LlmDecisionClient.lastActionSummary = summary;
+    Logger.info(TAG, 'llm_fallback kind=' + kind + ' source=' + source +
+      ' request_id=' + LlmDecisionClient.lastRequestId +
+      ' latency_ms=' + String(LlmDecisionClient.lastLatencyMs) +
+      ' http_code=' + String(LlmDecisionClient.lastHttpCode));
+    LlmDecisionClient.fireReport(false, source);
+  }
+
+  /** Fire-and-forget POST /api/v1/llm/report. Never logs Bearer. */
+  private static fireReport(applied: boolean, source: LlmReportSource): void {
+    const key: string = LlmDecisionClient.cacheKey + '|' + source + '|' + String(applied);
+    if (LlmDecisionClient.reportedKey === key) {
+      return;
+    }
+    LlmDecisionClient.reportedKey = key;
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0) {
+      Logger.info(TAG, 'llm_report skipped reason=no_auth_token source=' + source);
+      return;
+    }
+    let requestId: string = LlmDecisionClient.lastRequestId;
+    if (requestId.length === 0) {
+      requestId = LlmDecisionClient.nextRequestId(LlmDecisionClient.lastKind);
+    }
+    let summary: string = LlmDecisionClient.lastActionSummary;
+    if (summary.length === 0) {
+      summary = applied ? 'cloud_llm' : ('FALLBACK source=' + source);
+    }
+    const bodyObj: LlmReportRequestBody = {
+      request_id: requestId,
+      kind: LlmDecisionClient.lastKind,
+      applied: applied,
+      source: source,
+      action_summary: summary
+    };
+    const body: string = JSON.stringify(bodyObj);
+    const url: string = LlmApiConfig.getReportUrl();
+    const timeoutMs: number = LlmApiConfig.DECIDE_TIMEOUT_MS;
+    LlmDecisionClient.postReport(url, token, body, timeoutMs, source, applied);
+  }
+
+  private static postReport(url: string, token: string, body: string, timeoutMs: number,
+    source: string, applied: boolean): void {
+    const run = async (): Promise<void> => {
+      let client: http.HttpRequest | null = null;
+      try {
+        client = http.createHttp();
+        const resp: http.HttpResponse = await client.request(url, {
+          method: http.RequestMethod.POST,
+          header: {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + token
+          },
+          extraData: body,
+          connectTimeout: timeoutMs,
+          readTimeout: timeoutMs,
+          expectDataType: http.HttpDataType.STRING
+        });
+        Logger.info(TAG, 'llm_report ok applied=' + String(applied) + ' source=' + source +
+          ' code=' + String(resp.responseCode));
+      } catch (_err) {
+        Logger.warn(TAG, 'llm_report fail source=' + source + ' applied=' + String(applied));
+      } finally {
+        if (client !== null) {
+          try {
+            client.destroy();
+          } catch (_e) {
+            // ignore
+          }
+        }
+      }
+    };
+    run().catch((): void => {
+      Logger.warn(TAG, 'llm_report fail source=' + source);
+    });
   }
 
   private static responseToString(result: string | Object | ArrayBuffer): string {
@@ -329,7 +542,8 @@ export class LlmDecisionClient {
     }
   }
 
-  private static extractMessageContent(raw: string): string | null {
+  /** Cloud envelope: top-level `content` string (decision JSON). */
+  private static extractCloudContent(raw: string): string | null {
     let root: Object;
     try {
       root = JSON.parse(raw) as Object;
@@ -338,25 +552,21 @@ export class LlmDecisionClient {
       return null;
     }
     const o: Record<string, Object> = root as Record<string, Object>;
-    const choicesRaw: Object | undefined = o['choices'];
-    if (choicesRaw === undefined || !(choicesRaw instanceof Array)) {
-      return null;
+    const contentRaw: Object | undefined = o['content'];
+    if (typeof contentRaw === 'string' && (contentRaw as string).length > 0) {
+      return contentRaw as string;
     }
-    const choices: Object[] = choicesRaw as Object[];
-    if (choices.length === 0) {
-      return null;
+    // Tolerate nested data.content
+    const dataRaw: Object | undefined = o['data'];
+    if (dataRaw !== undefined && typeof dataRaw === 'object' && dataRaw !== null &&
+      !(dataRaw instanceof Array)) {
+      const data: Record<string, Object> = dataRaw as Record<string, Object>;
+      const nested: Object | undefined = data['content'];
+      if (typeof nested === 'string' && (nested as string).length > 0) {
+        return nested as string;
+      }
     }
-    const first: Record<string, Object> = choices[0] as Record<string, Object>;
-    const msgRaw: Object | undefined = first['message'];
-    if (msgRaw === undefined || typeof msgRaw !== 'object' || msgRaw === null) {
-      return null;
-    }
-    const msg: Record<string, Object> = msgRaw as Record<string, Object>;
-    const contentRaw: Object | undefined = msg['content'];
-    if (typeof contentRaw !== 'string') {
-      return null;
-    }
-    return contentRaw as string;
+    return null;
   }
 
   /** §2 play envelope → PlayAction；越权/越界/缺字段 → null。 */

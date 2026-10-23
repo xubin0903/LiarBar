@@ -10,7 +10,7 @@ import { ThinkDelay } from './ThinkDelay';
 /**
  * Thin orchestrator. 人机对局AI-核心算法.md v0.2.0 §6.
  * Decisions live in PlayPolicy / ChallengePolicy / ThinkDelay.
- * LLM (DeepSeek) is fail-soft: null → local Policy. Judge/PENALTY unchanged.
+ * LLM (cloud proxy) is fail-soft: null → local Policy + report. Judge/PENALTY unchanged.
  */
 export class AiSeatController {
   seatId: number;
@@ -42,7 +42,7 @@ export class AiSeatController {
   }
 
   decideChallenge(info: AiInfoSet, rng: SeededRng): ChallengeAction {
-    // Sync LLM: 只读 armPrefetch 缓存（无 Key / 未就绪 / 非法 → null）；绝不同步死等 HTTP。
+    // Sync LLM: 只读 armPrefetch 缓存（未就绪 / HTTP·parse 失败 → null）；绝不同步死等 HTTP。
     const llm: ChallengeAction | null = LlmDecisionClient.tryDecideChallenge(info);
     if (llm !== null) {
       return llm;
