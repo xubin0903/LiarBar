@@ -2,15 +2,15 @@
 
 > ## 合入≠终验 · 未 Rebuild 勿勾 · **未绿勿勾** · **写勾选 only · 不发明玩法**
 >
-> **本表勾选纸（DeepSeek Key 设置页 · v0.1.0）**：对齐真源 [21](../04-设计/21-结算战报·战绩·暂停·设置·规则.md) **补8**（[#335](https://github.com/xubin0903/LiarBar/pull/335)）+ [22](../04-设计/22-结算·战绩·暂停·设置·规则线框.md) **v0.1.6**（[#334](https://github.com/xubin0903/LiarBar/pull/334)）已合 develop@`69d7c9de`。  
+> **本表勾选纸（DeepSeek Key 设置页 · v0.1.1）**：对齐真源 [21](../04-设计/21-结算战报·战绩·暂停·设置·规则.md) **补8** + [22](../04-设计/22-结算·战绩·暂停·设置·规则线框.md) **v0.1.6**；客户端 [#337](https://github.com/xubin0903/LiarBar/pull/337) 已合 develop@`a35469cc`（锁 `946452bb`）。  
 > **Key 真源**：[人机对局AI-LLM决策](../02-游戏设计/人机对局AI-LLM决策.md) **§0.5**（`:20–22`）= Preferences `lb.settings` / `llm_api_key`；空 → Policy / `skip_prefetch`。  
 > **负责人两案**（分派口径）：① 填 Key→Rebuild→AI 回合→控制台有请求；② 空 Key→hilog `skip_prefetch`。**真 key 不进仓**。  
-> **客户端接线 PR 未合前**：ets「文件:行」写「待鸿蒙 PR」；文档/挂点行号已绑 tip。  
+> **ets「文件:行」已绑** tip（见 §3.1）。  
 > **合入本表 ≠ 客户端过关。** 未 Rebuild、无 Key/空 Key 夹具未造齐，一律不得勾「本批过关」。
 
 | 项 | 内容 |
 |----|------|
-| 版本 | **v0.1.0 · K-01～K-12**（基线 develop@`69d7c9de` · #335+#334；四键 `string.json:1104–1117`；**合入≠终验 · 未 Rebuild 勿勾**） |
+| 版本 | **v0.1.1 · K-01～K-12**（基线 develop@`a35469cc` · #337；四键 `string.json:1104–1117`；ets 已绑；**合入≠终验 · 未 Rebuild 勿勾**） |
 | 读者 | **用户本机终验** / 测试岗 / 鸿蒙开发 / 负责人 / UI |
 | 范围 | 只验：设置主页 Key 挂点、四键文案、Preferences 单键写、真 Key 不回显、两案（有 Key 出网 / 空 Key `skip_prefetch`）、S22-36、string **373**、硬锁未漂 |
 | 对齐 | [21](../04-设计/21-结算战报·战绩·暂停·设置·规则.md) §4.2 `:478`/`:487` · §6.7 `:681–684` · [22](../04-设计/22-结算·战绩·暂停·设置·规则线框.md) §7.2 `:543`/`:556–560`/`:577` · **S22-36** `:690` · [人机对局AI-LLM决策](../02-游戏设计/人机对局AI-LLM决策.md) §0.5 `:20–22` · [LLM 决策勾选](./人机对局AI-LLM决策验收勾选清单.md) L 表不改写 |
@@ -85,7 +85,7 @@
 | **K-11** | 静态：本票/客户端 diff；`string.json` 键数；硬锁段 sha；仓内无密钥 | 键数 **373**；四键名逐字；`Table.ets:1913–1975` sha `ba027c14…cf84`；仓/日志无真 Key | 键数漂 / 硬锁漂 / 密钥进仓 | string · Table · `22:732` | [ ] |
 | **K-12** | 真机前置勾齐 + K-01～K-11 已绿 | 本批过关可勾 | — | 前置 | [ ] **未 Rebuild / 未绿勿勾** |
 
-### 3.1 实现锚点（文档已绑 · ets 待鸿蒙 PR）
+### 3.1 实现锚点（文档已绑 · ets 绑 #337 tip `946452bb` / develop@`a35469cc`）
 
 | 文件:行 | 看什么 |
 |---------|--------|
@@ -97,9 +97,14 @@
 | `21:681–684` | 四键原文 |
 | `人机对局AI-LLM决策:20–22` | §0.5 Key 真源；空 → `skip_prefetch` |
 | `string.json:1104–1117` | 四键 ADD；键数 **373** |
-| （待鸿蒙 PR）SettingsPanel / AudioSettings 或等价 | 挂 `lb_inp_llm_api_key` / save / clear；put `llm_api_key` + flush |
-| （待鸿蒙 PR）`LlmApiConfig` / `LlmDecisionClient` | `hasApiKey`；空 → skip_prefetch；有 Key → 出网；日志无密钥 |
-| `Table.ets:1913–1975` | 硬锁未漂（本线零改） |
+| `SettingsPanel.ets:80–106` | 保存清空草稿 + toast 四键；清除无 toast（失败才 `_save_fail`） |
+| `SettingsPanel.ets:218–268` | 主页 Key 区（规则/关于↔退出）；Password；字面「保存」「清除」；status 已配置/未配置 |
+| `Ids.ets:88–92` | `LLM_KEY_TITLE` / `INPUT` / `SAVE` / `CLEAR` / `STATUS` |
+| `LlmApiConfig.ets:63–119` | prefs>rawfile 读序；`saveApiKeyFromSettings` / `clearApiKeyFromSettings`；hilog 仅 hasKey |
+| `LlmApiConfig.ets:212–230` | 单键 `put` + `flush`；清除 = 写空串 |
+| `LlmDecisionClient.ets:70–71`/`:95–96` | 空 Key → `llm_skip_prefetch` |
+| `LlmDecisionClient.ets:281`/`:294` | `llm_post` / `llm_http`（有 Key 出网可观测） |
+| `Table.ets:1913–1975` | 硬锁未漂（本线零改） sha `ba027c14…cf84` |
 
 ---
 
@@ -116,4 +121,5 @@
 
 | 版 | 日 | 记 |
 |----|----|----|
+| **v0.1.1** | 2026-10-23 | 绑 #337 ets 锚点（SettingsPanel / LlmApiConfig / LlmDecisionClient / Ids）；基线 develop@`a35469cc`。合入≠终验。 |
 | **v0.1.0** | 2026-10-23 | 初版：两案 K-01/K-02 + 挂点/四键/不回显/单键写；基线 develop@`69d7c9de`（#335+#334）；string 373；ets 待鸿蒙 PR。合入≠终验。 |
