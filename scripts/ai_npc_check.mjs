@@ -744,4 +744,53 @@ if (!playPol.includes('always(count=2)') && playPol.includes('softmax')) {
   fail('lb_str_ai_fixed_play PlayPolicy missing softmax');
 }
 
+
+// --- LLM decision (DeepSeek) structural — 人机对局AI-LLM决策.md v0.1 ---
+const llmClient = src('entry/src/main/ets/ai/LlmDecisionClient.ets');
+const llmCfg = src('entry/src/main/ets/ai/LlmApiConfig.ets');
+const moduleJson = src('entry/src/main/module.json5');
+const gitignoreTxt = src('.gitignore');
+if (llmClient.includes('tryDecidePlay') && llmClient.includes('tryDecideChallenge') &&
+    llmClient.includes('formatInfoSet') && llmClient.includes('/chat/completions') &&
+    llmClient.includes('armPrefetchPlay') && llmClient.includes('armPrefetchChallenge') &&
+    llmClient.includes('schemaVersion') && llmClient.includes('cardIndexes') &&
+    llmClient.includes('llm_out_of_scope') &&
+    llmClient.includes('你是谎馆牌友 NPC') &&
+    llmCfg.includes('llm_secrets.json') && llmCfg.includes('getApiKey') &&
+    moduleJson.includes('ohos.permission.INTERNET') &&
+    controller.includes('LlmDecisionClient') &&
+    director.includes('tryLlmThenPolicyPlay') && director.includes('tryLlmThenPolicyChallenge') &&
+    director.includes('armPrefetchPlay') && director.includes('armPrefetchChallenge') &&
+    gitignoreTxt.includes('entry/src/main/resources/rawfile/config/llm_secrets.json')) {
+  pass('LLM: LlmDecisionClient schema + prefetch + INTERNET + gitignore secrets');
+} else {
+  fail('LLM wiring / schema / prefetch incomplete');
+}
+if (llmClient.includes('FORBIDDEN_KEYS') && llmClient.includes('verdict') &&
+    llmClient.includes('trueRanks') && llmClient.includes('penalty') &&
+    llmClient.includes('winner') && llmClient.includes('llm_out_of_scope')) {
+  pass('LLM rejects out-of-scope fields (verdict/loser/trueRanks/judge/penalty/winner)');
+} else {
+  fail('LLM must reject out-of-scope fields (verdict/loser/trueRanks/judge/penalty/winner)');
+}
+if (llmClient.includes('handRanks') && llmClient.includes('seats:') &&
+    llmClient.includes('decision:') && llmClient.includes('gate:')) {
+  pass('LLM formatInfoSet projects §1.2 (self handRanks only + gate)');
+} else {
+  fail('LLM formatInfoSet missing §1.2 projection markers');
+}
+if (llmCfg.includes('hilog') && /apiKey.*=.*['"]sk-/.test(llmCfg)) {
+  fail('LLM config must not embed API key literals');
+} else if (/sk-[A-Za-z0-9]{10,}/.test(llmClient) || /sk-[A-Za-z0-9]{10,}/.test(llmCfg)) {
+  fail('LLM sources must not embed API key literals');
+} else {
+  pass('LLM sources have no embedded API key literal');
+}
+// parsePlay/parseChallenge must be callable for structural tests (exported static)
+if (llmClient.includes('static parsePlay') && llmClient.includes('static parseChallenge')) {
+  pass('LLM parsePlay/parseChallenge exported for schema checks');
+} else {
+  fail('LLM parsePlay/parseChallenge must be static (schema)');
+}
+
 console.log(process.exitCode ? 'AI NPC CHECK FAILED' : 'AI NPC CHECK OK');

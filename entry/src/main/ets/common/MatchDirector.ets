@@ -3,6 +3,7 @@ import { AiPersonaRegistry } from '../ai/AiPersonaRegistry';
 import { AiInfoSet, ChallengeAction, PlayAction } from '../ai/AiTypes';
 import { ChallengePolicy } from '../ai/ChallengePolicy';
 import { Memory } from '../ai/Memory';
+import { LlmDecisionClient } from '../ai/LlmDecisionClient';
 import { PlayPolicy } from '../ai/PlayPolicy';
 import { PersonaRow } from '../config/AiPersonasConfig';
 import { liveClaimShort, livePhaseText } from '../engine/DealerLines';
@@ -65,8 +66,8 @@ export class PauseReasons {
 /**
  * Dealer clock + AI turns. Pulses the pure engine. No rule numbers of its own.
  * HUMAN TURN / PLAY_REVEAL_SELF: do not arm think, do not runAi, do not expire into autoPlay.
- * AI seats: InfoSetBuilder → Memory → PlayPolicy / ChallengePolicy → ThinkDelay
- * (人机对局AI-核心算法.md v0.2.0). demo_seed force stays behind demo_force_ai_enabled.
+ * AI seats: InfoSetBuilder → Memory → (LLM prefetch fail-soft | PlayPolicy / ChallengePolicy) → ThinkDelay
+ * (人机对局AI-核心算法.md v0.2.0 + 人机对局AI-LLM决策.md v0.1). demo_seed force stays behind demo_force_ai_enabled.
  */
 export class MatchDirector {
   private timerId: number = -1;
@@ -484,16 +485,22 @@ export class MatchDirector {
     this.armedPlays = snap.playIndexInRound;
     if (!this.isAiSeat(snap, snap.currentSeatId)) {
       this.thinkUntilMs = 0;
+      LlmDecisionClient.clearCache();
       return;
     }
     const rng: SeededRng = this.turnRng(snap);
     const info: AiInfoSet = this.engine.buildAiInfoSet(snap.currentSeatId);
     const mem: Memory = Memory.fromInfoSet(info);
+    // thinkMs 始终走本地 Policy（LLM 回包无 thinkMs）；HTTP 在 think 窗异步预取，runAi 只读缓存。
     let thinkMs: number = 1500;
+    const armKey: string = String(this.armedSeat) + '|' + String(this.armedRound) + '|' +
+      String(this.armedPlays);
     if (this.challengeGate(info, snap.turnWindow)) {
       thinkMs = ChallengePolicy.decideChallenge(info, mem, rng, false).thinkMs;
+      LlmDecisionClient.armPrefetchChallenge(info, armKey + '|challenge');
     } else {
       thinkMs = PlayPolicy.decidePlay(info, mem, rng, false).thinkMs;
+      LlmDecisionClient.armPrefetchPlay(info, armKey + '|play');
     }
     this.thinkUntilMs = Date.now() + thinkMs;
   }
@@ -527,13 +534,13 @@ export class MatchDirector {
     const rng: SeededRng = this.turnRng(snap);
     const win: TurnWindow = snap.turnWindow;
     if (info.forceChallenge2 || win === TurnWindow.FORCE_CHALLENGE) {
-      ChallengePolicy.decideChallenge(info, mem, rng, true);
+      this.tryLlmThenPolicyChallenge(info, mem, rng, true);
       engine.intentChallenge();
       this.maybeTableColor(snap);
       return;
     }
     if (snap.canChallenge || win === TurnWindow.CHALLENGE_ONLY || win === TurnWindow.EMPTY_SAFE) {
-      const ch: ChallengeAction = ChallengePolicy.decideChallenge(info, mem, rng, true);
+      const ch: ChallengeAction = this.tryLlmThenPolicyChallenge(info, mem, rng, true);
       if (ch.type === 'DOUBT') {
         engine.intentChallenge();
         this.maybeTableColor(snap);
@@ -546,13 +553,37 @@ export class MatchDirector {
       }
     }
     if (snap.hasCards) {
-      const play: PlayAction = PlayPolicy.decidePlay(info, mem, rng, true);
+      const play: PlayAction = this.tryLlmThenPolicyPlay(info, mem, rng, true);
       engine.intentPlay();
       engine.submitPlay(play.cardIds, this.toStyle(play.style), play.speech, play.namedSeatId);
     } else {
       engine.skip();
     }
     this.maybeTableColor(snap);
+  }
+
+
+  /**
+   * LLM fail-soft hook (DeepSeek). tryDecide* 只读 armIfNeeded 预取缓存，绝不同步死等 HTTP；
+   * null / 未就绪 / 无 Key / 非法包 → ChallengePolicy。Judge 路径不动。
+   */
+  private tryLlmThenPolicyChallenge(info: AiInfoSet, mem: Memory, rng: SeededRng, log: boolean): ChallengeAction {
+    const llm: ChallengeAction | null = LlmDecisionClient.tryDecideChallenge(info);
+    if (llm !== null) {
+      return llm;
+    }
+    return ChallengePolicy.decideChallenge(info, mem, rng, log);
+  }
+
+  /**
+   * LLM fail-soft hook (DeepSeek). tryDecide* 只读预取缓存；null → PlayPolicy。
+   */
+  private tryLlmThenPolicyPlay(info: AiInfoSet, mem: Memory, rng: SeededRng, log: boolean): PlayAction {
+    const llm: PlayAction | null = LlmDecisionClient.tryDecidePlay(info);
+    if (llm !== null) {
+      return llm;
+    }
+    return PlayPolicy.decidePlay(info, mem, rng, log);
   }
 
   private challengeGate(info: AiInfoSet, win: TurnWindow): boolean {

@@ -44,3 +44,7 @@ __pycache__/
 .env
 .env.*
 *.keystore
+
+# Local LLM secrets — never commit
+entry/src/main/resources/rawfile/config/llm_secrets.json
+*.local.ets
