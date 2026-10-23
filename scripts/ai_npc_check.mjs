@@ -744,4 +744,27 @@ if (!playPol.includes('always(count=2)') && playPol.includes('softmax')) {
   fail('lb_str_ai_fixed_play PlayPolicy missing softmax');
 }
 
+
+// --- LLM decision skeleton (DeepSeek) structural ---
+const llmClient = src('entry/src/main/ets/ai/LlmDecisionClient.ets');
+const llmCfg = src('entry/src/main/ets/ai/LlmApiConfig.ets');
+const moduleJson = src('entry/src/main/module.json5');
+if (llmClient.includes('tryDecidePlay') && llmClient.includes('tryDecideChallenge') &&
+    llmClient.includes('formatInfoSet') && llmClient.includes('/chat/completions') &&
+    llmCfg.includes('llm_secrets.json') && llmCfg.includes('getApiKey') &&
+    moduleJson.includes('ohos.permission.INTERNET') &&
+    controller.includes('LlmDecisionClient') &&
+    director.includes('tryLlmThenPolicyPlay') && director.includes('tryLlmThenPolicyChallenge')) {
+  pass('LLM skeleton: LlmDecisionClient + LlmApiConfig + INTERNET + fail-soft hooks');
+} else {
+  fail('LLM skeleton wiring incomplete');
+}
+if (llmCfg.includes('hilog') && /apiKey.*=.*['"]sk-/.test(llmCfg)) {
+  fail('LLM config must not embed API key literals');
+} else if (/sk-[A-Za-z0-9]{10,}/.test(llmClient) || /sk-[A-Za-z0-9]{10,}/.test(llmCfg)) {
+  fail('LLM sources must not embed API key literals');
+} else {
+  pass('LLM sources have no embedded API key literal');
+}
+
 console.log(process.exitCode ? 'AI NPC CHECK FAILED' : 'AI NPC CHECK OK');

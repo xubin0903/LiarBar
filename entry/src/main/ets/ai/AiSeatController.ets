@@ -2,6 +2,7 @@ import { SeededRng } from '../engine/SeededRng';
 import { AiPersonaRegistry } from './AiPersonaRegistry';
 import { AiChallengeTrace, AiInfoSet, AiPersonaParams, ChallengeAction, PlayAction } from './AiTypes';
 import { ChallengePolicy } from './ChallengePolicy';
+import { LlmDecisionClient } from './LlmDecisionClient';
 import { Memory } from './Memory';
 import { PlayPolicy } from './PlayPolicy';
 import { ThinkDelay } from './ThinkDelay';
@@ -9,6 +10,7 @@ import { ThinkDelay } from './ThinkDelay';
 /**
  * Thin orchestrator. 人机对局AI-核心算法.md v0.2.0 §6.
  * Decisions live in PlayPolicy / ChallengePolicy / ThinkDelay.
+ * LLM (DeepSeek) is fail-soft: null → local Policy. Judge/PENALTY unchanged.
  */
 export class AiSeatController {
   seatId: number;
@@ -40,10 +42,19 @@ export class AiSeatController {
   }
 
   decideChallenge(info: AiInfoSet, rng: SeededRng): ChallengeAction {
+    // Sync LLM short-circuit (no Key / schema pending → null); never blocks on HTTP.
+    const llm: ChallengeAction | null = LlmDecisionClient.tryDecideChallenge(info);
+    if (llm !== null) {
+      return llm;
+    }
     return ChallengePolicy.decideChallenge(info, Memory.fromInfoSet(info), rng, true);
   }
 
   decidePlay(info: AiInfoSet, rng: SeededRng): PlayAction {
+    const llm: PlayAction | null = LlmDecisionClient.tryDecidePlay(info);
+    if (llm !== null) {
+      return llm;
+    }
     return PlayPolicy.decidePlay(info, Memory.fromInfoSet(info), rng, true);
   }
 

@@ -3773,6 +3773,13 @@ ${stubs}`) + '\nexport { TableFF };';
     const b = await loadEtsBundle(root, ['common/MatchDirector'], {
       'common/Logger': { Logger: LoggerS }, '@kit.AbilityKit': { common: {} },
       '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: (u) => Buffer.from(u).toString('utf8') }) } } },
+      '@ohos.net.http': {
+        http: {
+          createHttp: () => ({ request: async () => ({ responseCode: 0, result: '' }), destroy: () => {} }),
+          RequestMethod: { POST: 'POST' },
+          HttpDataType: { STRING: 0 }
+        }
+      },
       'persist/RecordStore': { RecordStore: RSspy },
       'persist/DemoArm': { DemoArm: { consume: () => false, isArmed: () => false, setArmed: () => {}, unlock: () => {}, isUnlocked: () => false, resetAll: () => {} } },
       'harmony/LiveWindowAdapter': { LiveWindowAdapter: class {} }

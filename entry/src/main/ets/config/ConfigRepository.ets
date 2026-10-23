@@ -6,6 +6,7 @@ import { DeckConfig } from './DeckConfig';
 import { AiPersonasConfig } from './AiPersonasConfig';
 import { InteractionCapsConfig } from './InteractionCapsConfig';
 import { DemoSeedConfig } from './DemoSeedConfig';
+import { LlmApiConfig } from '../ai/LlmApiConfig';
 
 const TAG = 'ConfigRepository';
 
@@ -79,6 +80,8 @@ export class ConfigRepository {
       JSON.parse(ConfigRepository.decode(await rm.getRawFileContent('config/interaction_caps.json'))) as InteractionCapsConfig;
     ConfigRepository.demoSeed =
       JSON.parse(ConfigRepository.decode(await rm.getRawFileContent('config/demo_seed.json'))) as DemoSeedConfig;
+    // LLM secrets: optional rawfile (gitignore). Fail-soft — empty Key → Policy fallback.
+    await LlmApiConfig.tryLoad(context);
     ConfigRepository.ready = true;
     Logger.info(TAG, `config loaded schema=${ConfigRepository.match().schema_version}`);
   }

@@ -3,6 +3,7 @@ import { AiPersonaRegistry } from '../ai/AiPersonaRegistry';
 import { AiInfoSet, ChallengeAction, PlayAction } from '../ai/AiTypes';
 import { ChallengePolicy } from '../ai/ChallengePolicy';
 import { Memory } from '../ai/Memory';
+import { LlmDecisionClient } from '../ai/LlmDecisionClient';
 import { PlayPolicy } from '../ai/PlayPolicy';
 import { PersonaRow } from '../config/AiPersonasConfig';
 import { liveClaimShort, livePhaseText } from '../engine/DealerLines';
@@ -491,9 +492,9 @@ export class MatchDirector {
     const mem: Memory = Memory.fromInfoSet(info);
     let thinkMs: number = 1500;
     if (this.challengeGate(info, snap.turnWindow)) {
-      thinkMs = ChallengePolicy.decideChallenge(info, mem, rng, false).thinkMs;
+      thinkMs = this.tryLlmThenPolicyChallenge(info, mem, rng, false).thinkMs;
     } else {
-      thinkMs = PlayPolicy.decidePlay(info, mem, rng, false).thinkMs;
+      thinkMs = this.tryLlmThenPolicyPlay(info, mem, rng, false).thinkMs;
     }
     this.thinkUntilMs = Date.now() + thinkMs;
   }
@@ -527,13 +528,13 @@ export class MatchDirector {
     const rng: SeededRng = this.turnRng(snap);
     const win: TurnWindow = snap.turnWindow;
     if (info.forceChallenge2 || win === TurnWindow.FORCE_CHALLENGE) {
-      ChallengePolicy.decideChallenge(info, mem, rng, true);
+      this.tryLlmThenPolicyChallenge(info, mem, rng, true);
       engine.intentChallenge();
       this.maybeTableColor(snap);
       return;
     }
     if (snap.canChallenge || win === TurnWindow.CHALLENGE_ONLY || win === TurnWindow.EMPTY_SAFE) {
-      const ch: ChallengeAction = ChallengePolicy.decideChallenge(info, mem, rng, true);
+      const ch: ChallengeAction = this.tryLlmThenPolicyChallenge(info, mem, rng, true);
       if (ch.type === 'DOUBT') {
         engine.intentChallenge();
         this.maybeTableColor(snap);
@@ -546,13 +547,40 @@ export class MatchDirector {
       }
     }
     if (snap.hasCards) {
-      const play: PlayAction = PlayPolicy.decidePlay(info, mem, rng, true);
+      const play: PlayAction = this.tryLlmThenPolicyPlay(info, mem, rng, true);
       engine.intentPlay();
       engine.submitPlay(play.cardIds, this.toStyle(play.style), play.speech, play.namedSeatId);
     } else {
       engine.skip();
     }
     this.maybeTableColor(snap);
+  }
+
+
+  /**
+   * LLM fail-soft hook (DeepSeek). Sync tryDecide* never blocks on HTTP;
+   * null / no Key / schema pending → ChallengePolicy. Judge path untouched.
+   * TODO(策划 schema): wire async decideChallengeAsync + think-window cache.
+   */
+  private tryLlmThenPolicyChallenge(info: AiInfoSet, mem: Memory, rng: SeededRng, log: boolean): ChallengeAction {
+    const llm: ChallengeAction | null = LlmDecisionClient.tryDecideChallenge(info);
+    if (llm !== null) {
+      return llm;
+    }
+    return ChallengePolicy.decideChallenge(info, mem, rng, log);
+  }
+
+  /**
+   * LLM fail-soft hook (DeepSeek). Sync tryDecide* never blocks on HTTP;
+   * null / no Key / schema pending → PlayPolicy.
+   * TODO(策划 schema): wire async decidePlayAsync + think-window cache.
+   */
+  private tryLlmThenPolicyPlay(info: AiInfoSet, mem: Memory, rng: SeededRng, log: boolean): PlayAction {
+    const llm: PlayAction | null = LlmDecisionClient.tryDecidePlay(info);
+    if (llm !== null) {
+      return llm;
+    }
+    return PlayPolicy.decidePlay(info, mem, rng, log);
   }
 
   private challengeGate(info: AiInfoSet, win: TurnWindow): boolean {
