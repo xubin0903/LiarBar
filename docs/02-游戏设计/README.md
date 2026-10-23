@@ -20,7 +20,8 @@
 | [出牌扣牌-状态机](./出牌扣牌-状态机.md) | **v0.4.0 SUPERSEDED** · 历史可读 · 合入≠终验 | 顶部横幅须改指对局真源；正文保留旧飞出/落池/RoundWin 对照；**不得**再当引擎主读 |
 | [质疑入口-状态机](./质疑入口-状态机.md) | **v0.2.5（入口 doubt\|believe 锁；胜负 SUPERSEDED）** · 历史可读 · 合入≠终验 | 锁 doubt/believe id；true/false 保留非入口；胜负认对局-状态机 |
 | [人机对局AI](./人机对局AI.md) | **v0.1.0 会签稿** · 合入≠终验 | 废假AI；信息集禁偷看；每座可调参；三人格JSON；输入→分→阈值；MatchEngine接口草稿；失败短句 `AI偷看`/`AI假决策` |
-| [人机对局AI-LLM决策](./人机对局AI-LLM决策.md) | **v0.1** · 合入≠终验 | DeepSeek 只出牌/质疑；回包 schema；失败短句建议键；本地 Policy 回落；禁 JUDGE |
+| [人机对局AI-LLM决策](./人机对局AI-LLM决策.md) | **v0.1.1** · 合入≠终验 | 只出牌/质疑；回包 schema；失败短句建议键；本地 Policy 回落；禁 JUDGE；传输改认云端代理 |
+| [人机对局AI-LLM云端代理](./人机对局AI-LLM云端代理.md) | **v0.1** · 合入≠终验 | 禁直连 DS；`POST /api/v1/llm/decide`+`/report`；Bearer=登录；timeout 15s；source 六枚举；Key 与 decide 解耦；零 ets |
 | [登录与本地令牌](./登录与本地令牌.md) | **v0.1.1** · §1.2 基址/path 已锁 · 合入≠终验 | 云端注册/登录；本地 `lb.auth` 会话令牌；冷启动/拦截；退出回登录页；设置背景加浓；零 ets |
 | [战绩云端与本地同步](./战绩云端与本地同步.md) | **v0.1** · 合入≠终验 | 云端为准；本地按 `auth_username` 分桶保留；GET/POST `/api/v1/records`；与 RecordStore/`commitOnce` 边界；零 ets |
 
