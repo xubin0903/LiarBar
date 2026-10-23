@@ -1,4 +1,4 @@
-import { http } from '@ohos.net.http';
+import http from '@ohos.net.http';
 import { Logger } from '../common/Logger';
 import { AiInfoSet, AiPublicLastPlay, AiPublicSeat, AiRevealRec, ChallengeAction, PlayAction } from './AiTypes';
 import { LlmApiConfig } from './LlmApiConfig';
@@ -24,6 +24,19 @@ const FORBIDDEN_KEYS: string[] = [
 ];
 
 export type LlmKind = 'play' | 'challenge';
+
+/** DeepSeek chat message — typed for arkts-no-untyped-obj-literals. */
+interface LlmChatMessage {
+  role: string;
+  content: string;
+}
+
+/** DeepSeek chat-completions request body. */
+interface LlmChatRequestBody {
+  model: string;
+  messages: LlmChatMessage[];
+  temperature: number;
+}
 
 /**
  * DeepSeek chat-completions 决策客户端。
@@ -244,13 +257,19 @@ export class LlmDecisionClient {
     const url: string = base + '/chat/completions';
     const timeoutMs: number = LlmApiConfig.getTimeoutMs();
     const userText: string = LlmDecisionClient.formatInfoSet(info, kind);
-    const bodyObj: Record<string, Object> = {
-      'model': LlmApiConfig.getModel(),
-      'messages': [
-        { 'role': 'system', 'content': SYSTEM_PROMPT } as Object,
-        { 'role': 'user', 'content': userText } as Object
-      ] as Object,
-      'temperature': 0.7 as Object
+    const systemMsg: LlmChatMessage = {
+      role: 'system',
+      content: SYSTEM_PROMPT
+    };
+    const userMsg: LlmChatMessage = {
+      role: 'user',
+      content: userText
+    };
+    const messages: LlmChatMessage[] = [systemMsg, userMsg];
+    const bodyObj: LlmChatRequestBody = {
+      model: LlmApiConfig.getModel(),
+      messages: messages,
+      temperature: 0.7
     };
     const body: string = JSON.stringify(bodyObj);
     let client: http.HttpRequest | null = null;

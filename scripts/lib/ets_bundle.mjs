@@ -72,13 +72,19 @@ export function eraseModule(raw) {
     if (mt[1]) exportsSet.add(mt[2]);
     add(mt.index, end, `const ${mt[2]} = Object.freeze({ ${props.join(', ')} });`);
   }
-  // 2. imports
+  // 2. imports (named + default; namespace import not used in this repo)
   const imports = [];
   for (const mt of mask0.matchAll(/^import\s+\{([^}]*)\}\s+from\s+'/gm)) {
     const fm = /from\s+'([^']+)';?/.exec(src.slice(mt.index));
     const from = fm[1];
     const names = mt[1].split(',').map((x) => x.trim()).filter(Boolean).map((x) => x.replace(/^type\s+/, ''));
-    imports.push({ from, names });
+    imports.push({ from, names, defaultAs: null });
+    add(mt.index, mt.index + fm.index + fm[0].length, '');
+  }
+  for (const mt of mask0.matchAll(/^import\s+(\w+)\s+from\s+'/gm)) {
+    const fm = /from\s+'([^']+)';?/.exec(src.slice(mt.index));
+    const from = fm[1];
+    imports.push({ from, names: [], defaultAs: mt[1] });
     add(mt.index, mt.index + fm.index + fm[0].length, '');
   }
   // 3a. export lists  export { A, B };  /  export { A } from './x';
@@ -201,6 +207,10 @@ export async function loadEtsBundle(root, entries, stubs = {}, globals = {}) {
     const m = mods.get(key);
     const binds = m.imports.map((im) => {
       const src = im.key in stubs ? `__stubs[${JSON.stringify(im.key)}]` : `__m${order.indexOf(im.key)}`;
+      if (im.defaultAs) {
+        // default import: module namespace is the stub object itself (or .default)
+        return `const ${im.defaultAs} = (${src}.default !== undefined ? ${src}.default : ${src});`;
+      }
       return `const { ${im.names.join(', ')} } = ${src};`;
     }).join('\n');
     js += `const __m${idx} = (() => {\n${binds}\n${m.js}\nreturn { ${m.exports.join(', ')} };\n})();\n`;
