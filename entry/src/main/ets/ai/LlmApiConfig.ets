@@ -6,20 +6,28 @@ import { Logger } from '../common/Logger';
 
 const TAG = 'LlmApiConfig';
 
-/** Defaults when rawfile missing / incomplete. Never commit secrets. */
-const DEFAULT_BASE_URL: string = 'https://api.deepseek.com';
+/**
+ * Cloud LLM proxy (records/auth 同机). Decide 不再直连 DeepSeek。
+ * Settings Key 仍可写入 Preferences（本阶段保留 UI），但 decide 路径不依赖本机 Key。
+ */
+const DEFAULT_BASE_URL: string = 'http://101.33.196.35:18080';
 const DEFAULT_MODEL: string = 'deepseek-chat';
-const DEFAULT_TIMEOUT_MS: number = 8000;
+const DEFAULT_TIMEOUT_MS: number = 15000;
 const SECRETS_RAW_PATH: string = 'config/llm_secrets.json';
 
 /**
- * DeepSeek 连接配置。
+ * LLM 连接配置。
  * 读序：Preferences `lb.settings` / `llm_api_key` 非空优先 → 否则 rawfile `config/llm_secrets.json`
- * （gitignore，非验收）→ 都空则 hasApiKey false，决策回落 Policy。
+ * （gitignore，非验收）→ 都空则 hasApiKey false（仅影响设置页状态；decide 走登录 Bearer）。
  * 禁止把 Key 写入 string.json、已跟踪源码、hilog、注释或 commit message。
  */
 export class LlmApiConfig {
   static readonly KEY_API: string = 'llm_api_key';
+  /** Cloud decide/report 与 records 同基址。 */
+  static readonly CLOUD_BASE: string = 'http://101.33.196.35:18080';
+  static readonly DECIDE_PATH: string = '/api/v1/llm/decide';
+  static readonly REPORT_PATH: string = '/api/v1/llm/report';
+  static readonly DECIDE_TIMEOUT_MS: number = 15000;
 
   private static apiKey: string = '';
   /** rawfile 里的 apiKey 缓存；清除 Preferences 后回落用。永不 hilog。 */
@@ -52,8 +60,17 @@ export class LlmApiConfig {
     return LlmApiConfig.model;
   }
 
+  /** Decide/report HTTP timeout（紧急票：15s，不再夹到 8s）。 */
   static getTimeoutMs(): number {
     return LlmApiConfig.timeoutMs;
+  }
+
+  static getDecideUrl(): string {
+    return LlmApiConfig.CLOUD_BASE + LlmApiConfig.DECIDE_PATH;
+  }
+
+  static getReportUrl(): string {
+    return LlmApiConfig.CLOUD_BASE + LlmApiConfig.REPORT_PATH;
   }
 
   /**
@@ -158,6 +175,7 @@ export class LlmApiConfig {
     }
     const baseRaw: Object | undefined = o['baseUrl'];
     if (typeof baseRaw === 'string' && (baseRaw as string).length > 0) {
+      // Legacy field kept for rawfile compat; decide 固定走 CLOUD_BASE，不再用此值直连。
       LlmApiConfig.baseUrl = (baseRaw as string).replace(/\/$/, '');
     }
     const modelRaw: Object | undefined = o['model'];
@@ -167,8 +185,8 @@ export class LlmApiConfig {
     const toRaw: Object | undefined = o['timeoutMs'];
     if (typeof toRaw === 'number' && isFinite(toRaw as number) && (toRaw as number) > 0) {
       let ms: number = Math.floor(toRaw as number);
-      if (ms > 8000) {
-        ms = 8000;
+      if (ms > LlmApiConfig.DECIDE_TIMEOUT_MS) {
+        ms = LlmApiConfig.DECIDE_TIMEOUT_MS;
       }
       LlmApiConfig.timeoutMs = ms;
     }
