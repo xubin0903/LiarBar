@@ -1,4 +1,4 @@
-import { http } from '@ohos.net.http';
+import http from '@ohos.net.http';
 import { Logger } from '../common/Logger';
 
 const TAG = 'RecordsClient';
