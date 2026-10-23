@@ -6,41 +6,117 @@ import { LlmApiConfig } from './LlmApiConfig';
 const TAG = 'LlmDecisionClient';
 
 /**
- * TODO(策划 schema)：替换系统/用户提示词与回包 JSON schema。
- * 当前为骨架占位；非法/缺字段/无 Key/网络错 → null → 调用方回落 PlayPolicy/ChallengePolicy。
+ * 人机对局AI-LLM决策.md v0.1 §1.1 system（逐字）。
+ * LLM 只填 play/challenge；Judge / PENALTY / 胜负不在此模块。
  */
-const TODO_SYSTEM_PROMPT: string =
-  'TODO_SCHEMA: You are an NPC seat in LiarBar. Reply with ONE JSON object only. ' +
-  'Play: {"type":"PLAY","cardIds":["..."],"style":"SOFT|SLAM|HESITATE","namedSeatId":-1,"speech":""}. ' +
-  'Challenge: {"type":"DOUBT"|"BELIEVE"|"SKIP"}. Never judge truth or change win/loss.';
+const SYSTEM_PROMPT: string =
+  '你是谎馆牌友 NPC，只替本座做合法动作。只输出一个 JSON 对象，不要 Markdown，不要解释。\n' +
+  '只能 kind=play（出牌）或 kind=challenge（质疑/相信/跳过）。\n' +
+  '不得输出真假判定、输家、熄烛、胜负，不得输出 JUDGE、PENALTY、verdict、loser、trueRanks、judge。\n' +
+  '不得偷看或索要他座手牌与未发牌。宣称 rank 以 user 中的 claim 为准，不得改写。\n' +
+  'forceChallenge2 为 true 时，challenge.intent 必须是 DOUBT。\n' +
+  '你只填决策字段；揭牌与惩罚由引擎完成。\n' +
+  'params 只作性格口吻，不是透视。';
 
-const TODO_USER_PROMPT_PREFIX: string = 'TODO_SCHEMA infoSet:\n';
+const FORBIDDEN_KEYS: string[] = [
+  'verdict', 'loser', 'trueRanks', 'judge', 'penalty', 'winner',
+  'JUDGE', 'PENALTY', 'loserSeatId', 'true_ranks'
+];
 
 export type LlmKind = 'play' | 'challenge';
 
 /**
- * DeepSeek chat-completions 决策客户端（骨架）。
- * 同步 tryDecide*：无 Key / 骨架阶段一律 null（不阻塞 UI）。
- * 异步 request*：真实 HTTP；超时/非 2xx/非法 JSON → null。Judge/PENALTY 不在此模块。
+ * DeepSeek chat-completions 决策客户端。
+ * armPrefetch* 在 think 窗启动异步请求并缓存；tryDecide* 只读缓存（绝不同步死等 HTTP）。
+ * 无 Key / 超时 / 非 2xx / 非法 JSON / 越权 / 越界 → null → PlayPolicy/ChallengePolicy。
  */
 export class LlmDecisionClient {
-  /** Sync short-circuit for MatchDirector.runAi — never blocks on HTTP. */
-  static tryDecidePlay(info: AiInfoSet): PlayAction | null {
+  private static cacheKey: string = '';
+  private static cachedPlay: PlayAction | null = null;
+  private static cachedChallenge: ChallengeAction | null = null;
+  private static playReady: boolean = false;
+  private static chalReady: boolean = false;
+
+  /** Clear prefetch cache (new arm / seat change). */
+  static clearCache(): void {
+    LlmDecisionClient.cacheKey = '';
+    LlmDecisionClient.cachedPlay = null;
+    LlmDecisionClient.cachedChallenge = null;
+    LlmDecisionClient.playReady = false;
+    LlmDecisionClient.chalReady = false;
+  }
+
+  /**
+   * Fire-and-forget play request for the current think window.
+   * key = seat|round|plays|play — stale replies ignored.
+   */
+  static armPrefetchPlay(info: AiInfoSet, key: string): void {
+    LlmDecisionClient.cacheKey = key;
+    LlmDecisionClient.cachedPlay = null;
+    LlmDecisionClient.playReady = false;
     if (!LlmApiConfig.hasApiKey()) {
-      return null;
+      LlmDecisionClient.playReady = true;
+      LlmDecisionClient.cachedPlay = null;
+      return;
     }
-    // Skeleton: Key 已加载也不在同步路径发 HTTP，避免卡 UI；等 schema 后接异步缓存。
-    Logger.info(TAG, 'tryDecidePlay sync short-circuit → Policy (schema pending)');
-    return null;
+    const k: string = key;
+    LlmDecisionClient.decidePlayAsync(info).then((r: PlayAction | null): void => {
+      if (LlmDecisionClient.cacheKey === k) {
+        LlmDecisionClient.cachedPlay = r;
+        LlmDecisionClient.playReady = true;
+      }
+    }).catch((): void => {
+      if (LlmDecisionClient.cacheKey === k) {
+        LlmDecisionClient.cachedPlay = null;
+        LlmDecisionClient.playReady = true;
+      }
+    });
+  }
+
+  /** Fire-and-forget challenge request for the current think window. */
+  static armPrefetchChallenge(info: AiInfoSet, key: string): void {
+    LlmDecisionClient.cacheKey = key;
+    LlmDecisionClient.cachedChallenge = null;
+    LlmDecisionClient.chalReady = false;
+    if (!LlmApiConfig.hasApiKey()) {
+      LlmDecisionClient.chalReady = true;
+      LlmDecisionClient.cachedChallenge = null;
+      return;
+    }
+    const k: string = key;
+    LlmDecisionClient.decideChallengeAsync(info).then((r: ChallengeAction | null): void => {
+      if (LlmDecisionClient.cacheKey === k) {
+        LlmDecisionClient.cachedChallenge = r;
+        LlmDecisionClient.chalReady = true;
+      }
+    }).catch((): void => {
+      if (LlmDecisionClient.cacheKey === k) {
+        LlmDecisionClient.cachedChallenge = null;
+        LlmDecisionClient.chalReady = true;
+      }
+    });
   }
 
   /** Sync short-circuit for MatchDirector.runAi — never blocks on HTTP. */
-  static tryDecideChallenge(info: AiInfoSet): ChallengeAction | null {
+  static tryDecidePlay(_info: AiInfoSet): PlayAction | null {
     if (!LlmApiConfig.hasApiKey()) {
       return null;
     }
-    Logger.info(TAG, 'tryDecideChallenge sync short-circuit → Policy (schema pending)');
-    return null;
+    if (!LlmDecisionClient.playReady) {
+      return null;
+    }
+    return LlmDecisionClient.cachedPlay;
+  }
+
+  /** Sync short-circuit for MatchDirector.runAi — never blocks on HTTP. */
+  static tryDecideChallenge(_info: AiInfoSet): ChallengeAction | null {
+    if (!LlmApiConfig.hasApiKey()) {
+      return null;
+    }
+    if (!LlmDecisionClient.chalReady) {
+      return null;
+    }
+    return LlmDecisionClient.cachedChallenge;
   }
 
   /** Async play decision. null → caller uses PlayPolicy. */
@@ -49,7 +125,7 @@ export class LlmDecisionClient {
     if (content === null) {
       return null;
     }
-    return LlmDecisionClient.parsePlay(content);
+    return LlmDecisionClient.parsePlay(content, info);
   }
 
   /** Async challenge decision. null → caller uses ChallengePolicy. */
@@ -58,64 +134,120 @@ export class LlmDecisionClient {
     if (content === null) {
       return null;
     }
-    return LlmDecisionClient.parseChallenge(content);
+    return LlmDecisionClient.parseChallenge(content, info);
   }
 
-  /** Plain-text info-set serialization (placeholder until 策划 schema). */
-  static formatInfoSet(info: AiInfoSet): string {
+  /**
+   * §1.2 user 投影：只 self.handRanks；seats 无他座 handRanks；近 6 条公开短日志。
+   * 禁止注入 undealt / 他座手牌。
+   */
+  static formatInfoSet(info: AiInfoSet, kind: LlmKind = 'play'): string {
     const lines: string[] = [];
-    lines.push('phase=' + info.phase + ' window=' + info.turnWindow + ' persona=' + info.personaId);
-    lines.push('self.seat=' + info.self.seatId + ' lives=' + info.self.lives + ' handCount=' + info.self.handCount);
-    lines.push('self.handRanks=' + info.self.handRanks.join(','));
-    const cardIds: string[] = [];
-    for (let i = 0; i < info.self.cards.length; i++) {
-      cardIds.push(info.self.cards[i].cardId + ':' + info.self.cards[i].rank);
-    }
-    lines.push('self.cards=' + cardIds.join(','));
-    lines.push('claim.rank=' + info.claim.rank);
-    lines.push('canChallenge=' + info.canChallenge + ' forceChallenge2=' + info.forceChallenge2);
-    lines.push('aliveCount=' + info.aliveCount + ' turnSecondsLeft=' + info.turnSecondsLeft);
+    const gate: string = LlmDecisionClient.gateLabel(info, kind);
+    lines.push('decision: ' + kind);
+    lines.push('gate: ' + gate);
+    lines.push('self: seatId=' + info.self.seatId +
+      ' handRanks=[' + info.self.handRanks.join(',') + ']' +
+      ' handCount=' + info.self.handCount +
+      ' lives=' + info.self.lives);
+    lines.push('claim: rank=' + info.claim.rank);
     const lp: AiPublicLastPlay | null = info.lastPlay;
     if (lp !== null) {
-      lines.push('lastPlay.seat=' + lp.seatId + ' count=' + lp.count + ' style=' + lp.style +
-        ' namedSeatId=' + lp.namedSeatId);
+      const named: string = lp.namedSeatId >= 0 ? String(lp.namedSeatId) : '-';
+      lines.push('lastPlay: seatId=' + lp.seatId + ' count=' + lp.count +
+        ' style=' + lp.style + ' namedSeatId=' + named);
     } else {
-      lines.push('lastPlay=null');
+      lines.push('lastPlay: -');
     }
     for (let i = 0; i < info.seats.length; i++) {
       const s: AiPublicSeat = info.seats[i];
-      lines.push('seat id=' + s.seatId + ' hand=' + s.handCount + ' lives=' + s.lives +
-        ' alive=' + s.alive + ' human=' + s.isHuman + ' order=' + s.order);
+      lines.push('seats: seatId=' + s.seatId + ' handCount=' + s.handCount +
+        ' lives=' + s.lives + ' alive=' + s.alive);
     }
-    lines.push('memory A/K/Q/J=' + info.memory.revealedA + '/' + info.memory.revealedK + '/' +
-      info.memory.revealedQ + '/' + info.memory.revealedJoker + ' publicPlayTotal=' +
-      info.memory.publicPlayTotal);
-    for (let i = 0; i < info.history.reveals.length; i++) {
-      const r: AiRevealRec = info.history.reveals[i];
-      lines.push('reveal playSeat=' + r.playSeatId + ' ranks=' + r.ranks.join(',') +
-        ' verdict=' + r.verdict + ' loser=' + r.loserSeatId);
-    }
-    for (let i = 0; i < info.history.challengeOutcomes.length; i++) {
-      const c = info.history.challengeOutcomes[i];
-      lines.push('chalOut challenger=' + c.challenger + ' target=' + c.target + ' ok=' + c.success);
+    lines.push('memory: revealedA=' + info.memory.revealedA +
+      ' revealedK=' + info.memory.revealedK +
+      ' revealedQ=' + info.memory.revealedQ +
+      ' revealedJoker=' + info.memory.revealedJoker +
+      ' publicPlayTotal=' + info.memory.publicPlayTotal);
+    lines.push('phase=' + info.phase +
+      ' aliveCount=' + info.aliveCount +
+      ' forceChallenge2=' + info.forceChallenge2 +
+      ' turnWindow=' + info.turnWindow +
+      ' canChallenge=' + info.canChallenge +
+      ' maxPlay=' + info.limits.maxPlay);
+    lines.push('params: personaId=' + info.personaId +
+      ' aggression=' + info.params.aggression +
+      ' caution=' + info.params.caution +
+      ' bluffTendency=' + info.params.bluffTendency +
+      ' challengeSensitivity=' + info.params.challengeSensitivity);
+    lines.push('log:');
+    const logs: string[] = LlmDecisionClient.shortLogs(info);
+    if (logs.length === 0) {
+      lines.push('- (none)');
+    } else {
+      for (let i = 0; i < logs.length; i++) {
+        lines.push('- ' + logs[i]);
+      }
     }
     return lines.join('\n');
+  }
+
+  /** D1 play；D4 force；D5 CHALLENGE_ONLY/EMPTY_SAFE；D3 HandEmptyGate≥3 近似；其余 D2。 */
+  static gateLabel(info: AiInfoSet, kind: LlmKind): string {
+    if (kind === 'play') {
+      return 'D1';
+    }
+    if (info.forceChallenge2) {
+      return 'D4';
+    }
+    if (info.turnWindow === 'CHALLENGE_ONLY') {
+      return 'D5';
+    }
+    if (info.turnWindow === 'EMPTY_SAFE') {
+      return 'D3';
+    }
+    return 'D2';
+  }
+
+  private static shortLogs(info: AiInfoSet): string[] {
+    const out: string[] = [];
+    const reveals: AiRevealRec[] = info.history.reveals;
+    const startR: number = reveals.length > 4 ? reveals.length - 4 : 0;
+    for (let i = startR; i < reveals.length; i++) {
+      const r: AiRevealRec = reveals[i];
+      out.push('reveal playSeat=' + r.playSeatId + ' ranks=' + r.ranks.join(',') +
+        ' verdict=' + r.verdict + ' loser=' + r.loserSeatId);
+    }
+    const outs = info.history.challengeOutcomes;
+    const startC: number = outs.length > 2 ? outs.length - 2 : 0;
+    for (let i = startC; i < outs.length; i++) {
+      const c = outs[i];
+      out.push('chalOut challenger=' + c.challenger + ' target=' + c.target + ' ok=' + c.success);
+    }
+    if (info.lastPlay !== null && out.length < 6) {
+      const lp: AiPublicLastPlay = info.lastPlay;
+      out.push('lastPlay seat=' + lp.seatId + ' count=' + lp.count + ' style=' + lp.style);
+    }
+    if (out.length > 6) {
+      return out.slice(out.length - 6);
+    }
+    return out;
   }
 
   private static async requestContent(info: AiInfoSet, kind: LlmKind): Promise<string | null> {
     const key: string = LlmApiConfig.getApiKey();
     if (key.length === 0) {
+      Logger.info(TAG, 'llm_no_key → Policy');
       return null;
     }
     const base: string = LlmApiConfig.getBaseUrl();
     const url: string = base + '/chat/completions';
     const timeoutMs: number = LlmApiConfig.getTimeoutMs();
-    const userText: string = TODO_USER_PROMPT_PREFIX + LlmDecisionClient.formatInfoSet(info) +
-      '\nkind=' + kind;
+    const userText: string = LlmDecisionClient.formatInfoSet(info, kind);
     const bodyObj: Record<string, Object> = {
       'model': LlmApiConfig.getModel(),
       'messages': [
-        { 'role': 'system', 'content': TODO_SYSTEM_PROMPT } as Object,
+        { 'role': 'system', 'content': SYSTEM_PROMPT } as Object,
         { 'role': 'user', 'content': userText } as Object
       ] as Object,
       'temperature': 0.7 as Object
@@ -137,17 +269,17 @@ export class LlmDecisionClient {
       });
       const code: number = resp.responseCode;
       if (code < 200 || code >= 300) {
-        Logger.warn(TAG, 'llm http non-2xx code=' + code + ' kind=' + kind);
+        Logger.warn(TAG, 'llm_http kind=' + kind + ' code=' + code);
         return null;
       }
       const raw: string = LlmDecisionClient.responseToString(resp.result);
       if (raw.length === 0) {
-        Logger.warn(TAG, 'llm empty body kind=' + kind);
+        Logger.warn(TAG, 'llm_empty kind=' + kind);
         return null;
       }
       return LlmDecisionClient.extractMessageContent(raw);
     } catch (_err) {
-      Logger.warn(TAG, 'llm request fail-soft kind=' + kind);
+      Logger.warn(TAG, 'llm_timeout_or_net kind=' + kind);
       return null;
     } finally {
       if (client !== null) {
@@ -179,7 +311,7 @@ export class LlmDecisionClient {
     try {
       root = JSON.parse(raw) as Object;
     } catch (_e) {
-      Logger.warn(TAG, 'llm root JSON parse fail');
+      Logger.warn(TAG, 'llm_bad_json root');
       return null;
     }
     const o: Record<string, Object> = root as Record<string, Object>;
@@ -204,71 +336,176 @@ export class LlmDecisionClient {
     return contentRaw as string;
   }
 
-  private static parsePlay(content: string): PlayAction | null {
-    const obj: Record<string, Object> | null = LlmDecisionClient.parseJsonObject(content);
+  /** §2 play envelope → PlayAction；越权/越界/缺字段 → null。 */
+  static parsePlay(content: string, info: AiInfoSet): PlayAction | null {
+    const obj: Record<string, Object> | null = LlmDecisionClient.parseEnvelope(content);
     if (obj === null) {
       return null;
     }
-    const typeRaw: Object | undefined = obj['type'];
-    if (typeof typeRaw === 'string' && (typeRaw as string) !== 'PLAY') {
+    const kindRaw: Object | undefined = obj['kind'];
+    if (typeof kindRaw !== 'string' || (kindRaw as string) !== 'play') {
+      Logger.warn(TAG, 'llm_bad_json kind≠play');
       return null;
     }
-    const idsRaw: Object | undefined = obj['cardIds'];
-    if (idsRaw === undefined || !(idsRaw instanceof Array)) {
+    const playRaw: Object | undefined = obj['play'];
+    if (playRaw === undefined || typeof playRaw !== 'object' || playRaw === null || playRaw instanceof Array) {
+      Logger.warn(TAG, 'llm_bad_json missing play');
       return null;
     }
-    const idsArr: Object[] = idsRaw as Object[];
-    const cardIds: string[] = [];
-    for (let i = 0; i < idsArr.length; i++) {
-      if (typeof idsArr[i] !== 'string') {
+    if (LlmDecisionClient.hasForbidden(playRaw as Record<string, Object>)) {
+      Logger.warn(TAG, 'llm_out_of_scope nested play');
+      return null;
+    }
+    const play: Record<string, Object> = playRaw as Record<string, Object>;
+    const idxRaw: Object | undefined = play['cardIndexes'];
+    if (idxRaw === undefined || !(idxRaw instanceof Array)) {
+      Logger.warn(TAG, 'llm_illegal_play no cardIndexes');
+      return null;
+    }
+    const idxArr: Object[] = idxRaw as Object[];
+    const maxPlay: number = info.limits.maxPlay > 0 ? info.limits.maxPlay : 3;
+    const handLen: number = info.self.cards.length;
+    if (idxArr.length < 1 || idxArr.length > maxPlay) {
+      Logger.warn(TAG, 'llm_illegal_play count');
+      return null;
+    }
+    const countRaw: Object | undefined = play['count'];
+    if (typeof countRaw === 'number' && isFinite(countRaw as number)) {
+      if (Math.floor(countRaw as number) !== idxArr.length) {
+        Logger.warn(TAG, 'llm_illegal_play count≠indexes');
         return null;
       }
-      cardIds.push(idsArr[i] as string);
     }
-    if (cardIds.length === 0) {
-      return null;
+    const seen: Record<string, boolean> = {};
+    const cardIds: string[] = [];
+    for (let i = 0; i < idxArr.length; i++) {
+      if (typeof idxArr[i] !== 'number' || !isFinite(idxArr[i] as number)) {
+        Logger.warn(TAG, 'llm_illegal_play idx type');
+        return null;
+      }
+      const ix: number = Math.floor(idxArr[i] as number);
+      if (ix < 0 || ix >= handLen) {
+        Logger.warn(TAG, 'llm_illegal_play idx OOB');
+        return null;
+      }
+      const sk: string = String(ix);
+      if (seen[sk]) {
+        Logger.warn(TAG, 'llm_illegal_play dup idx');
+        return null;
+      }
+      seen[sk] = true;
+      cardIds.push(info.self.cards[ix].cardId);
     }
     let style: string = 'SOFT';
-    const styleRaw: Object | undefined = obj['style'];
-    if (typeof styleRaw === 'string' && (styleRaw as string).length > 0) {
-      style = styleRaw as string;
+    const styleRaw: Object | undefined = play['style'];
+    if (typeof styleRaw === 'string') {
+      const st: string = styleRaw as string;
+      if (st !== 'SOFT' && st !== 'SLAM' && st !== 'HESITATE') {
+        Logger.warn(TAG, 'llm_bad_json style');
+        return null;
+      }
+      style = st;
     }
     let namedSeatId: number = -1;
-    const namedRaw: Object | undefined = obj['namedSeatId'];
-    if (typeof namedRaw === 'number' && isFinite(namedRaw as number)) {
+    const namedRaw: Object | undefined = play['namedSeatId'];
+    if (namedRaw !== undefined && namedRaw !== null) {
+      if (typeof namedRaw !== 'number' || !isFinite(namedRaw as number)) {
+        Logger.warn(TAG, 'llm_bad_json namedSeatId');
+        return null;
+      }
       namedSeatId = Math.floor(namedRaw as number);
-    }
-    let speech: string = '';
-    const speechRaw: Object | undefined = obj['speech'];
-    if (typeof speechRaw === 'string') {
-      speech = speechRaw as string;
     }
     const out: PlayAction = {
       type: 'PLAY',
       cardIds: cardIds,
       style: style,
       namedSeatId: namedSeatId,
-      speech: speech,
+      speech: '',
       thinkMs: 0
     };
     return out;
   }
 
-  private static parseChallenge(content: string): ChallengeAction | null {
-    const obj: Record<string, Object> | null = LlmDecisionClient.parseJsonObject(content);
+  /** §2 challenge envelope → ChallengeAction；越权/非法 intent/D4 非 DOUBT → null。 */
+  static parseChallenge(content: string, info: AiInfoSet): ChallengeAction | null {
+    const obj: Record<string, Object> | null = LlmDecisionClient.parseEnvelope(content);
     if (obj === null) {
       return null;
     }
-    const typeRaw: Object | undefined = obj['type'];
-    if (typeof typeRaw !== 'string') {
+    const kindRaw: Object | undefined = obj['kind'];
+    if (typeof kindRaw !== 'string' || (kindRaw as string) !== 'challenge') {
+      Logger.warn(TAG, 'llm_bad_json kind≠challenge');
       return null;
     }
-    const t: string = typeRaw as string;
-    if (t !== 'DOUBT' && t !== 'BELIEVE' && t !== 'SKIP') {
+    const chalRaw: Object | undefined = obj['challenge'];
+    if (chalRaw === undefined || typeof chalRaw !== 'object' || chalRaw === null || chalRaw instanceof Array) {
+      Logger.warn(TAG, 'llm_bad_json missing challenge');
       return null;
     }
-    const out: ChallengeAction = { type: t, thinkMs: 0 };
+    if (LlmDecisionClient.hasForbidden(chalRaw as Record<string, Object>)) {
+      Logger.warn(TAG, 'llm_out_of_scope nested challenge');
+      return null;
+    }
+    const chal: Record<string, Object> = chalRaw as Record<string, Object>;
+    const intentRaw: Object | undefined = chal['intent'];
+    if (typeof intentRaw !== 'string') {
+      Logger.warn(TAG, 'llm_bad_json intent');
+      return null;
+    }
+    let intent: string = intentRaw as string;
+    if (intent !== 'DOUBT' && intent !== 'BELIEVE' && intent !== 'SKIP') {
+      Logger.warn(TAG, 'llm_bad_json intent value');
+      return null;
+    }
+    const gate: string = LlmDecisionClient.gateLabel(info, 'challenge');
+    if (gate === 'D4') {
+      if (intent !== 'DOUBT') {
+        Logger.warn(TAG, 'llm_illegal D4 intent≠DOUBT');
+        return null;
+      }
+    } else if (gate === 'D5') {
+      if (intent !== 'DOUBT' && intent !== 'SKIP') {
+        Logger.warn(TAG, 'llm_illegal D5 intent');
+        return null;
+      }
+    } else {
+      // D2 / D3: DOUBT | BELIEVE；若模型给 SKIP 且窗口非 CHALLENGE_ONLY → 丢弃
+      if (intent === 'SKIP') {
+        Logger.warn(TAG, 'llm_illegal D2/D3 SKIP');
+        return null;
+      }
+    }
+    // MatchDirector: ch.type==='DOUBT' 才质疑；BELIEVE/SKIP 走非质疑路径
+    const out: ChallengeAction = { type: intent, thinkMs: 0 };
     return out;
+  }
+
+  /** Parse JSON object; reject forbidden top-level keys; require schemaVersion===1. */
+  private static parseEnvelope(content: string): Record<string, Object> | null {
+    const obj: Record<string, Object> | null = LlmDecisionClient.parseJsonObject(content);
+    if (obj === null) {
+      Logger.warn(TAG, 'llm_bad_json');
+      return null;
+    }
+    if (LlmDecisionClient.hasForbidden(obj)) {
+      Logger.warn(TAG, 'llm_out_of_scope');
+      return null;
+    }
+    const verRaw: Object | undefined = obj['schemaVersion'];
+    if (typeof verRaw !== 'number' || Math.floor(verRaw as number) !== 1) {
+      Logger.warn(TAG, 'llm_bad_json schemaVersion');
+      return null;
+    }
+    return obj;
+  }
+
+  private static hasForbidden(obj: Record<string, Object>): boolean {
+    for (let i = 0; i < FORBIDDEN_KEYS.length; i++) {
+      if (obj[FORBIDDEN_KEYS[i]] !== undefined) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static parseJsonObject(content: string): Record<string, Object> | null {
@@ -288,7 +525,6 @@ export class LlmDecisionClient {
       }
       return parsed as Record<string, Object>;
     } catch (_e) {
-      Logger.warn(TAG, 'llm decision JSON parse fail');
       return null;
     }
   }

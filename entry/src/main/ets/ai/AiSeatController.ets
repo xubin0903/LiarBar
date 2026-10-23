@@ -42,7 +42,7 @@ export class AiSeatController {
   }
 
   decideChallenge(info: AiInfoSet, rng: SeededRng): ChallengeAction {
-    // Sync LLM short-circuit (no Key / schema pending → null); never blocks on HTTP.
+    // Sync LLM: 只读 armPrefetch 缓存（无 Key / 未就绪 / 非法 → null）；绝不同步死等 HTTP。
     const llm: ChallengeAction | null = LlmDecisionClient.tryDecideChallenge(info);
     if (llm !== null) {
       return llm;

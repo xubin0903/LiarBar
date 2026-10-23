@@ -47,3 +47,4 @@ __pycache__/
 
 # Local LLM secrets — never commit
 entry/src/main/resources/rawfile/config/llm_secrets.json
+*.local.ets
