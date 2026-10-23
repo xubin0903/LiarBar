@@ -26,15 +26,27 @@ export struct PausePanel {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor($r('app.color.tavern_bg'))
-        .opacity(0.6)
-        .id(OverlayIds.MASK)
-        .onClick(() => {
-          // 22:106 / S21-12：遮罩吃点击，不关层。
-        })
+      if (this.sub === 'settings') {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor($r('app.color.tavern_bg'))
+          .opacity(0.72)
+          .id(OverlayIds.MASK)
+          .onClick(() => {
+            // 22:572 设置遮罩 72%（窗 70%～75%）；吃点击，不关层。
+          })
+      } else {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor($r('app.color.tavern_bg'))
+          .opacity(0.6)
+          .id(OverlayIds.MASK)
+          .onClick(() => {
+            // 22:106 / S21-12：通用遮罩；吃点击，不关层。
+          })
+      }
       if (this.fromBackground) {
         this.bgResumeBody()
       } else if (this.sub === 'settings') {

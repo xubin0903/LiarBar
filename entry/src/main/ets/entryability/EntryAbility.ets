@@ -8,6 +8,7 @@ import { WindowOrientation } from '../harmony/WindowOrientation';
 import { AudioSettings } from '../persist/AudioSettings';
 import { LocalStore } from '../persist/LocalStore';
 import { RecordStore } from '../persist/RecordStore';
+import { AuthStore } from '../persist/AuthStore';
 
 const TAG = 'EntryAbility';
 
@@ -26,6 +27,7 @@ export default class EntryAbility extends UIAbility {
       await LocalStore.init(this.context);
       await AudioSettings.init(this.context);
       await RecordStore.init(this.context);
+      await AuthStore.init(this.context);
       AppRuntime.bootDirector();
       AppRuntime.engine.resetToLobby();
     } catch (err) {
@@ -49,13 +51,14 @@ export default class EntryAbility extends UIAbility {
     }
 
     Logger.info(TAG, 'bootstrap before loadContent');
-    windowStage.loadContent('pages/Lobby', (err) => {
+    const startUrl: string = AuthStore.coldStartUrl();
+    windowStage.loadContent(startUrl, (err) => {
       Logger.info(TAG, 'bootstrap after loadContent');
       if (err.code) {
-        Logger.error(TAG, `load Lobby failed code=${err.code}`);
+        Logger.error(TAG, `load ${startUrl} failed code=${err.code}`);
         return;
       }
-      Logger.info(TAG, 'cold start → pages/Lobby (lb_scr_lobby)');
+      Logger.info(TAG, `cold start → ${startUrl}`);
     });
   }
 
