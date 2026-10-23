@@ -415,20 +415,33 @@ const enumObj = (name) => {
   return m ? Object.freeze(Object.fromEntries([...m[1].matchAll(/(\w+)\s*=\s*'([^']*)'/g)].map((x) => [x[1], x[2]]))) : null;
 };
 const REC_TYPES = ['preferences.Preferences | null', 'preferences.Preferences', 'preferences.ValueType', 'common.UIAbilityContext',
-  'Promise<void>', 'MatchRecordV1[]', 'MatchRecordV1 | null', 'MatchRecordV1', 'RecordSummaryV1 | null', 'RecordSummaryV1', 'RecordCommit',
+  'Promise<boolean>', 'Promise<void>', 'MatchRecordV1[]', 'MatchRecordV1 | null', 'MatchRecordV1', 'RecordSummaryV1 | null', 'RecordSummaryV1', 'RecordCommit',
   'MatchSnapshot', 'SeatModel | null', 'SeatModel', 'RecapRow | null', 'RecapRow', 'RecentParse', 'Record<string, Object> | null',
   'Record<string, Object>', 'Object | null | undefined', 'Object | undefined', 'Object | null', 'Object[]', 'Object',
-  'string[]', 'string', 'number', 'boolean'];
+  'RecordsWire', 'string[]', 'string', 'number', 'boolean'];
 const REC_AS = ['Record<string, Object>', 'MatchRecordV1[]', 'RecordSummaryV1', 'Object[]', 'Object'];
 const recordsJs = stripEts(records, REC_TYPES, REC_AS);
-/** Fake Preferences: every get / put / delete / clear / flush is logged so read paths can prove they never write. */
+/** Fake Preferences: every get / put / delete / clear / flush is logged so read paths can prove they never write.
+ *  recAlias maps `u:<user>:{recent,summary,last}` onto the historical unprefixed keys so the S21 fixtures keep working.
+ *  Account-bucket cases turn recAlias off and see the real key. */
+const REC_USER = 'player01';
+let recUser = REC_USER;
+let recToken = 'tok-player01';
+let recClears = 0;
+let recAlias = true;
+const aliasPrefKey = (k) => {
+  if (!recAlias || typeof k !== 'string' || !k.startsWith('u:')) return k;
+  const base = k.slice(k.lastIndexOf(':') + 1);
+  if (base === 'recent_v1' || base === 'summary_v1' || base === 'last_match_id' || base === 'pending_push_v1') return base;
+  return k;
+};
 const makePrefStore = (init) => {
   const data = new Map(Object.entries(init || {}));
   const st = { data, ops: [], flushes: 0 };
-  st.get = async (k, d) => { st.ops.push(`get:${k}`); return data.has(k) ? data.get(k) : d; };
-  st.put = async (k, v) => { st.ops.push(`put:${k}`); data.set(k, v); };
-  st.delete = async (k) => { st.ops.push(`delete:${k}`); data.delete(k); };
-  st.deleteSync = (k) => { st.ops.push(`delete:${k}`); data.delete(k); };
+  st.get = async (k, d) => { const a = aliasPrefKey(k); st.ops.push(`get:${k}`); return data.has(a) ? data.get(a) : d; };
+  st.put = async (k, v) => { st.ops.push(`put:${k}`); data.set(aliasPrefKey(k), v); };
+  st.delete = async (k) => { st.ops.push(`delete:${k}`); data.delete(aliasPrefKey(k)); };
+  st.deleteSync = (k) => { st.ops.push(`delete:${k}`); data.delete(aliasPrefKey(k)); };
   st.clear = async () => { st.ops.push('clear'); data.clear(); };
   st.flush = async () => { st.ops.push('flush'); st.flushes++; };
   st.writes = () => st.ops.filter((o) => !o.startsWith('get:'));
@@ -437,12 +450,52 @@ const makePrefStore = (init) => {
 };
 let curPrefStore = makePrefStore();
 const prefData = { get: (k) => curPrefStore.data.get(k) };
+const recHttp = { calls: [], queue: [] };
+const recHttpStub = {
+  createHttp: () => ({
+    request: async (url, opt) => {
+      recHttp.calls.push({ url, opt, ops: curPrefStore.ops.slice() });
+      const spec = recHttp.queue.shift();
+      if (spec && spec.hang) return await spec.hang;
+      if (spec && spec.throw) throw new Error(spec.throw);
+      if (spec) return spec;
+      return { responseCode: 200, result: '{"ok":true,"accepted":[],"skipped":[],"rejected":[]}' };
+    },
+    destroy: () => { recHttp.calls.push({ destroy: true }); }
+  }),
+  RequestMethod: { GET: 'GET', POST: 'POST' },
+  HttpDataType: { STRING: 'STRING' }
+};
+const liveRecords = { Client: null, Wire: null, Migrate: null };
+const CLIENT_TYPES = ['http.HttpRequest | null', 'http.HttpRequest', 'http.HttpResponse', 'http.RequestMethod',
+  'Promise<RecordsWire>', 'string | Object | ArrayBuffer', 'Record<string, Object>', 'Object | undefined', 'Object',
+  'RecordsWire', 'string', 'number', 'boolean'];
+const CLIENT_AS = ['Record<string, Object>', 'string', 'boolean', 'Object'];
+const MIG_TYPES = ['preferences.Preferences', 'preferences.ValueType', 'Promise<void>', 'string', 'boolean'];
+const recordsClientJs = stripEts(src(E + 'records/RecordsClient.ets'), CLIENT_TYPES, CLIENT_AS);
+const recordsMigrateJs = stripEts(src(E + 'records/RecordsMigrate.ets'), MIG_TYPES, ['string']);
+const clientMod = await importFresh(recordsClientJs, {
+  http: recHttpStub,
+  Logger: { info: () => {}, warn: () => {}, error: () => {} }
+});
+liveRecords.Client = clientMod.RecordsClient;
+liveRecords.Wire = clientMod.RecordsWire;
+liveRecords.Migrate = (await importFresh(recordsMigrateJs, {})).RecordsMigrate;
 const recStubs = () => ({
   preferences: { getPreferences: async () => curPrefStore },
   AiPersonaRegistry: { personaIdForSeat: () => 'AI_TIMID' },
   PersistNs: { RECORDS: 'lb.records' },
   Logger: { info: () => {}, warn: () => {}, error: () => {} },
-  MatchRank: MR, SeatRole: enumObj('SeatRole'), SeatStatus: enumObj('SeatStatus')
+  MatchRank: MR, SeatRole: enumObj('SeatRole'), SeatStatus: enumObj('SeatStatus'),
+  AuthStore: {
+    usernameNow: () => recUser,
+    tokenNow: () => recToken,
+    isLoggedIn: () => recToken.length > 0,
+    clear: async () => { recClears += 1; return true; }
+  },
+  RecordsClient: liveRecords.Client,
+  RecordsWire: liveRecords.Wire,
+  RecordsMigrate: liveRecords.Migrate
 });
 globalThis.__prbStub = recStubs();
 const loadRecordStore = async () => (await importFresh(recordsJs, recStubs())).RecordStore; // fresh statics = app restart
@@ -517,7 +570,7 @@ if (RS && MR) {
     };
     let allSame = true;
     const perKey = [];
-    for (const key of ['recent_v1', 'summary_v1', 'last_match_id']) {
+    for (const key of [`u:${REC_USER}:recent_v1`, `u:${REC_USER}:summary_v1`, `u:${REC_USER}:last_match_id`]) {
       mkBroken(key);
       const RSb = await loadRecordStore();
       await RSb.init({});
@@ -572,8 +625,8 @@ ok(/const ff: boolean = AppRuntime\.director\.isFastForwardMatch\(\);[\s\S]*?if 
   rpa.includes('RecordStore.commitOnce(snap, recapCommit)') && count(code(reportSrc), /RecordStore\.commitOnce\(/) === 1,
   'Report.aboutToAppear backstop: RECAP → commitOnce with the director\'s shape (idempotent via last_match_id)');
 ok(count(code(dir), /RecordStore\.commitOnce\(/) === 1 && count(code(table), /RecordStore\.commitOnce\(/) === 2 &&
-  count(code(records), /store\.put\(/) === 3 && count(code(body(records, '  private static async persist(): Promise<void> {')), /store\.put\(/) === 3,
-  'S21-17: RECAP (director) + Report backstop + leave/end (Table×2) are the only writers, all via commitOnce; only persist() puts');
+  count(code(records), /store\.put\(/) === 4 && count(code(body(records, '  private static async persist(): Promise<void> {')), /store\.put\(/) === 3,
+  'S21-17: RECAP (director) + Report backstop + leave/end (Table×2) are the only writers, all via commitOnce; only persist() puts the three record keys');
 const co = code(body(records, '  static commitOnce(snap: MatchSnapshot, opts: RecordCommit): boolean {'));
 ok(/if \(snap\.matchId === RecordStore\.lastMatchId \|\| snap\.matchId === RecordStore\.demoClaim\) \{\s*return false;/.test(co),
   'commitOnce dedups via last_match_id before anything else (S21-17)');
@@ -581,9 +634,163 @@ ok(/if \(opts\.isDemo\) \{[\s\S]*?return false;/.test(co) && co.indexOf('if (opt
   !/if \(opts\.isDemo\) \{[^}]*lastMatchId/.test(co), 'demo matches are not written (no list / summary / last_match_id)');
 ok(co.indexOf('RecordStore.lastMatchId = rec.matchId') > co.indexOf('RecordStore.build('), 'last_match_id updated on real write');
 const ps = code(body(records, '  private static async persist(): Promise<void> {'));
-ok(ps.includes('store.put(RecordStore.KEY_RECENT,') && ps.includes('store.put(RecordStore.KEY_SUMMARY,') &&
-  ps.includes('store.put(RecordStore.KEY_LAST_MATCH,') && ps.indexOf('await store.flush()') > ps.indexOf('KEY_LAST_MATCH'),
+ok(ps.includes('store.put(RecordStore.slot(RecordStore.KEY_RECENT),') && ps.includes('store.put(RecordStore.slot(RecordStore.KEY_SUMMARY),') &&
+  ps.includes('store.put(RecordStore.slot(RecordStore.KEY_LAST_MATCH),') && ps.indexOf('await store.flush()') > ps.indexOf('KEY_LAST_MATCH'),
   'persist writes the three keys then flush()');
+ok(records.includes("static readonly KEY_PENDING: string = 'pending_push_v1'") && records.includes('return `u:${user}:${base}`;'),
+  'records bucket u:<user>: + pending_push_v1');
+{
+  const recordsClientSrc = src(E + 'records/RecordsClient.ets');
+  const ptp = code(body(records, '  private static async persistThenPush(rec: MatchRecordV1): Promise<void> {'));
+  ok(recordsClientSrc.includes("static readonly BASE: string = 'http://101.33.196.35:18080';") &&
+    recordsClientSrc.includes("static readonly PATH: string = '/api/v1/records';") &&
+    recordsClientSrc.includes('static readonly TIMEOUT_MS: number = 8000;') &&
+    recordsClientSrc.includes("'Authorization': auth") && !/username/.test(code(recordsClientSrc)),
+    'records base http://101.33.196.35:18080 /api/v1/records timeout 8000');
+  ok(ptp.indexOf('await RecordStore.persist();') >= 0 && ptp.indexOf('await RecordStore.persist();') < ptp.indexOf('RecordStore.pushOne(rec)'),
+    'commitOnce local before POST');
+  ok(!/await RecordStore\.persistThenPush\(/.test(records) && records.includes('void RecordStore.persistThenPush(rec);') &&
+    recordsClientSrc.includes("'lb_str_records_sync_blocks_ui'"),
+    'lb_str_records_sync_blocks_ui: commitOnce does not await sync');
+}
+// ---------------------------------------------------------------- records-cloud real-run (#330)
+RUN(true);
+if (RS && MR) {
+  const { SeatRole: SR, SeatStatus: SS } = globalThis.__prbStub;
+  const row = (seatId, extra) => ({ seatId, nickname: `s${seatId}`, playCount: 4, fakeHandCount: 1, challengeCount: 2, challengeHits: 1,
+    doubtedCount: 1, caughtCount: 0, aliveAtExit: 0, ...extra });
+  const T0 = 1759841000000;
+  const mkSnap = (matchId, humanStatus, winner) => ({
+    matchId, startedAt: T0, endedAt: winner >= 0 ? T0 + 300000 : T0 + 120000, roundIndex: 2, winnerSeatId: winner, eventLog: [],
+    seats: [
+      { seatId: 0, role: SR.HUMAN, aiPersona: '', lives: humanStatus === SS.ALIVE ? 2 : 0, status: humanStatus },
+      { seatId: 1, role: SR.AI, aiPersona: 'AI_SHARK', lives: 1, status: SS.ALIVE },
+      { seatId: 2, role: SR.AI, aiPersona: 'AI_KAREN', lives: 0, status: SS.GHOST },
+      { seatId: 3, role: SR.AI, aiPersona: 'AI_TIMID', lives: 1, status: SS.ALIVE }
+    ],
+    recap: [row(0, { aliveAtExit: humanStatus === SS.ALIVE ? 0 : 3 }), row(1), row(2, { aliveAtExit: 4 }), row(3)]
+  });
+  const goodCloud = (id, over) => ({ v: 1, matchId: id, endedAt: T0, durationMs: 60000, rounds: 2, hands: 10, playerCount: 4, rank: 1,
+    result: 'WIN', quit: false, ff: false, livesLeft: 2, plays: 3, fakeHands: 1, doubts: 2, doubtHits: 1, doubted: 1, caught: 0,
+    opponents: ['AI_SHARK', 'AI_KAREN', 'AI_TIMID'], ...over });
+
+  // 1) commitOnce: local bucket first, then best-effort POST (Bearer), returns before network settles.
+  recHttp.calls.length = 0; recHttp.queue.length = 0;
+  let resolvePost = null;
+  recHttp.queue.push({ hang: new Promise((r) => { resolvePost = r; }) });
+  curPrefStore = makePrefStore();
+  recUser = REC_USER; recToken = 'tok-player01'; recAlias = true;
+  const RSp = await loadRecordStore();
+  await RSp.init({});
+  const midPost = `m-cloud-post-${T0}`;
+  const wrote = RSp.commitOnce(mkSnap(midPost, SS.GHOST, 0), { quit: false, isDemo: false, ff: false, pausedMs: 0 });
+  await tickIo();
+  const localRecent = JSON.parse(prefData.get('recent_v1') || '[]');
+  const postsBeforeResolve = recHttp.calls.filter((c) => c.url && String(c.opt && c.opt.method).includes('POST') || (c.opt && c.opt.extraData));
+  // hang still pending → local already written; commitOnce returned true without awaiting POST
+  ok(wrote === true && localRecent.length === 1 && localRecent[0].matchId === midPost &&
+    recHttp.calls.length >= 1 && String(recHttp.calls[0].opt.header.Authorization) === 'Bearer tok-player01' &&
+    String(recHttp.calls[0].url).endsWith('/api/v1/records'),
+    `records-cloud commitOnce local-before-POST (wrote=${wrote} recent=${localRecent.length} http=${recHttp.calls.length})`);
+  resolvePost({ responseCode: 200, result: JSON.stringify({ ok: true, accepted: [midPost], skipped: [], rejected: [] }) });
+  await tickIo(); await tickIo();
+
+  // 2) POST network fail → pending_push_v1 kept; local recent intact; phrase = network
+  recHttp.calls.length = 0; recHttp.queue.length = 0;
+  recHttp.queue.push({ throw: 'ECONNREFUSED' });
+  curPrefStore = makePrefStore();
+  const RSn = await loadRecordStore();
+  await RSn.init({});
+  const midPend = `m-cloud-pend-${T0}`;
+  const wPend = RSn.commitOnce(mkSnap(midPend, SS.GHOST, 0), { quit: false, isDemo: false, ff: false, pausedMs: 0 });
+  await tickIo(); await tickIo();
+  const pendRaw = prefData.get('pending_push_v1') || '';
+  const pendList = pendRaw ? JSON.parse(pendRaw) : [];
+  const recentPend = JSON.parse(prefData.get('recent_v1') || '[]');
+  ok(wPend === true && recentPend.length === 1 && recentPend[0].matchId === midPend &&
+    pendList.length === 1 && pendList[0].matchId === midPend &&
+    RSn.syncPhraseNow() === 'lb_str_records_sync_network',
+    `records-cloud POST fail → pending (w=${wPend} pending=${pendList.length} phrase=${RSn.syncPhraseNow()})`);
+
+  // 3) lobby pull: cloud wins same matchId; local-only kept; GET uses Bearer
+  recHttp.calls.length = 0; recHttp.queue.length = 0;
+  const cloudRec = goodCloud('m-cloud-win', { rank: 1, result: 'WIN', doubts: 9 });
+  const localOnly = goodCloud('m-local-only', { rank: 2, result: 'LOSE' });
+  const dirtyLocal = goodCloud('m-cloud-win', { rank: 4, result: 'LOSE', doubts: 1 }); // same id, dirty local
+  curPrefStore = makePrefStore({
+    recent_v1: JSON.stringify([dirtyLocal, localOnly]),
+    summary_v1: JSON.stringify({ v: 1, total: 2, wins: 0, quits: 0, doubts: 3, doubtHits: 1 }),
+    last_match_id: 'm-cloud-win'
+  });
+  recHttp.queue.push({
+    responseCode: 200,
+    result: JSON.stringify({
+      ok: true,
+      recent: [cloudRec],
+      summary: { v: 1, total: 5, wins: 3, quits: 0, doubts: 12, doubtHits: 4 }
+    })
+  });
+  const RSpull = await loadRecordStore();
+  await RSpull.init({});
+  const pulled = await RSpull.pullCloud();
+  await tickIo();
+  const after = RSpull.recent();
+  const ids = after.map((r) => r.matchId).join(',');
+  const winRow = after.find((r) => r.matchId === 'm-cloud-win');
+  const reqs = recHttp.calls.filter((c) => c.url);
+  const getMethod = reqs[0] && reqs[0].opt && reqs[0].opt.method;
+  ok(pulled === true && ids.includes('m-cloud-win') && ids.includes('m-local-only') &&
+    winRow && winRow.doubts === 9 && winRow.result === 'WIN' &&
+    reqs.length === 1 && getMethod === recHttpStub.RequestMethod.GET &&
+    String(reqs[0].opt.header.Authorization) === 'Bearer tok-player01',
+    `records-cloud pull cloud-wins (pulled=${pulled} ids=${ids} doubts=${winRow && winRow.doubts} method=${getMethod} reqs=${reqs.length})`);
+
+  // 4) account bucket isolation: user A keys survive when switching to B (no wipe of u:A:*)
+  recAlias = false;
+  curPrefStore = makePrefStore({
+    'u:alice:recent_v1': JSON.stringify([goodCloud('m-alice')]),
+    'u:alice:summary_v1': JSON.stringify({ v: 1, total: 1, wins: 1, quits: 0, doubts: 2, doubtHits: 1 }),
+    'u:alice:last_match_id': 'm-alice'
+  });
+  recUser = 'bob'; recToken = 'tok-bob';
+  recHttp.calls.length = 0; recHttp.queue.length = 0;
+  recHttp.queue.push({ responseCode: 200, result: JSON.stringify({ ok: true, recent: [], summary: { v: 1, total: 0, wins: 0, quits: 0, doubts: 0, doubtHits: 0 } }) });
+  const RSb = await loadRecordStore();
+  await RSb.init({});
+  await RSb.pullCloud();
+  await tickIo();
+  const aliceStill = curPrefStore.data.get('u:alice:recent_v1');
+  const bobKey = curPrefStore.data.get('u:bob:recent_v1');
+  ok(typeof aliceStill === 'string' && aliceStill.includes('m-alice') && RSb.recent().length === 0 &&
+    (bobKey === undefined || bobKey === '[]' || JSON.parse(bobKey).length === 0),
+    `records-cloud account bucket isolate (aliceKept=${!!aliceStill} bobRecent=${RSb.recent().length})`);
+
+  // 5) flushPending retries queued push after network recovers
+  recAlias = true; recUser = REC_USER; recToken = 'tok-player01';
+  const pendRec = goodCloud('m-retry-1');
+  curPrefStore = makePrefStore({
+    recent_v1: JSON.stringify([pendRec]),
+    summary_v1: JSON.stringify({ v: 1, total: 1, wins: 1, quits: 0, doubts: 2, doubtHits: 1 }),
+    last_match_id: 'm-retry-1',
+    pending_push_v1: JSON.stringify([pendRec])
+  });
+  recHttp.calls.length = 0; recHttp.queue.length = 0;
+  recHttp.queue.push({ responseCode: 200, result: JSON.stringify({ ok: true, accepted: ['m-retry-1'], skipped: [], rejected: [] }) });
+  const RSr = await loadRecordStore();
+  await RSr.init({});
+  await RSr.flushPending();
+  await tickIo();
+  const pendAfter = prefData.get('pending_push_v1');
+  const pendLeft = pendAfter ? JSON.parse(pendAfter) : [];
+  const retryReqs = recHttp.calls.filter((c) => c.url);
+  ok(pendLeft.length === 0 && retryReqs.length === 1 && String(retryReqs[0].opt.extraData || '').includes('m-retry-1'),
+    `records-cloud pending retry cleared (left=${pendLeft.length} http=${retryReqs.length})`);
+
+  // restore defaults for later suites
+  recAlias = true; recUser = REC_USER; recToken = 'tok-player01';
+  curPrefStore = makePrefStore();
+  recHttp.calls.length = 0; recHttp.queue.length = 0;
+}
 // duration excludes pauses
 ok(records.includes('durationMs: Math.max(0, endedAt - snap.startedAt - paused)'), 'durationMs = endedAt − startedAt − pausedTotalMs');
 const rcl = code(body(engine, '  resumeClock(wallMs: number, shiftMs: number): number {'));
@@ -1412,6 +1619,7 @@ export { LobbyHarness };`;
           director: { stop: () => { lw.lobbyStops++; lw.log.push('director.stop'); w.director.stop(); }, start: () => { lw.log.push('director.start'); } },
           engine: { resetToLobby: () => { lw.resets++; lw.log.push('engine.resetToLobby'); }, startMatch: (o) => { lw.log.push(`engine.startMatch:${o.playerCount}`); return true; } } },
         AuthStore: { isLoggedIn: () => true, noteGate: () => {}, takeGatePhrase: () => '' },
+        RecordStore: { syncOnLobby: () => {}, adoptSession: async () => {} },
         ...clockStubs(w.clk)
       })).LobbyHarness;
       const newLobby = (name) => { const L = new LM(name); lw.lobbies.push(L); return L; };
@@ -4143,9 +4351,9 @@ RUN(false);
 }
 
 const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
-  ok(ksNow.length === 360 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
+  ok(ksNow.length === 369 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
     'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))),
-    `2b keys kept (string.json ${ksNow.length} keys; 341 + 19 auth)`);
+    `2b keys kept (string.json ${ksNow.length} keys; 360 + 9 records)`);
 
 // 战绩浮层结构（22 §7.1 · S21-19 · S22-09/10 · DEV-3c）
 {
@@ -4226,6 +4434,7 @@ ok(missing.length === 0, `every app.string key referenced by Table exists (${mis
     authStoreSrc.includes("static readonly KEY_USER: string = 'auth_username';"),
     'lb.auth keys only auth_token/auth_username; no password key in lb.auth');
   ok(abilityAuth.includes('AuthStore.init(') && abilityAuth.includes('AuthStore.coldStartUrl()') &&
+    abilityAuth.includes('await RecordStore.adoptSession()') && lobbyAuth.includes('void RecordStore.syncOnLobby()') &&
     !abilityAuth.includes("loadContent('pages/Lobby'"),
     'cold start url from lb.auth');
   ok(lobbyAuth.includes('auth gate: no token — replace login, no lobby') && lobbyAuth.includes('LbRouter.toLogin()') &&
@@ -4251,9 +4460,16 @@ ok(missing.length === 0, `every app.string key referenced by Table exists (${mis
     'lb_str_auth_password_ph', 'lb_str_auth_submit_login', 'lb_str_auth_submit_register',
     'lb_str_auth_switch_to_register', 'lb_str_auth_switch_to_login', 'lb_str_auth_logout'];
   const missingAuth = [...authPhraseKeys, ...authUiKeys].filter((k) => !names.includes(k));
-  ok(names.length === 360 && missingAuth.length === 0 && authPhraseKeys.every((k) => loginPage.includes(`app.string.${k}`)) &&
-    setPanelAuth.includes('app.string.lb_str_auth_logout') && setPanelAuth.includes('app.string.lb_str_auth_logout_leak'),
-    `auth string keys 360 (341+19) missing=${missingAuth.join(',') || 'none'}`);
+  ok(names.length === 369 && missingAuth.length === 0 && authPhraseKeys.every((k) => loginPage.includes(`app.string.${k}`)) &&
+    setPanelAuth.includes('app.string.lb_str_auth_logout') && setPanelAuth.includes('app.string.lb_str_auth_logout_leak') &&
+    setPanelAuth.includes('await RecordStore.adoptSession()'),
+    `auth string keys kept; string.json 369 (360+9 records) missing=${missingAuth.join(',') || 'none'}`);
+  const recPhraseKeys = ['lb_str_records_sync_network', 'lb_str_records_sync_unauthorized', 'lb_str_records_sync_bad_response',
+    'lb_str_records_sync_bad_payload', 'lb_str_records_sync_rate_limit', 'lb_str_records_account_leak',
+    'lb_str_records_logout_wipe', 'lb_str_records_cloud_override_fail', 'lb_str_records_sync_blocks_ui'];
+  const recordsPhraseSrc = src(E + 'records/RecordsClient.ets');
+  const missingRec = recPhraseKeys.filter((k) => !names.includes(k) || !recordsPhraseSrc.includes(`'${k}'`));
+  ok(missingRec.length === 0, `records sync phrases 9/9 missing=${missingRec.join(',') || 'none'}`);
 
   const AUTH_TYPES = ['preferences.Preferences | null', 'preferences.Preferences', 'preferences.ValueType',
     'common.UIAbilityContext', 'Promise<void>', 'Promise<boolean>', 'Promise<AuthCallResult>',

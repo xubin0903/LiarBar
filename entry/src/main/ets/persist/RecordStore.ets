@@ -6,9 +6,11 @@ import { Logger } from '../common/Logger';
 import { MatchSnapshot, RecapRow, SeatModel } from '../engine/MatchTypes';
 import { MatchRank } from '../engine/MatchRank';
 import { SeatRole, SeatStatus } from '../engine/Phase';
+import { RecordsClient, RecordsWire } from '../records/RecordsClient';
+import { RecordsMigrate } from '../records/RecordsMigrate';
+import { AuthStore } from './AuthStore';
 
 const TAG = 'RecordStore';
-
 /** 21 §2.2 `result` 取值（中退恒为 LOSE）。 */
 export class RecordResult {
   static readonly WIN: string = 'WIN';
@@ -85,8 +87,13 @@ export class RecordStore {
   static readonly KEY_RECENT: string = 'recent_v1';
   static readonly KEY_SUMMARY: string = 'summary_v1';
   static readonly KEY_LAST_MATCH: string = 'last_match_id';
+  static readonly KEY_PENDING: string = 'pending_push_v1';
   private static store: preferences.Preferences | null = null;
+  /** 当前内存桶。空 = 未登录，不写任何 `u:` 键。 */
+  private static user: string = '';
   private static recentList: MatchRecordV1[] = [];
+  private static pending: MatchRecordV1[] = [];
+  private static syncPhrase: string = '';
   /** 懒加载（负责人 #5：不在静态初始化里调方法）；用 summaryRef() 取。 */
   private static summary: RecordSummaryV1 | null = null;
   private static lastMatchId: string = '';
@@ -97,12 +104,15 @@ export class RecordStore {
   static async init(context: common.UIAbilityContext): Promise<void> {
     try {
       const store: preferences.Preferences = await preferences.getPreferences(context, PersistNs.RECORDS);
-      const rawRecent: preferences.ValueType = await store.get(RecordStore.KEY_RECENT, '');
-      const rawSummary: preferences.ValueType = await store.get(RecordStore.KEY_SUMMARY, '');
-      const rawLast: preferences.ValueType = await store.get(RecordStore.KEY_LAST_MATCH, '');
+      RecordStore.user = AuthStore.usernameNow();
+      const rawRecent: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_RECENT), '');
+      const rawSummary: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_SUMMARY), '');
+      const rawLast: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_LAST_MATCH), '');
+      const rawPending: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_PENDING), '');
       RecordStore.loadFrom(rawRecent, rawSummary, rawLast);
-      // 补丁轮 2 第 3 条：三个 get 全部读成功、内存已载入后才挂 store——某个 get 抛错时 store 保持 null，
-      // 之后的 commitOnce 不会拿「只有 1 条」的内存列表覆盖原档。
+      RecordStore.loadPending(rawPending);
+      // 补丁轮 2 第 3 条：读键全部成功、内存已载入后才挂 store——某个 get 抛错时 store 保持 null，
+      // 之后的 commitOnce 不会拿半截内存覆盖原档。
       RecordStore.store = store;
       Logger.info(TAG, `loaded recent=${RecordStore.recentList.length} total=${RecordStore.summaryRef().total}`);
     } catch (err) {
@@ -214,10 +224,13 @@ export class RecordStore {
     if (snap.startedAt <= 0 || snap.seats.length === 0 || snap.matchId.length === 0) {
       return false;
     }
-    if (snap.matchId === RecordStore.lastMatchId || snap.matchId === RecordStore.demoClaim) {
+    const liveUser: string = AuthStore.usernameNow();
+    if (liveUser.length === 0 || liveUser !== RecordStore.user) {
       return false;
     }
-    if (opts.isDemo) {
+    if (snap.matchId === RecordStore.lastMatchId || snap.matchId === RecordStore.demoClaim) {
+      return false;
+    }    if (opts.isDemo) {
       RecordStore.demoClaim = snap.matchId;
       Logger.info(TAG, `skip demo match ${snap.matchId} (not recorded)`);
       return false;
@@ -240,10 +253,10 @@ export class RecordStore {
     sum.doubts = sum.doubts + rec.doubts;
     sum.doubtHits = sum.doubtHits + rec.doubtHits;
     Logger.info(TAG, `commit ${rec.matchId} result=${rec.result} quit=${rec.quit} rank=${rec.rank} dur=${rec.durationMs}`);
-    void RecordStore.persist();
+    // 先落本账号桶，再 best-effort POST。不等待网络，结算 / 回大厅不被同步挡住。
+    void RecordStore.persistThenPush(rec);
     return true;
   }
-
   private static build(snap: MatchSnapshot, opts: RecordCommit): MatchRecordV1 {
     let human: SeatModel | null = null;
     for (let i = 0; i < snap.seats.length; i++) {
@@ -554,14 +567,380 @@ export class RecordStore {
       // 未完整读入原档（init 失败 / 读到一半抛错）→ 不写盘，原存档字节不动（补丁轮 2 第 3 条）。
       return;
     }
+    if (RecordStore.user.length === 0) {
+      return;
+    }
     try {
-      await store.put(RecordStore.KEY_RECENT, JSON.stringify(RecordStore.recentList));
-      await store.put(RecordStore.KEY_SUMMARY, JSON.stringify(RecordStore.summaryRef()));
-      await store.put(RecordStore.KEY_LAST_MATCH, RecordStore.lastMatchId);
+      await store.put(RecordStore.slot(RecordStore.KEY_RECENT), JSON.stringify(RecordStore.recentList));
+      await store.put(RecordStore.slot(RecordStore.KEY_SUMMARY), JSON.stringify(RecordStore.summaryRef()));
+      await store.put(RecordStore.slot(RecordStore.KEY_LAST_MATCH), RecordStore.lastMatchId);
       await store.flush();
     } catch (err) {
       Logger.warn(TAG, 'persist fail-soft');
     }
+  }
+
+  static syncPhraseNow(): string {
+    return RecordStore.syncPhrase;
+  }
+
+  /** 登录成功 / 冷启动进大厅（idle）：切到当前账号桶，再拉取，再重试待上报。不阻塞调用方。 */
+  static syncOnLobby(): void {
+    void RecordStore.lobbySync();
+  }
+
+  static async adoptSession(): Promise<void> {
+    const user: string = AuthStore.usernameNow();
+    RecordStore.user = user;
+    if (user.length === 0) {
+      RecordStore.recentList = [];
+      RecordStore.summary = null;
+      RecordStore.lastMatchId = '';
+      RecordStore.pending = [];
+      RecordStore.demoClaim = '';
+      RecordStore.loaded = RecordStore.store !== null;
+      return;
+    }
+    const store: preferences.Preferences | null = RecordStore.store;
+    if (store === null) {
+      RecordStore.loaded = false;
+      return;
+    }
+    try {
+      await RecordsMigrate.once(store, user);
+      const bucketRecent: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_RECENT), '');
+      const bucketSummary: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_SUMMARY), '');
+      const bucketLast: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_LAST_MATCH), '');
+      const bucketPending: preferences.ValueType = await store.get(RecordStore.slot(RecordStore.KEY_PENDING), '');
+      RecordStore.loadFrom(bucketRecent, bucketSummary, bucketLast);
+      RecordStore.loadPending(bucketPending);
+    } catch (err) {
+      Logger.warn(TAG, 'adoptSession fail-soft');
+    }
+  }
+
+  static async pullCloud(): Promise<boolean> {
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0 || RecordStore.user.length === 0 || AuthStore.usernameNow() !== RecordStore.user) {
+      return false;
+    }
+    if (RecordStore.store === null) {
+      return false;
+    }
+    const wire: RecordsWire = await RecordsClient.getRecords(token);
+    if (!wire.ok) {
+      RecordStore.notePhrase(wire.phrase);
+      return false;
+    }
+    const applied: boolean = RecordStore.applyPullRaw(wire.raw);
+    if (!applied) {
+      return false;
+    }
+    await RecordStore.persist();
+    await RecordStore.persistPending();
+    RecordStore.syncPhrase = '';
+    return true;
+  }
+
+  static async flushPending(): Promise<void> {
+    if (RecordStore.pending.length === 0 || RecordStore.user.length === 0) {
+      return;
+    }
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_UNAUTHORIZED);
+      return;
+    }
+    const batch: MatchRecordV1[] = [];
+    for (let i = 0; i < RecordStore.pending.length; i++) {
+      batch.push(RecordStore.pending[i]);
+    }
+    const body: string = RecordStore.recordsBody(batch);
+    const wire: RecordsWire = await RecordsClient.postRecords(token, body);
+    RecordStore.notePhrase(wire.phrase);
+    if (!wire.ok) {
+      return;
+    }
+    const rejected: string[] = RecordStore.idsIn(wire.raw, 'rejected');
+    const accepted: string[] = RecordStore.idsIn(wire.raw, 'accepted');
+    const skipped: string[] = RecordStore.idsIn(wire.raw, 'skipped');
+    const named: boolean = accepted.length + skipped.length + rejected.length > 0;
+    const keep: MatchRecordV1[] = [];
+    for (let i = 0; i < RecordStore.pending.length; i++) {
+      const id: string = RecordStore.pending[i].matchId;
+      if (rejected.indexOf(id) >= 0) {
+        continue;
+      }
+      if (!named || accepted.indexOf(id) >= 0 || skipped.indexOf(id) >= 0) {
+        continue;
+      }
+      keep.push(RecordStore.pending[i]);
+    }
+    RecordStore.pending = keep;
+    await RecordStore.persistPending();
+  }
+
+  private static async lobbySync(): Promise<void> {
+    try {
+      await RecordStore.adoptSession();
+      if (RecordStore.user.length === 0 || AuthStore.tokenNow().length === 0) {
+        return;
+      }
+      await RecordStore.pullCloud();
+      await RecordStore.flushPending();
+    } catch (err) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_NETWORK);
+      Logger.warn(TAG, RecordsClient.PHRASE_NETWORK);
+    }
+  }
+
+  private static async persistThenPush(rec: MatchRecordV1): Promise<void> {
+    try {
+      await RecordStore.persist();
+      if (RecordStore.store === null || RecordStore.user.length === 0) {
+        return;
+      }
+      const posted: boolean = await RecordStore.pushOne(rec);
+      if (!posted) {
+        RecordStore.rememberPending(rec);
+        await RecordStore.persistPending();
+      }
+    } catch (err) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_NETWORK);
+      try {
+        RecordStore.rememberPending(rec);
+        await RecordStore.persistPending();
+      } catch (err2) {
+        Logger.warn(TAG, 'pending persist fail-soft');
+      }
+    }
+  }
+
+  private static async pushOne(rec: MatchRecordV1): Promise<boolean> {
+    const token: string = AuthStore.tokenNow();
+    if (token.length === 0) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_UNAUTHORIZED);
+      return false;
+    }
+    const body: string = RecordStore.recordsBody([rec]);
+    const wire: RecordsWire = await RecordsClient.postRecords(token, body);
+    RecordStore.notePhrase(wire.phrase);
+    // pushOne: unauthorized must not clear lb.auth
+    if (!wire.ok) {
+      return false;
+    }
+    const rejected: string[] = RecordStore.idsIn(wire.raw, 'rejected');
+    if (rejected.indexOf(rec.matchId) >= 0) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_BAD_PAYLOAD);
+      return true;
+    }
+    return true;
+  }
+
+  private static async persistPending(): Promise<void> {
+    const store: preferences.Preferences | null = RecordStore.store;
+    if (store === null || RecordStore.loaded !== true || RecordStore.user.length === 0) {
+      return;
+    }
+    try {
+      await store.put(RecordStore.slot(RecordStore.KEY_PENDING), JSON.stringify(RecordStore.pending));
+      await store.flush();
+    } catch (err) {
+      Logger.warn(TAG, 'pending persist fail-soft');
+    }
+  }
+
+  private static slot(base: string): string {
+    const user: string = RecordStore.user;
+    if (user.length === 0) {
+      return base;
+    }
+    return `u:${user}:${base}`;
+  }
+
+  private static loadPending(raw: preferences.ValueType): void {
+    RecordStore.pending = [];
+    if (typeof raw !== 'string') {
+      return;
+    }
+    const text: string = raw;
+    if (text.length === 0) {
+      return;
+    }
+    let parsed: Object | null = null;
+    try {
+      parsed = JSON.parse(text) as Object;
+    } catch (err) {
+      return;
+    }
+    if (parsed === null || !Array.isArray(parsed)) {
+      return;
+    }
+    const arr: Object[] = parsed as Object[];
+    const seen: string[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const rec: MatchRecordV1 | null = RecordStore.validateRecord(arr[i]);
+      if (rec === null || seen.indexOf(rec.matchId) >= 0) {
+        continue;
+      }
+      seen.push(rec.matchId);
+      RecordStore.pending.push(rec);
+    }
+  }
+
+  private static rememberPending(rec: MatchRecordV1): void {
+    const next: MatchRecordV1[] = [];
+    next.push(rec);
+    for (let i = 0; i < RecordStore.pending.length; i++) {
+      if (RecordStore.pending[i].matchId !== rec.matchId) {
+        next.push(RecordStore.pending[i]);
+      }
+    }
+    RecordStore.pending = next;
+  }
+
+  private static recordsBody(list: MatchRecordV1[]): string {
+    let joined: string = '';
+    for (let i = 0; i < list.length; i++) {
+      if (i > 0) {
+        joined = joined + ',';
+      }
+      joined = joined + JSON.stringify(list[i]);
+    }
+    return `{"records":[${joined}]}`;
+  }
+
+  private static notePhrase(phrase: string): void {
+    RecordStore.syncPhrase = phrase;
+    if (phrase.length > 0) {
+      Logger.warn(TAG, phrase);
+    }
+  }
+
+  private static idsIn(raw: string, key: string): string[] {
+    const out: string[] = [];
+    if (raw.length === 0) {
+      return out;
+    }
+    let parsed: Object | null = null;
+    try {
+      parsed = JSON.parse(raw) as Object;
+    } catch (err) {
+      return out;
+    }
+    const root: Record<string, Object> | null = RecordStore.asFields(parsed);
+    if (root === null) {
+      return out;
+    }
+    const rawList: Object | undefined = root[key];
+    if (rawList === undefined || rawList === null || !Array.isArray(rawList)) {
+      return out;
+    }
+    const arr: Object[] = rawList as Object[];
+    for (let i = 0; i < arr.length; i++) {
+      const item: Object = arr[i];
+      if (typeof item !== 'string') {
+        continue;
+      }
+      const id: string = item;
+      if (id.length > 0) {
+        out.push(id);
+      }
+    }
+    return out;
+  }
+
+  /** 云端 recent / summary 任一整包非法则不动内存。同 matchId 丢弃本地条。 */
+  private static applyPullRaw(raw: string): boolean {
+    let parsed: Object | null = null;
+    try {
+      parsed = JSON.parse(raw) as Object;
+    } catch (err) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_BAD_RESPONSE);
+      return false;
+    }
+    const root: Record<string, Object> | null = RecordStore.asFields(parsed);
+    if (root === null || RecordStore.boolField(root, 'ok') !== 1) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_BAD_RESPONSE);
+      return false;
+    }
+    const recentRaw: Object | undefined = root['recent'];
+    const summaryRaw: Object | undefined = root['summary'];
+    if (recentRaw === undefined || summaryRaw === undefined || !Array.isArray(recentRaw) || RecordStore.asFields(summaryRaw) === null) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_BAD_RESPONSE);
+      return false;
+    }
+    const arr: Object[] = recentRaw as Object[];
+    const allCloud: MatchRecordV1[] = [];
+    const cloudIds: string[] = [];
+    for (let i = 0; i < arr.length; i++) {
+      const rec: MatchRecordV1 | null = RecordStore.validateRecord(arr[i]);
+      if (rec === null || cloudIds.indexOf(rec.matchId) >= 0) {
+        RecordStore.notePhrase(RecordsClient.PHRASE_BAD_PAYLOAD);
+        return false;
+      }
+      cloudIds.push(rec.matchId);
+      allCloud.push(rec);
+    }
+    const summaryText: string = JSON.stringify(summaryRaw);
+    const summary: RecordSummaryV1 | null = RecordStore.parseSummary(summaryText, allCloud);
+    if (summary === null) {
+      RecordStore.notePhrase(RecordsClient.PHRASE_BAD_PAYLOAD);
+      return false;
+    }
+    const localOnly: MatchRecordV1[] = [];
+    for (let i = 0; i < RecordStore.recentList.length; i++) {
+      const rec: MatchRecordV1 = RecordStore.recentList[i];
+      if (cloudIds.indexOf(rec.matchId) >= 0) {
+        continue;
+      }
+      localOnly.push(rec);
+    }
+    const merged: MatchRecordV1[] = [];
+    for (let i = 0; i < allCloud.length && merged.length < RecordStore.KEEP; i++) {
+      merged.push(allCloud[i]);
+    }
+    for (let i = 0; i < localOnly.length && merged.length < RecordStore.KEEP; i++) {
+      merged.push(localOnly[i]);
+    }
+    for (let i = 0; i < localOnly.length; i++) {
+      RecordStore.addLocal(summary, localOnly[i]);
+    }
+    const nextPending: MatchRecordV1[] = [];
+    const pendingSeen: string[] = [];
+    for (let i = 0; i < localOnly.length; i++) {
+      nextPending.push(localOnly[i]);
+      pendingSeen.push(localOnly[i].matchId);
+    }
+    for (let i = 0; i < RecordStore.pending.length; i++) {
+      const rec: MatchRecordV1 = RecordStore.pending[i];
+      if (cloudIds.indexOf(rec.matchId) >= 0 || pendingSeen.indexOf(rec.matchId) >= 0) {
+        continue;
+      }
+      nextPending.push(rec);
+      pendingSeen.push(rec.matchId);
+    }
+    let last: string = '';
+    if (merged.length > 0) {
+      last = merged[0].matchId;
+    }
+    RecordStore.recentList = merged;
+    RecordStore.summary = summary;
+    RecordStore.lastMatchId = last;
+    RecordStore.pending = nextPending;
+    return true;
+  }
+
+  private static addLocal(sum: RecordSummaryV1, rec: MatchRecordV1): void {
+    sum.total = sum.total + 1;
+    if (rec.result === RecordResult.WIN) {
+      sum.wins = sum.wins + 1;
+    }
+    if (rec.quit) {
+      sum.quits = sum.quits + 1;
+    }
+    sum.doubts = sum.doubts + rec.doubts;
+    sum.doubtHits = sum.doubtHits + rec.doubtHits;
   }
 
   private static zeroSummary(): RecordSummaryV1 {

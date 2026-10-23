@@ -19,6 +19,7 @@ import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
 import { WindowOrientation } from '../harmony/WindowOrientation';
 import { LastTable, LocalStore } from '../persist/LocalStore';
 import { AuthStore } from '../persist/AuthStore';
+import { RecordStore } from '../persist/RecordStore';
 
 const TAG = 'Lobby';
 const CTA_HOT_BORDER: number = 2;
@@ -123,6 +124,7 @@ struct Lobby {
       return;
     }
     this.lockPortraitSoft();
+    void RecordStore.syncOnLobby();
     this.begin();
   }
 
