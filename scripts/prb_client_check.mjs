@@ -4349,9 +4349,10 @@ RUN(false);
 }
 
 const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
-  ok(ksNow.length === 369 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
-    'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))),
-    `2b keys kept (string.json ${ksNow.length} keys; 360 + 9 records)`);
+  ok(ksNow.length === 373 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
+    'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))) &&
+    ['lb_str_set_llm_key', 'lb_str_set_llm_key_ph', 'lb_str_set_llm_key_saved', 'lb_str_set_llm_key_save_fail'].every((k) => ksNow.includes(k)),
+    `2b keys kept (string.json ${ksNow.length} keys; 369 + 4 llm_key)`);
 
 // 战绩浮层结构（22 §7.1 · S21-19 · S22-09/10 · DEV-3c）
 {
@@ -4458,10 +4459,10 @@ ok(missing.length === 0, `every app.string key referenced by Table exists (${mis
     'lb_str_auth_password_ph', 'lb_str_auth_submit_login', 'lb_str_auth_submit_register',
     'lb_str_auth_switch_to_register', 'lb_str_auth_switch_to_login', 'lb_str_auth_logout'];
   const missingAuth = [...authPhraseKeys, ...authUiKeys].filter((k) => !names.includes(k));
-  ok(names.length === 369 && missingAuth.length === 0 && authPhraseKeys.every((k) => loginPage.includes(`app.string.${k}`)) &&
+  ok(names.length === 373 && missingAuth.length === 0 && authPhraseKeys.every((k) => loginPage.includes(`app.string.${k}`)) &&
     setPanelAuth.includes('app.string.lb_str_auth_logout') && setPanelAuth.includes('app.string.lb_str_auth_logout_leak') &&
     setPanelAuth.includes('await RecordStore.adoptSession()'),
-    `auth string keys kept; string.json 369 (360+9 records) missing=${missingAuth.join(',') || 'none'}`);
+    `auth string keys kept; string.json 373 (369+4 llm_key) missing=${missingAuth.join(',') || 'none'}`);
   const recPhraseKeys = ['lb_str_records_sync_network', 'lb_str_records_sync_unauthorized', 'lb_str_records_sync_bad_response',
     'lb_str_records_sync_bad_payload', 'lb_str_records_sync_rate_limit', 'lb_str_records_account_leak',
     'lb_str_records_logout_wipe', 'lb_str_records_cloud_override_fail', 'lb_str_records_sync_blocks_ui'];

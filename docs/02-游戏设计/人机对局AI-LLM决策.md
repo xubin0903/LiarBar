@@ -1,13 +1,13 @@
-# 人机对局 AI · LLM 决策（DeepSeek）v0.1
+# 人机对局 AI · LLM 决策（DeepSeek）v0.1.1
 
 对齐负责人 2026-10-23 裁定。读者：鸿蒙看 §2 schema；测试看 §3 短句；负责人看 §0 禁 JUDGE。
 
 | 项 | 内容 |
 |----|------|
-| 版本 | **v0.1** 会签草案 · **合入 ≠ 终验** |
+| 版本 | **v0.1.1** · **合入 ≠ 终验** |
 | 路径 | `docs/02-游戏设计/人机对局AI-LLM决策.md` |
 | 对齐 | [人机对局AI](./人机对局AI.md) §2 信息集 / §3 决策点 D1–D5 · [核心算法](./人机对局AI-核心算法.md) 本地 Policy |
-| 本 PR | **仅本文**（目录索引一行）。零 `.ets` / `string.json` / `media/`。键数维持 **341**；§3 键名供接线 PR **ADD**。 |
+| 本 PR | 文案与 Key 真源对齐（见 §0.5）；设置短文案四键在 21 / `string.json`（369→373）。零 `.ets` / `media/`。schema/prompt 不动。 |
 | 范围 | 模型只填「出牌 / 质疑\|相信」。揭牌真假、胜负、荷官 JUDGE / PENALTY 仍由引擎 Judge。 |
 
 ## 0. 裁定（硬锁）
@@ -16,6 +16,11 @@
 2. **禁止** LLM 判真假、点输家、改熄烛、改胜负、改荷官 `JUDGE` / `PENALTY`。引擎 Judge 不动。
 3. 通道：信息集投影 + 近几手短日志（纯文本）→ `@ohos.net.http` POST DeepSeek → 解析 JSON → 现有 `AiSeatController.decidePlay` / `decideChallenge` 与 `MatchDirector` 入口。需 `ohos.permission.INTERNET`。失败 fail-soft，不阻塞局。
 4. 不扩玩法、不动质疑入口状态机 UI、不碰 Table 硬锁段。本地 `PlayPolicy` / `ChallengePolicy` 保留作超时/断网回落。Soft 上半窗连续参数修已暂停；LLM 上线后 Soft 频率改由提示词 + 验收观察，本票不调 `ChallengePolicy` 连续参数。
+
+### 0.5 Key 真源（v0.1.1）
+
+Key 真源 = Preferences `lb.settings` / `llm_api_key`（设置页填/清，见 21 §4.2）。空 Key → `hasApiKey` false → 本地 Policy / `skip_prefetch`。**禁止**把真 key 写进仓或日志（日志只打布尔）。rawfile `config/llm_secrets.json` 非验收路径。
+
 
 ## 1. 提示词
 
@@ -86,3 +91,10 @@ log:
 上述任一 → 调用现有 `PlayPolicy.decidePlay` / `ChallengePolicy.decideChallenge`，不阻塞局。等待不超过现有思考窗（出牌 `[1200,3500]` ms、质疑 `[1500,4000]` ms），到点即回落。
 
 合入 ≠ 终验。
+
+## 版本
+
+| 版本 | 日期 | 说明 |
+|------|------|------|
+| **v0.1** | 2026-10-23 | 会签草案：通道 / schema / fail-soft 短句。 |
+| **v0.1.1** | 2026-10-23 | §0.5 Key 真源 = Preferences `llm_api_key`（设置页）；空 → Policy；真 key 不进仓/日志；rawfile secrets 非验收。schema/prompt 不动。 |
