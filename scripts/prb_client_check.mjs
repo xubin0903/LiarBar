@@ -3982,6 +3982,7 @@ ${stubs}`) + '\nexport { TableFF };';
     const timeG = { ...clockStubs(clk), Math: MathSpy };
     const b = await loadEtsBundle(root, ['common/MatchDirector'], {
       'common/Logger': { Logger: LoggerS }, '@kit.AbilityKit': { common: {} },
+      '@kit.ArkData': { preferences: { getPreferences: async () => curPrefStore } },
       '@kit.ArkTS': { util: { TextDecoder: { create: () => ({ decodeToString: (u) => Buffer.from(u).toString('utf8') }) } } },
       '@ohos.net.http': {
         createHttp: () => ({ request: async () => ({ responseCode: 0, result: '' }), destroy: () => {} }),
@@ -4324,6 +4325,26 @@ RUN(false);
     /ControlIds\.TOG_MUTE/.test(setPanel) && /art_icon_mute/.test(setPanel) && /art_icon_silent_match/.test(setPanel) &&
     /ControlIds\.ICO_SILENT_MATCH/.test(setPanel) && !/lb_tog_silent/.test(setPanel) && !/ControlIds\.SILENT\b/.test(setPanel),
     'settings panel: vol_bgm + vol_sfx + mute (art_icon_mute) + silent note (art_icon_silent_match); no silent toggle (S22-18/19)');
+  ok(/ControlIds\.LLM_KEY_TITLE/.test(setPanel) && /ControlIds\.LLM_KEY_INPUT/.test(setPanel) &&
+    /InputType\.Password/.test(setPanel) && /ControlIds\.LLM_KEY_SAVE/.test(setPanel) &&
+    /ControlIds\.LLM_KEY_CLEAR/.test(setPanel) && /ControlIds\.LLM_KEY_STATUS/.test(setPanel) &&
+    /LlmApiConfig\.saveApiKeyFromSettings/.test(setPanel) && /LlmApiConfig\.clearApiKeyFromSettings/.test(setPanel) &&
+    /lb_str_set_llm_key/.test(setPanel) && /lb_str_set_llm_key_ph/.test(setPanel) &&
+    /lb_str_set_llm_key_saved/.test(setPanel) && /lb_str_set_llm_key_save_fail/.test(setPanel) &&
+    setPanel.includes("'已配置'") && setPanel.includes("'未配置'"),
+    'settings panel: DeepSeek Key title/input/save/clear/status (22 §7.2 + locked 4 strings)');
+  const llmCfgPrb = src(E + 'ai/LlmApiConfig.ets');
+  const idsLlm = src(E + 'common/Ids.ets');
+  ok(/PersistNs\.AUDIO/.test(llmCfgPrb) && /llm_api_key/.test(llmCfgPrb) &&
+    /saveApiKeyFromSettings/.test(llmCfgPrb) && /clearApiKeyFromSettings/.test(llmCfgPrb) &&
+    /source=prefs/.test(llmCfgPrb) && /source=rawfile/.test(llmCfgPrb) &&
+    /llm_secrets status=ready/.test(llmCfgPrb) &&
+    idsLlm.includes("static readonly LLM_KEY_INPUT: string = 'lb_inp_llm_api_key';") &&
+    idsLlm.includes("static readonly LLM_KEY_STATUS: string = 'lb_txt_llm_key_status';") &&
+    idsLlm.includes("static readonly LLM_KEY_TITLE: string = 'lb_txt_llm_key_title';") &&
+    !idsLlm.includes("'lb.llm'") &&
+    !/Logger\.(info|warn)\([^)]*getApiKey/.test(llmCfgPrb),
+    'LlmApiConfig: lb.settings/llm_api_key prefs>rawfile + save/clear; hasKey logs only; 22 ids');
   ok(/allowDemoUnlock/.test(setPanel) && /ControlIds\.TOG_DEMO/.test(setPanel) && /DemoArm\.unlock/.test(setPanel) &&
     /versionTaps/.test(setPanel),
     'settings about: version 7-tap unlocks demo (DemoArm); tog only when allowDemoUnlock');

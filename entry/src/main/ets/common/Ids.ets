@@ -84,6 +84,12 @@ export class ControlIds {
   static readonly SETTINGS_ABOUT: string = 'lb_btn_settings_about';
   /** 22 §7.2 设置主页最底。退出清 lb.auth 后 replace 登录页。 */
   static readonly LOGOUT: string = 'lb_btn_logout';
+  /** DeepSeek API Key（22 §7.2 最小挂点；遮罩输入，不进仓）。 */
+  static readonly LLM_KEY_TITLE: string = 'lb_txt_llm_key_title';
+  static readonly LLM_KEY_INPUT: string = 'lb_inp_llm_api_key';
+  static readonly LLM_KEY_SAVE: string = 'lb_btn_llm_key_save';
+  static readonly LLM_KEY_CLEAR: string = 'lb_btn_llm_key_clear';
+  static readonly LLM_KEY_STATUS: string = 'lb_txt_llm_key_status';
   /** 22 §7.0 登录 / 注册页。线框 id；UI 若改号再对齐。 */
   static readonly AUTH_CARD: string = 'lb_cmp_auth_card';
   static readonly AUTH_TITLE: string = 'lb_txt_auth_title';
@@ -288,4 +294,5 @@ export class PersistNs {
   static readonly RECORDS: string = 'lb.records';
   /** 登录会话。只存 auth_token + auth_username。 */
   static readonly AUTH: string = 'lb.auth';
+  /** DeepSeek API Key（Preferences；不进仓、不 hilog 明文）。 */
 }

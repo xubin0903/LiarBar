@@ -68,6 +68,7 @@ export class LlmDecisionClient {
     LlmDecisionClient.cachedPlay = null;
     LlmDecisionClient.playReady = false;
     if (!LlmApiConfig.hasApiKey()) {
+      Logger.info(TAG, 'llm_skip_prefetch reason=no_key kind=play');
       LlmDecisionClient.playReady = true;
       LlmDecisionClient.cachedPlay = null;
       return;
@@ -92,6 +93,7 @@ export class LlmDecisionClient {
     LlmDecisionClient.cachedChallenge = null;
     LlmDecisionClient.chalReady = false;
     if (!LlmApiConfig.hasApiKey()) {
+      Logger.info(TAG, 'llm_skip_prefetch reason=no_key kind=challenge');
       LlmDecisionClient.chalReady = true;
       LlmDecisionClient.cachedChallenge = null;
       return;
@@ -275,6 +277,8 @@ export class LlmDecisionClient {
     let client: http.HttpRequest | null = null;
     try {
       client = http.createHttp();
+      // Visible "about to POST" so console 0-req RCA can prove whether HTTP left device.
+      Logger.info(TAG, 'llm_post kind=' + kind);
       const resp: http.HttpResponse = await client.request(url, {
         method: http.RequestMethod.POST,
         header: {
@@ -287,8 +291,8 @@ export class LlmDecisionClient {
         expectDataType: http.HttpDataType.STRING
       });
       const code: number = resp.responseCode;
+      Logger.info(TAG, 'llm_http kind=' + kind + ' code=' + code);
       if (code < 200 || code >= 300) {
-        Logger.warn(TAG, 'llm_http kind=' + kind + ' code=' + code);
         return null;
       }
       const raw: string = LlmDecisionClient.responseToString(resp.result);
