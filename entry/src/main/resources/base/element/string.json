@@ -1101,6 +1101,22 @@
       "value": "只对下一局生效：固定种子，必出一次质疑；局结束自动关"
     },
     {
+      "name": "lb_str_set_llm_key",
+      "value": "DeepSeek API Key"
+    },
+    {
+      "name": "lb_str_set_llm_key_ph",
+      "value": "粘贴 API Key（仅本机，不进仓）"
+    },
+    {
+      "name": "lb_str_set_llm_key_saved",
+      "value": "已保存"
+    },
+    {
+      "name": "lb_str_set_llm_key_save_fail",
+      "value": "保存失败，请重试"
+    },
+    {
       "name": "lb_str_demo_armed",
       "value": "演示已开，下一局生效"
     },
