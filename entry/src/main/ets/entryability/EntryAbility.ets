@@ -28,6 +28,7 @@ export default class EntryAbility extends UIAbility {
       await AudioSettings.init(this.context);
       await RecordStore.init(this.context);
       await AuthStore.init(this.context);
+      await RecordStore.adoptSession();
       AppRuntime.bootDirector();
       AppRuntime.engine.resetToLobby();
     } catch (err) {

@@ -27,6 +27,11 @@ export class AuthStore {
     return AuthStore.username;
   }
 
+  /** 战绩请求的 Bearer。空串表示不要发 records API。 */
+  static tokenNow(): string {
+    return AuthStore.token;
+  }
+
   static corruptCleared(): boolean {
     return AuthStore.corrupt;
   }

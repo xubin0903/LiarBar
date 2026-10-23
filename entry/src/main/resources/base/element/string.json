@@ -1439,6 +1439,42 @@
     {
       "name": "lb_str_auth_logout",
       "value": "退出登录"
+    },
+    {
+      "name": "lb_str_records_sync_network",
+      "value": "网络异常，本机战绩仍在"
+    },
+    {
+      "name": "lb_str_records_sync_unauthorized",
+      "value": "登录状态失效，未同步战绩"
+    },
+    {
+      "name": "lb_str_records_sync_bad_response",
+      "value": "战绩服务返回异常"
+    },
+    {
+      "name": "lb_str_records_sync_bad_payload",
+      "value": "战绩数据未通过校验"
+    },
+    {
+      "name": "lb_str_records_sync_rate_limit",
+      "value": "同步过于频繁，请稍后再试"
+    },
+    {
+      "name": "lb_str_records_account_leak",
+      "value": "不能查看其他账号的战绩"
+    },
+    {
+      "name": "lb_str_records_logout_wipe",
+      "value": "退出不应清除已保存的战绩"
+    },
+    {
+      "name": "lb_str_records_cloud_override_fail",
+      "value": "同一局战绩以云端为准"
+    },
+    {
+      "name": "lb_str_records_sync_blocks_ui",
+      "value": "战绩同步不应挡住结算"
     }
   ]
 }

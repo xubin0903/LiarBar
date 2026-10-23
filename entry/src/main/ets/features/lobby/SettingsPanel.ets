@@ -2,6 +2,7 @@ import { ControlIds } from '../../common/Ids';
 import { LbRouter } from '../../common/LbRouter';
 import { AudioSettings } from '../../persist/AudioSettings';
 import { AuthStore } from '../../persist/AuthStore';
+import { RecordStore } from '../../persist/RecordStore';
 import { DemoArm } from '../../persist/DemoArm';
 import { LobbyAudio } from './LobbyAudio';
 import { TableAudio } from '../table/TableAudio';
@@ -66,6 +67,7 @@ export struct SettingsPanel {
       }
       return;
     }
+    await RecordStore.adoptSession();
     this.onClose();
     LbRouter.toLogin();
   }
