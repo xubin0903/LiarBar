@@ -1,6 +1,7 @@
 {
   "src": [
     "pages/Lobby",
+    "pages/Login",
     "pages/Table",
     "pages/Challenge",
     "pages/Report"

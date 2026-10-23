@@ -18,6 +18,7 @@ import { MatchLoadOverlay } from '../features/lobby/MatchLoadOverlay';
 import { SmartFillAdapter } from '../harmony/SmartFillAdapter';
 import { WindowOrientation } from '../harmony/WindowOrientation';
 import { LastTable, LocalStore } from '../persist/LocalStore';
+import { AuthStore } from '../persist/AuthStore';
 
 const TAG = 'Lobby';
 const CTA_HOT_BORDER: number = 2;
@@ -102,6 +103,12 @@ struct Lobby {
   private lobbyKey: number = 0;
 
   aboutToAppear(): void {
+    if (!AuthStore.isLoggedIn()) {
+      AuthStore.noteGate('lb_str_auth_gate_bypass');
+      Logger.warn(TAG, 'auth gate: no token — replace login, no lobby');
+      LbRouter.toLogin();
+      return;
+    }
     // 补丁轮 2（负责人）：先查 LbRouter 里本次离局令牌是否已用掉。已用掉（另一趟离局 replace 迟到成功又落了一个大厅）
     // → 只渲染：不跑 begin()（不停导演 / 不重置引擎 / 不放桌音 / 不 bind LobbyAudio / BGM 在响就不重新 play）。
     // 无令牌（冷启动 / 结算回大厅）照常初始化。
@@ -229,7 +236,10 @@ struct Lobby {
       }
 
       // 22 §7 大厅叠层：遮罩 + 战绩 / 规则（不路由、不碰 LobbyAudio）。
-      if (this.recordsOn || this.rulesOn || this.settingsOn) {
+      // 设置打开时遮罩 72%（22:572，窗 70%～75%）；战绩/规则仍用通用 0.6。
+      if (this.settingsOn) {
+        this.settingsMask()
+      } else if (this.recordsOn || this.rulesOn) {
         this.overlayMask()
       }
       if (this.recordsOn) {
@@ -1137,6 +1147,21 @@ struct Lobby {
       .height('100%')
       .backgroundColor($r('app.color.tavern_bg'))
       .opacity(0.6)
+      .hitTestBehavior(HitTestMode.Default)
+      .onClick(() => {
+        // 遮罩吃掉点击，不等于关闭。
+      })
+  }
+
+  /** 22:572 设置遮罩锁 72%（相对通用档 55%～65% 加浓一档）。 */
+  @Builder
+  settingsMask() {
+    Column()
+      .id(OverlayIds.MASK)
+      .width('100%')
+      .height('100%')
+      .backgroundColor($r('app.color.tavern_bg'))
+      .opacity(0.72)
       .hitTestBehavior(HitTestMode.Default)
       .onClick(() => {
         // 遮罩吃掉点击，不等于关闭。

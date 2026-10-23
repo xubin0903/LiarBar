@@ -28,6 +28,7 @@
  * 破坏测试：python3 scripts/prb_break_tests.py（不是闸，不进闸清单）。
  * No git, no diff against origin/develop (负责人规则). Box has no DevEco — not CompileArkTS. 合入 ≠ 终验.
  */
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -1410,6 +1411,7 @@ export { LobbyHarness };`;
         AppRuntime: { bootDirector: () => {},
           director: { stop: () => { lw.lobbyStops++; lw.log.push('director.stop'); w.director.stop(); }, start: () => { lw.log.push('director.start'); } },
           engine: { resetToLobby: () => { lw.resets++; lw.log.push('engine.resetToLobby'); }, startMatch: (o) => { lw.log.push(`engine.startMatch:${o.playerCount}`); return true; } } },
+        AuthStore: { isLoggedIn: () => true, noteGate: () => {}, takeGatePhrase: () => '' },
         ...clockStubs(w.clk)
       })).LobbyHarness;
       const newLobby = (name) => { const L = new LM(name); lw.lobbies.push(L); return L; };
@@ -4141,9 +4143,9 @@ RUN(false);
 }
 
 const ksNow = JSON.parse(src('entry/src/main/resources/base/element/string.json')).string.map((x) => x.name);
-  ok(ksNow.length === 341 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
+  ok(ksNow.length === 360 && ['lb_str_elim_title', 'lb_str_elim_body', 'lb_str_elim_spectate', 'lb_str_elim_to_report', 'lb_str_ff_running', 'lb_str_spectating',
     'lb_str_rpt_ff_note', 'lb_str_confirm_lobby_ghost_body'].every((k) => ksNow.includes(k) && (table.includes(`'app.string.${k}'`) || reportPanelSrc.includes(`'app.string.${k}'`))),
-    `2b uses existing keys only (string.json ${ksNow.length} keys)`);
+    `2b keys kept (string.json ${ksNow.length} keys; 341 + 19 auth)`);
 
 // 战绩浮层结构（22 §7.1 · S21-19 · S22-09/10 · DEV-3c）
 {
@@ -4191,13 +4193,235 @@ const refs = new Set([...table.matchAll(/\$r\('app\.string\.(\w+)'\)/g)].map((m)
 const missing = [...refs].filter((k) => !names.includes(k));
 ok(missing.length === 0, `every app.string key referenced by Table exists (${missing.join(',') || 'all present'})`);
 
+// ---------------------------------------------------------------- ㉑ 登录 / lb.auth / 门禁 / 退出（schema v0.1.1 · 22 §7.0 / §7.2）
+{
+  const authStoreSrc = src(E + 'persist/AuthStore.ets');
+  const authClientSrc = src(E + 'auth/AuthClient.ets');
+  const loginPage = src(E + 'pages/Login.ets');
+  const setPanelAuth = src(E + 'features/lobby/SettingsPanel.ets');
+  const pauseAuth = src(E + 'features/table/PausePanel.ets');
+  const lobbyAuth = src(E + 'pages/Lobby.ets');
+  const abilityAuth = src(E + 'entryability/EntryAbility.ets');
+  const idsAuth = src(E + 'common/Ids.ets');
+  const moduleJson = rawSrc('entry/src/main/module.json5');
+  const pagesJson = rawSrc('entry/src/main/resources/base/profile/main_pages.json');
+  const tableRawLines = rawSrc(E + 'pages/Table.ets').split('\n');
+  const locked = tableRawLines.slice(1912, 1975).join('\n') + '\n';
+  const lockedHash = createHash('sha256').update(locked).digest('hex');
+  ok(lockedHash === 'ba027c141fc846fe44964b4b090beacb1dcf800b1b3999f817dd7ce60c53cf84',
+    `hardlock Table.ets:1913-1975 sha256 ${lockedHash}`);
+  ok(moduleJson.includes('ohos.permission.INTERNET'), 'ohos.permission.INTERNET');
+  ok(authClientSrc.includes("static readonly BASE: string = 'http://101.33.196.35:18080';") &&
+    authClientSrc.includes("static readonly PATH_REGISTER: string = '/api/v1/register';") &&
+    authClientSrc.includes("static readonly PATH_LOGIN: string = '/api/v1/login';") &&
+    authClientSrc.includes('static readonly TIMEOUT_MS: number = 8000;'),
+    'base http://101.33.196.35:18080 paths /api/v1/register|/api/v1/login connect/read timeout 8000');
+  ok(authClientSrc.includes("rec, 'detail'") && authClientSrc.includes("rec, 'message'") &&
+    authClientSrc.includes('phraseFor(status, codeStr)') && authClientSrc.includes('token.length === 0'),
+    'errors map HTTP status + detail/message; missing token is not a session');
+  ok(!/password/.test(code(authStoreSrc)) && authStoreSrc.includes("PersistNs.AUTH") &&
+    !authStoreSrc.includes('lb.settings') && !authStoreSrc.includes('lb.records') &&
+    idsAuth.includes("static readonly AUTH: string = 'lb.auth';") &&
+    authStoreSrc.includes("static readonly KEY_TOKEN: string = 'auth_token';") &&
+    authStoreSrc.includes("static readonly KEY_USER: string = 'auth_username';"),
+    'lb.auth keys only auth_token/auth_username; no password key in lb.auth');
+  ok(abilityAuth.includes('AuthStore.init(') && abilityAuth.includes('AuthStore.coldStartUrl()') &&
+    !abilityAuth.includes("loadContent('pages/Lobby'"),
+    'cold start url from lb.auth');
+  ok(lobbyAuth.includes('auth gate: no token — replace login, no lobby') && lobbyAuth.includes('LbRouter.toLogin()') &&
+    lobbyAuth.includes('if (!AuthStore.isLoggedIn())'),
+    'lobby gate replace login');
+  ok(loginPage.includes("id(ScreenIds.LOGIN)") && loginPage.includes("id(ControlIds.AUTH_CARD)") &&
+    loginPage.includes("id(ControlIds.AUTH_USER)") && loginPage.includes("id(ControlIds.AUTH_PASS)") &&
+    loginPage.includes("id(ControlIds.AUTH_ERROR)") && loginPage.includes("id(ControlIds.AUTH_SUBMIT)") &&
+    loginPage.includes("id(ControlIds.AUTH_SWITCH)") && loginPage.includes("$r('app.media.art_panel_base')") &&
+    loginPage.includes('if (AuthStore.isLoggedIn())') && loginPage.includes('LbRouter.toLobby()') &&
+    pagesJson.includes('pages/Login'),
+    'login binds art_panel_base and #325 ids; logged-in login page replace lobby');
+  ok(setPanelAuth.includes('id(ControlIds.LOGOUT)') && setPanelAuth.includes('AuthStore.clear()') &&
+    setPanelAuth.includes('LbRouter.toLogin()') && !setPanelAuth.includes('LbRouter.toLobby()') &&
+    idsAuth.includes("static readonly LOGOUT: string = 'lb_btn_logout';"),
+    'lb_btn_logout clears lb.auth then replace login not lobby');
+  ok(lobbyAuth.includes('.opacity(0.72)') && pauseAuth.includes('.opacity(0.72)') && pauseAuth.includes('.opacity(0.6)'),
+    'lobby settings mask 0.72 and pause settings mask 0.72');
+  const authPhraseKeys = ['lb_str_auth_login_fail', 'lb_str_auth_register_conflict', 'lb_str_auth_field_invalid',
+    'lb_str_auth_network', 'lb_str_auth_bad_response', 'lb_str_auth_prefs_fail', 'lb_str_auth_token_corrupt',
+    'lb_str_auth_logout_leak', 'lb_str_auth_gate_bypass', 'lb_str_auth_rate_limit'];
+  const authUiKeys = ['lb_str_auth_title_login', 'lb_str_auth_title_register', 'lb_str_auth_username_ph',
+    'lb_str_auth_password_ph', 'lb_str_auth_submit_login', 'lb_str_auth_submit_register',
+    'lb_str_auth_switch_to_register', 'lb_str_auth_switch_to_login', 'lb_str_auth_logout'];
+  const missingAuth = [...authPhraseKeys, ...authUiKeys].filter((k) => !names.includes(k));
+  ok(names.length === 360 && missingAuth.length === 0 && authPhraseKeys.every((k) => loginPage.includes(`app.string.${k}`)) &&
+    setPanelAuth.includes('app.string.lb_str_auth_logout') && setPanelAuth.includes('app.string.lb_str_auth_logout_leak'),
+    `auth string keys 360 (341+19) missing=${missingAuth.join(',') || 'none'}`);
+
+  const AUTH_TYPES = ['preferences.Preferences | null', 'preferences.Preferences', 'preferences.ValueType',
+    'common.UIAbilityContext', 'Promise<void>', 'Promise<boolean>', 'Promise<AuthCallResult>',
+    'http.HttpRequest | null', 'http.HttpRequest', 'http.HttpResponse',
+    'string | Object | ArrayBuffer', 'Record<string, Object>', 'Object | undefined', 'Object',
+    'AuthCallResult', 'string', 'number', 'boolean'];
+  const AUTH_AS = ['Record<string, Object>', 'string', 'boolean', 'Object'];
+  const authStoreJs = stripEts(authStoreSrc, AUTH_TYPES, AUTH_AS);
+  const authClientJs = stripEts(authClientSrc, AUTH_TYPES, AUTH_AS);
+  RUN(true);
+  try {
+    const makeAuthPref = (init) => {
+      const data = new Map(Object.entries(init || {}));
+      const st = { data, ops: [], flushes: 0 };
+      st.get = async (k, d) => { st.ops.push(`get:${k}`); return data.has(k) ? data.get(k) : d; };
+      st.put = async (k, v) => { st.ops.push(`put:${k}`); data.set(k, v); };
+      st.delete = async (k) => { st.ops.push(`delete:${k}`); data.delete(k); };
+      st.flush = async () => { st.ops.push('flush'); st.flushes++; };
+      st.writes = () => st.ops.filter((o) => !o.startsWith('get:'));
+      return st;
+    };
+    let authPref = makeAuthPref();
+    let authBoom = false;
+    const prefNames = [];
+    const httpCalls = [];
+    let httpQueue = [];
+    const loadAuth = async () => {
+      const storeMod = await importFresh(authStoreJs, {
+        preferences: { getPreferences: async (_c, name) => { prefNames.push(name); if (authBoom) { throw new Error('prefs down'); } return authPref; } },
+        PersistNs: { AUTH: 'lb.auth' },
+        PageUrls: { LOBBY: 'pages/Lobby', LOGIN: 'pages/Login' },
+        Logger: { info: () => {}, warn: () => {}, error: () => {} }
+      });
+      const clientMod = await importFresh(authClientJs, {
+        http: {
+          createHttp: () => ({
+            request: async (url, opt) => {
+              httpCalls.push({ url, opt });
+              const spec = httpQueue.shift();
+              if (spec === undefined) { throw new Error('unexpected http'); }
+              if (spec.throw) { throw new Error(spec.throw); }
+              return spec;
+            },
+            destroy: () => { httpCalls.push('destroy'); }
+          }),
+          RequestMethod: { POST: 'POST' },
+          HttpDataType: { STRING: 'STRING' }
+        },
+        Logger: { info: () => {}, warn: () => {}, error: () => {} },
+        AuthStore: storeMod.AuthStore
+      });
+      return { AuthStore: storeMod.AuthStore, AuthClient: clientMod.AuthClient, AuthSession: clientMod.AuthSession };
+    };
+    const fresh = async (init) => {
+      authPref = makeAuthPref(init);
+      authBoom = false;
+      prefNames.length = 0;
+      httpCalls.length = 0;
+      httpQueue = [];
+      const m = await loadAuth();
+      await m.AuthStore.init({});
+      return m;
+    };
+    const keysOf = () => [...authPref.data.keys()].sort();
+    let m = await fresh();
+    ok(m.AuthStore.coldStartUrl() === 'pages/Login' && m.AuthStore.isLoggedIn() === false && prefNames.every((n) => n === 'lb.auth') &&
+      authPref.writes().length === 0,
+      'getPreferences lb.auth only; empty token cold-starts login and does not write');
+    const shortUser = await m.AuthSession.submit(false, '  ab  ', 'secret6');
+    const shortPw = await m.AuthSession.submit(true, 'player01', '12345');
+    const longUser = await m.AuthSession.submit(false, 'abcdefghijklmnopq', 'secret6');
+    ok(shortUser.phrase === 'lb_str_auth_field_invalid' && shortPw.phrase === 'lb_str_auth_field_invalid' &&
+      longUser.phrase === 'lb_str_auth_field_invalid' && httpCalls.length === 0 && authPref.writes().length === 0,
+      'invalid fields do not hit network');
+    httpQueue.push({ responseCode: 200, result: JSON.stringify({ ok: true, token: 'tok-reg', username: 'player01', expires_in: 3600 }) });
+    const reg = await m.AuthSession.submit(true, '  player01  ', 'secret6');
+    const regCall = httpCalls.find((c) => c && c.url);
+    const regBody = JSON.parse(regCall.opt.extraData);
+    ok(reg.ok === true && reg.token === 'tok-reg' && m.AuthStore.isLoggedIn() === true && m.AuthStore.coldStartUrl() === 'pages/Lobby' &&
+      m.AuthStore.usernameNow() === 'player01' && authPref.data.get('auth_token') === 'tok-reg' &&
+      authPref.data.get('auth_username') === 'player01' && authPref.flushes >= 1 &&
+      regCall.url === 'http://101.33.196.35:18080/api/v1/register' &&
+      regCall.opt.connectTimeout === 8000 && regCall.opt.readTimeout === 8000 && regCall.opt.method === 'POST' &&
+      JSON.stringify(Object.keys(regBody).sort()) === '["password","username"]' && regBody.username === 'player01' &&
+      keysOf().join(',') === 'auth_token,auth_username' && httpCalls.includes('destroy'),
+      'register 200 writes auth_token/auth_username then flush; connect/read timeout 8000; no password key in lb.auth');
+    m = await fresh({ auth_token: 'keep', auth_username: 'keep' });
+    const beforeWrites = authPref.writes().length;
+    httpQueue.push({ responseCode: 401, result: JSON.stringify({ detail: 'bad' }) });
+    const badCred = await m.AuthSession.submit(false, 'player01', 'secret6');
+    ok(badCred.ok === false && badCred.phrase === 'lb_str_auth_login_fail' && badCred.token === '' &&
+      authPref.data.get('auth_token') === 'keep' && authPref.writes().length === beforeWrites,
+      'failed login does not write token');
+    const cases = [
+      [409, { message: 'taken' }, 'lb_str_auth_register_conflict'],
+      [400, { detail: 'nope' }, 'lb_str_auth_field_invalid'],
+      [422, {}, 'lb_str_auth_field_invalid'],
+      [429, { message: 'slow' }, 'lb_str_auth_rate_limit'],
+      [404, { detail: 'missing' }, 'lb_str_auth_login_fail'],
+      [500, { message: 'boom' }, 'lb_str_auth_bad_response'],
+      [200, { ok: false, code: 'AUTH_USER_EXISTS', message: 'taken' }, 'lb_str_auth_register_conflict'],
+      [200, { ok: true, username: 'player01', expires_in: 1 }, 'lb_str_auth_bad_response'],
+      [200, { ok: true, token: '', username: 'player01' }, 'lb_str_auth_bad_response'],
+      [200, 'not-json', 'lb_str_auth_bad_response']
+    ];
+    let mapOk = true;
+    const mapNotes = [];
+    for (const [status, body, phrase] of cases) {
+      m = await fresh();
+      httpQueue.push({ responseCode: status, result: typeof body === 'string' ? body : JSON.stringify(body) });
+      const r = await m.AuthSession.submit(status === 409, 'player01', 'secret6');
+      const wrote = authPref.writes().length > 0 || m.AuthStore.isLoggedIn();
+      if (r.phrase !== phrase || r.ok !== false || wrote) {
+        mapOk = false;
+        mapNotes.push(`${status}->${r.phrase}/${r.ok}/wrote=${wrote}`);
+      }
+    }
+    ok(mapOk, `missing token is not a session; status/code map (${mapNotes.join('; ') || 'ok'})`);
+    m = await fresh();
+    httpQueue.push({ throw: 'timeout' });
+    const net = await m.AuthSession.submit(false, 'player01', 'secret6');
+    ok(net.phrase === 'lb_str_auth_network' && net.ok === false && m.AuthStore.isLoggedIn() === false && authPref.writes().length === 0 &&
+      httpCalls.includes('destroy'),
+      'network/timeout phrase lb_str_auth_network and no token write');
+    m = await fresh();
+    httpQueue.push({ responseCode: 200, result: JSON.stringify({ ok: true, token: 'tok-in', expires_in: 5 }) });
+    const noName = await m.AuthSession.submit(false, '  neo  ', 'secret6');
+    ok(noName.ok === true && noName.username === 'neo' && authPref.data.get('auth_username') === 'neo',
+      'missing username falls back to trimmed request name; expires_in ignored');
+    m = await fresh({ auth_token: 'sess', auth_username: 'neo' });
+    const cleared = await m.AuthStore.clear();
+    ok(cleared === true && m.AuthStore.isLoggedIn() === false && m.AuthStore.coldStartUrl() === 'pages/Login' &&
+      !authPref.data.has('auth_token') && !authPref.data.has('auth_username') && authPref.flushes >= 1,
+      'clear deletes auth_token and auth_username then flush');
+    m = await fresh({ auth_token: 12, auth_username: 'neo' });
+    ok(m.AuthStore.isLoggedIn() === false && m.AuthStore.corruptCleared() === true && m.AuthStore.coldStartUrl() === 'pages/Login' &&
+      !authPref.data.has('auth_token') && authPref.flushes >= 1,
+      'corrupt non-string token is cleared and cold-starts login');
+    m = await fresh({ auth_token: 'sess' });
+    ok(m.AuthStore.isLoggedIn() === true && m.AuthStore.usernameNow() === '' && m.AuthStore.coldStartUrl() === 'pages/Lobby',
+      'token without username still counts as logged in');
+    authPref = makeAuthPref({ auth_token: 'sess', auth_username: 'neo' });
+    authBoom = true;
+    const broken = await loadAuth();
+    await broken.AuthStore.init({});
+    ok(broken.AuthStore.isLoggedIn() === false && broken.AuthStore.coldStartUrl() === 'pages/Login' && authPref.data.get('auth_token') === 'sess',
+      'getPreferences throw stays logged out and does not write');
+    m = await fresh();
+    httpQueue.push({ responseCode: 200, result: JSON.stringify({ ok: true, token: 'tok-disk', username: 'neo' }) });
+    authPref.flush = async () => { throw new Error('flush down'); };
+    const prefsFail = await m.AuthSession.submit(false, 'neo_1', 'secret6');
+    ok(prefsFail.ok === false && prefsFail.phrase === 'lb_str_auth_prefs_fail' && m.AuthStore.isLoggedIn() === false,
+      'prefs flush failure does not enter the lobby');
+  } catch (e) {
+    fail(`auth real-run crashed: ${e && e.stack ? e.stack.split('\n').slice(0, 3).join(' | ') : e}`);
+  }
+  RUN(false);
+}
+
 // ---------------------------------------------------------------- ArkTS strict hygiene (code only)
 const hits = findInCode([
   { path: 'MatchDirector', text: dir }, { path: 'AudioSettings', text: settings }, { path: 'RecordStore', text: records },
   { path: 'PausableScheduler', text: sched }, { path: 'DebugBuild', text: debugBuild }, { path: 'Table', text: table },
   { path: 'MatchEngine', text: engine }, { path: 'EntryAbility', text: ability }, { path: 'MatchRank', text: rankSrc },
   { path: 'MatchTypes', text: types }, { path: 'LbRouter', text: lbRouter }, ...audioTexts,
-  { path: 'PlayLog', text: playLogSrc }, { path: 'ReportModel', text: reportModelSrc }, { path: 'Report', text: reportPage }, { path: 'ReportPanel', text: reportPanelSrc }
+  { path: 'PlayLog', text: playLogSrc }, { path: 'ReportModel', text: reportModelSrc }, { path: 'Report', text: reportPage }, { path: 'ReportPanel', text: reportPanelSrc },
+  { path: 'AuthStore', text: src(E + 'persist/AuthStore.ets') }, { path: 'AuthClient', text: src(E + 'auth/AuthClient.ets') },
+  { path: 'Login', text: src(E + 'pages/Login.ets') }
 ], [...ANY_ESOBJECT, /:\s*unknown\b/]);
 ok(hits.length === 0, hits.length === 0 ? 'PR-B + 结算面板 files: no any/unknown/ESObject in code' : `any/unknown/ESObject:\n  ${formatHits(hits)}`);
 

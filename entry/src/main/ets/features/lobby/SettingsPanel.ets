@@ -1,5 +1,7 @@
 import { ControlIds } from '../../common/Ids';
+import { LbRouter } from '../../common/LbRouter';
 import { AudioSettings } from '../../persist/AudioSettings';
+import { AuthStore } from '../../persist/AuthStore';
 import { DemoArm } from '../../persist/DemoArm';
 import { LobbyAudio } from './LobbyAudio';
 import { TableAudio } from '../table/TableAudio';
@@ -51,6 +53,21 @@ export struct SettingsPanel {
     this.bgm = AudioSettings.bgmLevel();
     this.sfx = AudioSettings.sfxLevel();
     this.muted = AudioSettings.isMuted();
+  }
+
+  /** 22:571 退出：清 lb.auth → 关设置 → replace 登录页（不经大厅）。失败则停在设置并提示泄漏短句。 */
+  private async onLogout(): Promise<void> {
+    const cleared: boolean = await AuthStore.clear();
+    if (!cleared || AuthStore.isLoggedIn()) {
+      try {
+        promptAction.showToast({ message: $r('app.string.lb_str_auth_logout_leak'), duration: 2000 });
+      } catch (_e) {
+        // fail-soft
+      }
+      return;
+    }
+    this.onClose();
+    LbRouter.toLogin();
   }
 
   private previewSfx(): void {
@@ -169,6 +186,18 @@ export struct SettingsPanel {
       .width('100%')
       .layoutWeight(1)
       .scrollBar(BarState.Auto)
+
+      Button($r('app.string.lb_str_auth_logout'))
+        .id(ControlIds.LOGOUT)
+        .width('100%')
+        .height($r('app.float.btn_height'))
+        .margin({ top: 8 })
+        .backgroundColor(Color.Transparent)
+        .border({ width: 1.5, color: $r('app.color.tavern_danger') })
+        .fontColor($r('app.color.tavern_danger'))
+        .onClick(() => {
+          this.onLogout();
+        })
     }
     .id(ControlIds.SETTINGS_PANEL)
     .width(this.panelWidthPct)

@@ -367,6 +367,16 @@ export class LbRouter {
     router.back();
   }
 
+  /**
+   * 门禁 / 退出：replace 登录页。
+   * 失败不 back()——back 会落到大厅或桌，schema §4.1 要求不经大厅。
+   */
+  static toLogin(): void {
+    router.replaceUrl({ url: PageUrls.LOGIN }).catch((err: Error) => {
+      Logger.warn('LbRouter', `replace login failed: ${err.message}`);
+    });
+  }
+
   private static push(url: string): Promise<boolean> {
     try {
       return router.pushUrl({ url: url }).then((): boolean => true, (err: Error): boolean => {

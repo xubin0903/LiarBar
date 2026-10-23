@@ -4,6 +4,7 @@
  */
 
 export class ScreenIds {
+  static readonly LOGIN: string = 'lb_scr_login';
   static readonly LOBBY: string = 'lb_scr_lobby';
   static readonly TABLE: string = 'lb_scr_table';
   static readonly CHALLENGE: string = 'lb_scr_challenge';
@@ -11,6 +12,7 @@ export class ScreenIds {
 }
 
 export class PageUrls {
+  static readonly LOGIN: string = 'pages/Login';
   static readonly LOBBY: string = 'pages/Lobby';
   static readonly TABLE: string = 'pages/Table';
   static readonly CHALLENGE: string = 'pages/Challenge';
@@ -80,6 +82,16 @@ export class ControlIds {
   static readonly ICO_SILENT_MATCH: string = 'lb_ico_silent_match';
   static readonly SETTINGS_RULES: string = 'lb_btn_settings_rules';
   static readonly SETTINGS_ABOUT: string = 'lb_btn_settings_about';
+  /** 22 §7.2 设置主页最底。退出清 lb.auth 后 replace 登录页。 */
+  static readonly LOGOUT: string = 'lb_btn_logout';
+  /** 22 §7.0 登录 / 注册页。线框 id；UI 若改号再对齐。 */
+  static readonly AUTH_CARD: string = 'lb_cmp_auth_card';
+  static readonly AUTH_TITLE: string = 'lb_txt_auth_title';
+  static readonly AUTH_USER: string = 'lb_inp_auth_username';
+  static readonly AUTH_PASS: string = 'lb_inp_auth_password';
+  static readonly AUTH_ERROR: string = 'lb_txt_auth_error';
+  static readonly AUTH_SUBMIT: string = 'lb_btn_auth_submit';
+  static readonly AUTH_SWITCH: string = 'lb_btn_auth_switch';
   /** 22 §7.2.1 关于子页 / 演示（仅大厅解锁）。 */
   static readonly ABOUT_PAGE: string = 'lb_cmp_about_page';
   static readonly ABOUT_VERSION: string = 'lb_txt_about_version';
@@ -274,4 +286,6 @@ export class PersistNs {
   static readonly AUDIO: string = 'lb.settings';
   /** PR-B 战绩（最近 20 局 + 累计）。 */
   static readonly RECORDS: string = 'lb.records';
+  /** 登录会话。只存 auth_token + auth_username。 */
+  static readonly AUTH: string = 'lb.auth';
 }

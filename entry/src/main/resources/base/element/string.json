@@ -1363,6 +1363,82 @@
     {
       "name": "lb_str_hl_quiet",
       "value": "这一局，没有谁特别出挑。"
+    },
+    {
+      "name": "lb_str_auth_login_fail",
+      "value": "用户名或密码错误"
+    },
+    {
+      "name": "lb_str_auth_register_conflict",
+      "value": "这个用户名已经被占用"
+    },
+    {
+      "name": "lb_str_auth_field_invalid",
+      "value": "用户名需 3～16 位，密码至少 6 位"
+    },
+    {
+      "name": "lb_str_auth_network",
+      "value": "网络不可用，请稍后再试"
+    },
+    {
+      "name": "lb_str_auth_bad_response",
+      "value": "服务器响应异常"
+    },
+    {
+      "name": "lb_str_auth_prefs_fail",
+      "value": "登录状态没能保存，请重试"
+    },
+    {
+      "name": "lb_str_auth_token_corrupt",
+      "value": "登录状态已失效，请重新登录"
+    },
+    {
+      "name": "lb_str_auth_logout_leak",
+      "value": "退出未完成，请重试"
+    },
+    {
+      "name": "lb_str_auth_gate_bypass",
+      "value": "请先登录"
+    },
+    {
+      "name": "lb_str_auth_rate_limit",
+      "value": "操作太频繁，请稍后再试"
+    },
+    {
+      "name": "lb_str_auth_title_login",
+      "value": "登录"
+    },
+    {
+      "name": "lb_str_auth_title_register",
+      "value": "注册"
+    },
+    {
+      "name": "lb_str_auth_username_ph",
+      "value": "用户名"
+    },
+    {
+      "name": "lb_str_auth_password_ph",
+      "value": "密码"
+    },
+    {
+      "name": "lb_str_auth_submit_login",
+      "value": "登录"
+    },
+    {
+      "name": "lb_str_auth_submit_register",
+      "value": "注册"
+    },
+    {
+      "name": "lb_str_auth_switch_to_register",
+      "value": "没有账号？去注册"
+    },
+    {
+      "name": "lb_str_auth_switch_to_login",
+      "value": "已有账号？去登录"
+    },
+    {
+      "name": "lb_str_auth_logout",
+      "value": "退出登录"
     }
   ]
 }
