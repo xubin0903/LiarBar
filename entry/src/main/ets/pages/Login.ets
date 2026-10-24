@@ -9,8 +9,9 @@ import { AuthStore } from '../persist/AuthStore';
 const TAG = 'Login';
 
 /**
- * 22 §7.0 `lb_scr_login`：竖屏，与大厅同向。
- * 表单卡绑 `art_panel_base`（九宫 slice 48，#327）。无令牌落地；已登录误入则 replace 大厅。
+ * 22 §7.0 `lb_scr_login`：竖屏，与大厅同向；全屏一层底（实现 B）。
+ * 层级：`lb_cmp_auth_bg`(art_lobby_bg) → `lb_cmp_auth_fx`(dust/candle) → `lb_cmp_auth_card`(art_panel_base 贴边≤2%)。
+ * CTA 字色暖金 `tavern_candle`（禁 tavern_bg 压深底）。无令牌落地；已登录误入则 replace 大厅。
  */
 @Entry
 @Component
@@ -109,17 +110,33 @@ struct Login {
   build() {
     Stack({ alignContent: Alignment.Center }) {
       Image($r('app.media.art_lobby_bg'))
+        .id('lb_cmp_auth_bg')
         .width('100%')
         .height('100%')
         .objectFit(ImageFit.Cover)
 
-      Column() {
-        this.card()
+      Stack() {
+        Image($r('app.media.art_fx_dust'))
+          .width('100%')
+          .height('100%')
+          .objectFit(ImageFit.Cover)
+          .opacity(0.32)
+          .hitTestBehavior(HitTestMode.None)
+        Image($r('app.media.art_fx_candle'))
+          .width(96)
+          .height(96)
+          .objectFit(ImageFit.Contain)
+          .opacity(0.85)
+          .hitTestBehavior(HitTestMode.None)
+          .align(Alignment.BottomStart)
+          .margin({ left: 12, bottom: 40 })
       }
+      .id('lb_cmp_auth_fx')
       .width('100%')
       .height('100%')
-      .justifyContent(FlexAlign.Center)
-      .padding({ left: 20, right: 20 })
+      .hitTestBehavior(HitTestMode.None)
+
+      this.card()
     }
     .id(ScreenIds.LOGIN)
     .width('100%')
@@ -213,7 +230,7 @@ struct Login {
             .fontSize($r('app.float.page_text_size'))
             .fontWeight(FontWeight.Medium)
             .backgroundColor(Color.Transparent)
-            .fontColor($r('app.color.tavern_bg'))
+            .fontColor($r('app.color.tavern_candle'))
             .enabled(!this.busy)
             .onClick(() => {
               this.submit();
@@ -234,10 +251,12 @@ struct Login {
           })
       }
       .width('100%')
-      .padding(16)
+      .height('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ left: 24, right: 24, top: 24, bottom: 24 })
     }
     .id(ControlIds.AUTH_CARD)
-    .width('88%')
-    .constraintSize({ maxWidth: 420 })
+    .width('96%')
+    .height('96%')
   }
 }
